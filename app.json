@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "Restaurant Junky",
+    "slug": "restaurant-junky",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "scheme": "restaurant-junky",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FF6B35"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.restaurantjunky.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Restaurant Junky needs camera access to analyze your meals and menus.",
+        "NSPhotoLibraryUsageDescription": "Restaurant Junky needs photo library access to analyze meal photos."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FF6B35"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.restaurantjunky.app",
+      "permissions": ["android.permission.CAMERA"]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Restaurant Junky needs camera access to analyze your meals and menus."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Restaurant Junky needs photo library access to analyze meal photos."
+        }
+      ]
+    ]
+  }
+}
