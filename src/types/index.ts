@@ -1,96 +1,148 @@
-export type NutritionGrade = 'A' | 'B' | 'C' | 'D' | 'F';
+// ─── Wellness Module Types ───
 
-export type GradeLabel = 'Smart Choice' | 'Pretty Solid' | 'Watch It' | 'Junky' | 'Straight Trash';
+export type WellnessModule = 'hydration' | 'movement' | 'eyes';
 
-export interface MacroBreakdown {
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  fiber: number;
-  sugar: number;
-  sodium: number;
-  saturatedFat: number;
-}
+export type NotificationStyle = 'gentle' | 'balanced' | 'strict';
 
-export interface NutritionEstimate extends MacroBreakdown {
-  confidenceLevel: 'low' | 'medium' | 'high';
-  calorieRange: { min: number; max: number };
-}
+export type BreakType = 'full' | 'hydration' | 'movement' | 'visual' | 'opportunistic';
 
-export interface FoodItem {
-  id: string;
-  name: string;
-  description?: string;
-  nutrition: NutritionEstimate;
-  grade: NutritionGrade;
-  gradeLabel: GradeLabel;
-  verdict: string;
-  explanation: string;
-  alternatives: Alternative[];
-  imageUri?: string;
-}
+export type BeverageType = 'water' | 'coffee' | 'tea' | 'juice' | 'other';
 
-export interface Alternative {
-  name: string;
-  description: string;
-  estimatedCalories: number;
-  grade: NutritionGrade;
-  swapType: 'cooking-method' | 'side-swap' | 'drink-swap' | 'portion' | 'menu-pick';
-}
+export type PostureType = 'sitting' | 'standing';
 
-export interface MenuItem {
-  id: string;
-  name: string;
-  price?: string;
-  description?: string;
-}
+export type DeskType = 'fixed' | 'standing';
 
-export interface MealLog {
-  id: string;
-  foodItem: FoodItem;
-  timestamp: number;
-  mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
-}
+export type EyewearType = 'glasses' | 'contacts' | 'neither';
 
-export interface DailySummary {
-  date: string;
-  meals: MealLog[];
-  totalCalories: number;
-  totalProtein: number;
-  totalCarbs: number;
-  totalFat: number;
-  gradeBreakdown: Record<NutritionGrade, number>;
-}
+export type OnboardingStep = 'welcome' | 'modules' | 'schedule' | 'desk' | 'notification' | 'complete';
 
-export type UserGoal =
-  | 'lose-weight'
-  | 'maintain-weight'
-  | 'build-muscle'
-  | 'reduce-sugar'
-  | 'reduce-sodium'
-  | 'eat-cleaner';
+// ─── User Profile ───
 
 export interface UserProfile {
   name: string;
-  goals: UserGoal[];
+  workHoursStart: string; // "09:00"
+  workHoursEnd: string; // "18:00"
+  notificationStyle: NotificationStyle;
+  deskType: DeskType;
+  eyewear: EyewearType;
+  enabledModules: WellnessModule[];
+  dailyWaterGoal: number; // in glasses (250ml each)
+  maxSittingMinutes: number;
+  eyeBreakIntervalMinutes: number;
   onboardingComplete: boolean;
-  dailyCalorieTarget?: number;
 }
 
-export const GOAL_LABELS: Record<UserGoal, string> = {
-  'lose-weight': 'Lose Weight',
-  'maintain-weight': 'Maintain Weight',
-  'build-muscle': 'Build Muscle',
-  'reduce-sugar': 'Reduce Sugar',
-  'reduce-sodium': 'Reduce Sodium',
-  'eat-cleaner': 'Eat Cleaner',
-};
+// ─── Hydration ───
 
-export const GRADE_INFO: Record<NutritionGrade, { label: GradeLabel; color: string; emoji: string }> = {
-  A: { label: 'Smart Choice', color: '#22C55E', emoji: '💚' },
-  B: { label: 'Pretty Solid', color: '#84CC16', emoji: '👍' },
-  C: { label: 'Watch It', color: '#EAB308', emoji: '⚠️' },
-  D: { label: 'Junky', color: '#F97316', emoji: '🍔' },
-  F: { label: 'Straight Trash', color: '#EF4444', emoji: '🗑️' },
-};
+export interface HydrationEvent {
+  id: string;
+  timestamp: number;
+  amountMl: number;
+  beverageType: BeverageType;
+}
+
+export interface HydrationState {
+  events: HydrationEvent[];
+  dailyTotalMl: number;
+  dailyGoalMl: number;
+  lastDrinkTimestamp: number | null;
+  streakDays: number;
+}
+
+// ─── Movement / Posture ───
+
+export interface PostureEvent {
+  id: string;
+  timestamp: number;
+  postureType: PostureType;
+  durationMinutes: number;
+}
+
+export interface MovementState {
+  currentPosture: PostureType;
+  postureStartTime: number;
+  events: PostureEvent[];
+  totalSittingMinutes: number;
+  totalStandingMinutes: number;
+  lastPostureChangeTimestamp: number | null;
+  postureScore: number; // 0-100
+}
+
+// ─── Eye Care ───
+
+export interface EyeBreakEvent {
+  id: string;
+  timestamp: number;
+  durationSeconds: number;
+  completed: boolean;
+}
+
+export interface EyeState {
+  events: EyeBreakEvent[];
+  lastBreakTimestamp: number | null;
+  totalScreenMinutes: number;
+  breaksTaken: number;
+  screenSessionStart: number;
+}
+
+// ─── Break System ───
+
+export interface BreakStep {
+  icon: string;
+  instruction: string;
+  completed: boolean;
+}
+
+export interface BreakRoutine {
+  type: BreakType;
+  durationSeconds: number;
+  steps: BreakStep[];
+  screenDim: number; // 0-1 opacity
+  title: string;
+  subtitle: string;
+}
+
+// ─── Daily Summary ───
+
+export interface DailySummary {
+  date: string; // YYYY-MM-DD
+  totalWaterMl: number;
+  totalBreaks: number;
+  avgPostureScore: number;
+  totalScreenMinutes: number;
+  sittingMinutes: number;
+  standingMinutes: number;
+  eyeBreaks: number;
+  streakDays: number;
+}
+
+// ─── Insights ───
+
+export interface WellnessInsight {
+  icon: string;
+  title: string;
+  description: string;
+  type: 'success' | 'warning' | 'tip';
+}
+
+// ─── Combined Wellness State ───
+
+export interface WellnessState {
+  hydration: HydrationState;
+  movement: MovementState;
+  eyes: EyeState;
+  lastBreakTimestamp: number | null;
+  focusMode: boolean;
+  activeBreak: BreakRoutine | null;
+}
+
+// ─── Stretch / Exercise ───
+
+export interface StretchExercise {
+  id: string;
+  name: string;
+  description: string;
+  durationSeconds: number;
+  icon: string;
+  category: 'neck' | 'shoulders' | 'wrists' | 'back' | 'legs' | 'eyes';
+}

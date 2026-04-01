@@ -5,14 +5,15 @@ import { colors, fontSize, spacing, borderRadius } from '../utils/theme';
 interface Props {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'outline';
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
   size?: 'sm' | 'md' | 'lg';
+  icon?: string;
   style?: ViewStyle;
   textStyle?: TextStyle;
   disabled?: boolean;
 }
 
-export function Button({ title, onPress, variant = 'primary', size = 'md', style, textStyle, disabled }: Props) {
+export function Button({ title, onPress, variant = 'primary', size = 'md', icon, style, textStyle, disabled }: Props) {
   return (
     <TouchableOpacity
       style={[
@@ -23,11 +24,11 @@ export function Button({ title, onPress, variant = 'primary', size = 'md', style
         style,
       ]}
       onPress={onPress}
-      activeOpacity={0.8}
+      activeOpacity={0.7}
       disabled={disabled}
     >
       <Text style={[styles.text, styles[`text_${variant}`], styles[`textSize_${size}`], textStyle]}>
-        {title}
+        {icon ? `${icon}  ${title}` : title}
       </Text>
     </TouchableOpacity>
   );
@@ -38,17 +39,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: borderRadius.md,
+    flexDirection: 'row',
   },
   primary: {
     backgroundColor: colors.primary,
   },
   secondary: {
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   outline: {
     backgroundColor: 'transparent',
     borderWidth: 2,
     borderColor: colors.primary,
+  },
+  ghost: {
+    backgroundColor: 'transparent',
   },
   size_sm: {
     paddingVertical: spacing.sm,
@@ -76,6 +83,9 @@ const styles = StyleSheet.create({
   },
   text_outline: {
     color: colors.primary,
+  },
+  text_ghost: {
+    color: colors.textSecondary,
   },
   textSize_sm: {
     fontSize: fontSize.sm,

@@ -3,17 +3,10 @@ import { Tabs } from 'expo-router';
 import { Text, StyleSheet, View } from 'react-native';
 import { colors, fontSize } from '../../src/utils/theme';
 
-function TabIcon({ label, focused }: { label: string; focused: boolean }) {
-  const icons: Record<string, string> = {
-    Home: '🏠',
-    Scan: '📸',
-    Log: '📋',
-    Profile: '👤',
-  };
-
+function TabIcon({ label, emoji, focused }: { label: string; emoji: string; focused: boolean }) {
   return (
     <View style={styles.tabIcon}>
-      <Text style={styles.emoji}>{icons[label] || '•'}</Text>
+      <Text style={[styles.emoji, focused && styles.emojiActive]}>{emoji}</Text>
       <Text style={[styles.label, focused && styles.labelActive]}>{label}</Text>
     </View>
   );
@@ -31,25 +24,25 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon label="Home" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon label="Dashboard" emoji="📊" focused={focused} />,
         }}
       />
       <Tabs.Screen
-        name="scan"
+        name="hydration"
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon label="Scan" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon label="Sip" emoji="💧" focused={focused} />,
         }}
       />
       <Tabs.Screen
-        name="log"
+        name="movement"
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon label="Log" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon label="Flow" emoji="🧘" focused={focused} />,
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="eyes"
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon label="Profile" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon label="Focus" emoji="👁️" focused={focused} />,
         }}
       />
     </Tabs>
@@ -71,10 +64,14 @@ const styles = StyleSheet.create({
   emoji: {
     fontSize: 22,
     marginBottom: 2,
+    opacity: 0.6,
+  },
+  emojiActive: {
+    opacity: 1,
   },
   label: {
     fontSize: fontSize.xs,
-    color: colors.textLight,
+    color: colors.textMuted,
     fontWeight: '600',
   },
   labelActive: {
