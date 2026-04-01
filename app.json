@@ -1,33 +1,33 @@
 {
   "expo": {
-    "name": "Restaurant Junky",
-    "slug": "restaurant-junky",
+    "name": "Vital",
+    "slug": "vital-wellness",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "scheme": "restaurant-junky",
+    "scheme": "vital-wellness",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#FF6B35"
+      "backgroundColor": "#0F172A"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.restaurantjunky.app",
+      "bundleIdentifier": "com.vital.wellness",
       "infoPlist": {
-        "NSCameraUsageDescription": "Restaurant Junky needs camera access to analyze your meals and menus.",
-        "NSPhotoLibraryUsageDescription": "Restaurant Junky needs photo library access to analyze meal photos."
+        "NSCameraUsageDescription": "Vital uses your camera for on-device posture detection to help improve your ergonomics. No images are stored or sent to the cloud.",
+        "NSMotionUsageDescription": "Vital uses motion data to detect movement and encourage healthy breaks."
       }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FF6B35"
+        "backgroundColor": "#0F172A"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.restaurantjunky.app",
+      "package": "com.vital.wellness",
       "permissions": ["android.permission.CAMERA"]
     },
     "web": {
@@ -39,13 +39,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Restaurant Junky needs camera access to analyze your meals and menus."
-        }
-      ],
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "Restaurant Junky needs photo library access to analyze meal photos."
+          "cameraPermission": "Vital uses your camera for on-device posture detection."
         }
       ]
     ]

@@ -7,7 +7,7 @@ import { colors } from '../src/utils/theme';
 export default function RootLayout() {
   return (
     <AppProvider>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <Stack
         screenOptions={{
           headerShown: false,
@@ -18,10 +18,8 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="camera" options={{ animation: 'slide_from_bottom' }} />
-        <Stack.Screen name="results" />
-        <Stack.Screen name="menu-scan" />
-        <Stack.Screen name="alternatives" />
+        <Stack.Screen name="settings" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="stretches" options={{ animation: 'slide_from_bottom' }} />
       </Stack>
     </AppProvider>
   );

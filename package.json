@@ -1,5 +1,5 @@
 {
-  "name": "lecture0",
+  "name": "vital-wellness",
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
@@ -13,7 +13,6 @@
     "expo": "~54.0.33",
     "expo-camera": "^55.0.11",
     "expo-constants": "^55.0.9",
-    "expo-image-picker": "^55.0.14",
     "expo-linking": "^55.0.9",
     "expo-router": "^55.0.8",
     "expo-status-bar": "~3.0.9",

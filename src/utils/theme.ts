@@ -1,22 +1,45 @@
 export const colors = {
-  primary: '#FF6B35',
-  primaryDark: '#E55A2B',
-  primaryLight: '#FF8F66',
-  background: '#FAFAFA',
-  surface: '#FFFFFF',
-  surfaceAlt: '#F5F5F5',
-  text: '#1A1A1A',
-  textSecondary: '#6B7280',
-  textLight: '#9CA3AF',
-  border: '#E5E7EB',
-  gradeA: '#22C55E',
-  gradeB: '#84CC16',
-  gradeC: '#EAB308',
-  gradeD: '#F97316',
-  gradeF: '#EF4444',
+  // Primary palette - dark, calming
+  primary: '#6366F1', // Indigo
+  primaryLight: '#818CF8',
+  primaryDark: '#4F46E5',
+
+  // Module colors
+  hydration: '#38BDF8', // Sky blue
+  hydrationLight: '#7DD3FC',
+  hydrationDark: '#0284C7',
+
+  movement: '#34D399', // Emerald
+  movementLight: '#6EE7B7',
+  movementDark: '#059669',
+
+  eyes: '#F59E0B', // Amber
+  eyesLight: '#FCD34D',
+  eyesDark: '#D97706',
+
+  // Backgrounds
+  background: '#0F172A', // Slate 900
+  surface: '#1E293B', // Slate 800
+  surfaceLight: '#334155', // Slate 700
+  surfaceElevated: '#283548',
+
+  // Text
+  text: '#F8FAFC', // Slate 50
+  textSecondary: '#94A3B8', // Slate 400
+  textMuted: '#64748B', // Slate 500
+
+  // Status
+  success: '#22C55E',
+  warning: '#F59E0B',
+  danger: '#EF4444',
+  info: '#3B82F6',
+
+  // Misc
   white: '#FFFFFF',
   black: '#000000',
-  overlay: 'rgba(0,0,0,0.5)',
+  border: '#334155',
+  overlay: 'rgba(0, 0, 0, 0.7)',
+  cardGlow: 'rgba(99, 102, 241, 0.1)',
 };
 
 export const spacing = {
@@ -32,10 +55,11 @@ export const fontSize = {
   xs: 11,
   sm: 13,
   md: 15,
-  lg: 18,
-  xl: 22,
-  xxl: 28,
-  hero: 36,
+  lg: 17,
+  xl: 20,
+  xxl: 24,
+  hero: 32,
+  display: 40,
 };
 
 export const borderRadius = {
@@ -44,4 +68,11 @@ export const borderRadius = {
   lg: 16,
   xl: 24,
   full: 999,
+};
+
+export const fontWeight = {
+  regular: '400' as const,
+  medium: '500' as const,
+  semibold: '600' as const,
+  bold: '700' as const,
 };
