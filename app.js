@@ -198,8 +198,6 @@ function replaceAndFix(hlElement){
     span.textContent=replacement;
     span.style.color='#2d6b45';span.style.fontWeight='600';
   }
-    span.innerHTML='<s style="opacity:.4;font-size:.9em">'+esc(original)+'</s> <strong style="color:var(--green);background:rgba(93,186,125,.12);padding:1px 4px;border-radius:3px">'+esc(replacement)+'</strong>';
-  }
   hlElement.replaceWith(span);
   // Update text reference
   extractedText=page.textContent;

@@ -217,7 +217,7 @@ const Analyzer = {
       if (wordCount > 35) {
         issues.push({
           type: 'sentence-length',
-          text: sentence.substring(0, 60) + (sentence.length > 60 ? '...' : ''),
+          text: sentence,
           index: match.index, length: sentence.length,
           severity: wordCount > 50 ? 'high' : 'medium',
           message: `Long sentence (${wordCount} words). Consider breaking it up.`,
