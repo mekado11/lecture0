@@ -401,6 +401,33 @@ function renderDetailed(r){
   h+='<div class="a-sec"><h3>Pacing Heatmap</h3><div class="hm-wrap">'+r.pacing.segments.map((s,i)=>'<div class="hm-blk" style="background:'+cols[s.type]+'" title="Seg '+(i+1)+': '+s.type+'"></div>').join('')+'</div><div class="hm-leg"><span><span class="hm-dot" style="background:#c0392b"></span>Action</span><span><span class="hm-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="hm-dot" style="background:#27ae60"></span>Description</span><span><span class="hm-dot" style="background:#f39c12"></span>Exposition</span><span><span class="hm-dot" style="background:#8e44ad"></span>Reflection</span></div></div>'}
   // Characters
   if(r.characters.list.length>0){const mx=Math.max(...r.characters.list.map(c=>c.mentions));h+='<div class="a-sec"><h3>Characters</h3><div class="ch-grid">'+r.characters.list.map(c=>'<div class="ch-card"><div class="ch-name">'+esc(c.name)+'</div><div class="ch-cnt">'+c.mentions+' mentions</div><div class="ch-bar"><div class="ch-fill" style="width:'+Math.round(c.mentions/mx*100)+'%"></div></div></div>').join('')+'</div></div>'}
+  // Sci-Fi Worldbuilding Scanner
+  if(r.scifiWorld&&r.scifiWorld.applicable){
+    const sw=r.scifiWorld;
+    h+='<div class="a-sec" style="border-left:3px solid #3bb8a0"><h3>Sci-Fi Worldbuilding Scanner <span style="color:'+sc(sw.overall)+'">'+sw.overall+'/100</span></h3>';
+    h+='<p style="font-size:.75rem;color:var(--muted);margin-bottom:.5rem">'+sw.strongElements+' strong elements, '+sw.weakElements+' need work. Every sci-fi world needs these 7 pillars.</p>';
+    // Element bars
+    const elOrder=['bigChange','power','culture','tech','lived','history','economics'];
+    const elIcons=['?','???','????','????','????','????','????'];
+    elOrder.forEach((k,idx)=>{
+      const el=sw.elements[k];
+      const col=sc(el.score);
+      h+='<div style="margin-bottom:.5rem"><div style="display:flex;justify-content:space-between;align-items:center;font-size:.78rem;margin-bottom:.15rem"><span><strong>'+el.name+'</strong></span><span style="color:'+col+';font-weight:700">'+el.score+'/100</span></div>';
+      h+='<div class="rdr-bar"><div class="rdr-fill" style="width:'+el.score+'%;background:'+col+'"></div></div>';
+      if(el.found.length>0)h+='<div style="font-size:.65rem;color:var(--green);margin-top:.1rem">Found: '+el.found.join(', ')+'</div>';
+      if(el.missing.length>0)h+='<div style="font-size:.65rem;color:var(--muted);margin-top:.05rem">Missing: '+el.missing.join(', ')+'</div>';
+      h+='</div>';
+    });
+    // Guidance for weak elements
+    if(sw.guidance.length>0){
+      h+='<div style="margin-top:.6rem;border-top:1px solid var(--border);padding-top:.5rem"><h4 style="font-size:.8rem;color:var(--gold-l);margin-bottom:.4rem">Worldbuilding Guidance</h4>';
+      sw.guidance.forEach(g=>{
+        h+='<div style="background:var(--surface2);border-radius:var(--rs);padding:.5rem .65rem;margin-bottom:.35rem;border-left:3px solid var(--yellow)"><div style="font-size:.78rem;font-weight:600;color:var(--text)">'+esc(g.element)+' <span style="color:var(--red);font-weight:400">('+g.score+'/100)</span></div><div style="font-size:.72rem;color:var(--muted);margin-top:.2rem;line-height:1.5">'+esc(g.tip)+'</div></div>';
+      });
+      h+='</div>';
+    }
+    h+='</div>';
+  }
   d.innerHTML=h;
 }
 function sec(t,s,items){return '<div class="a-sec"><h3>'+t+' <span style="color:'+sc(s)+'">'+s+'/100</span></h3>'+items.filter(Boolean).map(i=>typeof i==='string'?(i?'<p>'+i+'</p>':''):i).join('')+'</div>'}

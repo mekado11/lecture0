@@ -370,7 +370,15 @@ const Analyzer = {
     const scifiWords = ['spaceship','galaxy','planet','alien','robot','android','laser',
       'cybernetic','hologram','warp','hyperspace','terraforming','quantum','nanobots',
       'dystopia','utopia','cyborg','artificial intelligence','starship','colonize',
-      'interstellar','dimension','futuristic','simulation','clone','mutation','spacecraft'];
+      'interstellar','dimension','futuristic','simulation','clone','mutation','spacecraft',
+      'colony','station','reactor','orbit','shuttle','faster-than-light','light-year',
+      'star system','solar system','asteroid','nebula','federation','empire','credits',
+      'ai ','neural','implant','augment','mech','drone','sentient','biotech','nanotech',
+      'cryosleep','cryo','fold','jump drive','wormhole','singularity','exodus',
+      'outpost','off-world','deep space','outer rim','sector','docking','airlock',
+      'centauri','proxima','europa','mars','titan','cargo ship','pilot','crew',
+      'radiation','oxygen','atmosphere','habitat','terraformed','genetically','engineered',
+      'holographic','transmission','signal','beacon','distress','protocol'];
     scifiWords.forEach(w => { if (lower.includes(w)) scores.scifi += 3; });
 
     // Fantasy indicators
@@ -1263,6 +1271,174 @@ const Analyzer = {
   // Extracts story elements using the 6-question framework,
   // then assembles 5 blurb variations. Only runs in book mode.
   // ========================
+  // ========================
+  // SCI-FI WORLDBUILDING SCANNER
+  // Checks for the 7 essential elements of sci-fi worldbuilding.
+  // Only runs when genre is detected as Science Fiction.
+  // ========================
+  analyzeSciFiWorldbuilding(text, genre) {
+    if (genre.primary !== 'scifi') {
+      return { applicable: false };
+    }
+
+    const lower = text.toLowerCase();
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+
+    // === 1. THE ONE BIG CHANGE ("What if...?") ===
+    let bigChange = { score: 0, found: [], missing: [] };
+    const whatIfSignals = [
+      { pattern: /\b(what if|imagine a world|in this world|in a world where|on a planet where|in the future|years from now|after the collapse|since the event|after the war|the day everything changed)\b/gi, label: 'premise setup' },
+      { pattern: /\b(different from|unlike earth|unlike anything|never before seen|first of its kind|new kind of|evolved to|mutated|transformed|altered)\b/gi, label: 'core difference' },
+      { pattern: /\b(discovery|invention|breakthrough|experiment|anomaly|phenomenon|singularity|event|catalyst|awakening)\b/gi, label: 'catalyst event' }
+    ];
+    whatIfSignals.forEach(s => {
+      const m = lower.match(s.pattern);
+      if (m && m.length > 0) { bigChange.score += 25; bigChange.found.push(s.label + ' (' + m.length + ' signals)'); }
+      else bigChange.missing.push(s.label);
+    });
+    // Check if the premise is consistent (referenced throughout, not just intro)
+    const premiseWords = lower.match(/\b(world|planet|system|colony|station|ship|society|civilization|empire|federation|alliance|republic)\b/g) || [];
+    if (premiseWords.length > 5) bigChange.score += 25;
+    bigChange.score = Math.min(100, bigChange.score);
+
+    // === 2. SYSTEMS OF POWER ===
+    let power = { score: 0, found: [], missing: [] };
+    const powerSignals = [
+      { pattern: /\b(government|council|senate|emperor|president|chancellor|commander|director|authority|regime|republic|democracy|dictatorship|monarchy|oligarchy)\b/gi, label: 'governing body' },
+      { pattern: /\b(corporation|company|conglomerate|syndicate|cartel|guild|faction|organization|institution)\b/gi, label: 'corporate/organizational power' },
+      { pattern: /\b(rebel|resistance|underground|revolution|uprising|dissent|protest|overthrow|fight back|oppose|defy)\b/gi, label: 'resistance/opposition' },
+      { pattern: /\b(law|rule|decree|mandate|banned|forbidden|illegal|criminal|enforce|punish|control|surveillance|monitored|restricted)\b/gi, label: 'rules and enforcement' },
+      { pattern: /\b(class|caste|citizen|rank|status|privilege|elite|underclass|worker|servant|slave|oppressed|marginalized)\b/gi, label: 'social hierarchy' }
+    ];
+    powerSignals.forEach(s => {
+      const m = lower.match(s.pattern);
+      if (m && m.length > 0) { power.score += 20; power.found.push(s.label + ' (' + m.length + ')'); }
+      else power.missing.push(s.label);
+    });
+    power.score = Math.min(100, power.score);
+
+    // === 3. CULTURE, BELIEFS & THE ALIEN OTHER ===
+    let culture = { score: 0, found: [], missing: [] };
+    const cultureSignals = [
+      { pattern: /\b(alien|species|race|being|creature|entity|non-human|humanoid|android|cyborg|synthetic|clone|hybrid)\b/gi, label: 'non-human entities' },
+      { pattern: /\b(religion|belief|worship|faith|ritual|ceremony|tradition|custom|sacred|holy|temple|shrine|prayer|prophecy)\b/gi, label: 'belief systems' },
+      { pattern: /\b(culture|society|tribe|clan|people|civilization|community|colony|settlement|homeland|heritage|ancestry)\b/gi, label: 'cultural identity' },
+      { pattern: /\b(language|dialect|tongue|communicate|translation|misunderstand|interpret|signal|code)\b/gi, label: 'language/communication' },
+      { pattern: /\b(prejudice|discrimination|fear|distrust|alliance|treaty|war|conflict|peace|negotiate|diplomacy)\b/gi, label: 'inter-group dynamics' }
+    ];
+    cultureSignals.forEach(s => {
+      const m = lower.match(s.pattern);
+      if (m && m.length > 0) { culture.score += 20; culture.found.push(s.label + ' (' + m.length + ')'); }
+      else culture.missing.push(s.label);
+    });
+    culture.score = Math.min(100, culture.score);
+
+    // === 4. TECH WITH CONSEQUENCES ===
+    let tech = { score: 0, found: [], missing: [] };
+    const techSignals = [
+      { pattern: /\b(technology|device|machine|engine|reactor|computer|AI|artificial intelligence|neural|implant|augment|biotech|nanotech|quantum|hologram|drone|mech|robot)\b/gi, label: 'technology present' },
+      { pattern: /\b(malfunction|failure|glitch|hack|breach|overload|shutdown|crash|broken|corrupted|unstable|dangerous|side effect|consequence|cost|price|risk)\b/gi, label: 'tech consequences' },
+      { pattern: /\b(access|afford|privilege|rich|poor|gap|divide|haves|have-nots|restricted|classified|clearance|black market)\b/gi, label: 'tech inequality' },
+      { pattern: /\b(adapt|depend|addicted|reliant|worship|fear|distrust|reject|luddite|resistance to)\b/gi, label: 'relationship with tech' }
+    ];
+    techSignals.forEach(s => {
+      const m = lower.match(s.pattern);
+      if (m && m.length > 0) { tech.score += 25; tech.found.push(s.label + ' (' + m.length + ')'); }
+      else tech.missing.push(s.label);
+    });
+    tech.score = Math.min(100, tech.score);
+
+    // === 5. LIVED EXPERIENCE (sensory, daily life) ===
+    let lived = { score: 0, found: [], missing: [] };
+    const livedSignals = [
+      { pattern: /\b(smell|taste|touch|texture|sound|hear|felt|warm|cold|heat|freeze|humidity|dry|wet|gritty|smooth|rough|sharp|soft|bitter|sweet|metallic|acrid|stale)\b/gi, label: 'sensory detail' },
+      { pattern: /\b(eat|drink|food|meal|ration|hunger|thirst|cook|brew|chew|swallow|sip|feast|starve)\b/gi, label: 'food/sustenance' },
+      { pattern: /\b(travel|transport|vehicle|ship|shuttle|pod|train|walk|corridor|street|path|road|dock|port|station|gate)\b/gi, label: 'transportation/movement' },
+      { pattern: /\b(sleep|rest|wake|dream|exhausted|tired|bed|bunk|quarters|home|shelter|dwelling)\b/gi, label: 'rest/dwelling' },
+      { pattern: /\b(mourn|grieve|funeral|death|loss|celebrate|festival|wedding|birth|tradition|holiday)\b/gi, label: 'life events/rituals' }
+    ];
+    livedSignals.forEach(s => {
+      const m = lower.match(s.pattern);
+      if (m && m.length > 0) { lived.score += 20; lived.found.push(s.label + ' (' + m.length + ')'); }
+      else lived.missing.push(s.label);
+    });
+    lived.score = Math.min(100, lived.score);
+
+    // === 6. THE HISTORY THAT HAUNTS THEM ===
+    let history = { score: 0, found: [], missing: [] };
+    const historySignals = [
+      { pattern: /\b(years ago|centuries ago|long ago|ancient|before the war|before the fall|the old world|the old ways|the before times|once upon|in the beginning|founding|origin)\b/gi, label: 'historical references' },
+      { pattern: /\b(remember|memory|memorial|monument|ruin|artifact|relic|archive|record|history|legend|myth|story|tale)\b/gi, label: 'memory/records' },
+      { pattern: /\b(war|collapse|catastrophe|plague|extinction|disaster|event|cataclysm|apocalypse|fall|revolution|uprising)\b/gi, label: 'past trauma' },
+      { pattern: /\b(rebuild|recover|remnant|survivor|descendant|legacy|heritage|ancestor|generation|elder)\b/gi, label: 'legacy/aftermath' }
+    ];
+    historySignals.forEach(s => {
+      const m = lower.match(s.pattern);
+      if (m && m.length > 0) { history.score += 25; history.found.push(s.label + ' (' + m.length + ')'); }
+      else history.missing.push(s.label);
+    });
+    history.score = Math.min(100, history.score);
+
+    // === 7. EVERYDAY ECONOMICS ===
+    let economics = { score: 0, found: [], missing: [] };
+    const econSignals = [
+      { pattern: /\b(money|credit|currency|coin|payment|pay|cost|price|afford|expensive|cheap|wealth|rich|poor|poverty)\b/gi, label: 'currency/money' },
+      { pattern: /\b(trade|barter|exchange|market|shop|vendor|merchant|dealer|buy|sell|smuggle|cargo|goods|supply)\b/gi, label: 'trade/commerce' },
+      { pattern: /\b(resource|scarcity|scarce|rare|precious|valuable|ration|shortage|abundance|surplus|mine|harvest|extract|fuel|energy|water|food|oxygen)\b/gi, label: 'resources/scarcity' },
+      { pattern: /\b(work|job|labor|employ|occupation|profession|craft|skill|earn|wage|contract|hire|boss|worker)\b/gi, label: 'labor/employment' }
+    ];
+    econSignals.forEach(s => {
+      const m = lower.match(s.pattern);
+      if (m && m.length > 0) { economics.score += 25; economics.found.push(s.label + ' (' + m.length + ')'); }
+      else economics.missing.push(s.label);
+    });
+    economics.score = Math.min(100, economics.score);
+
+    // Overall worldbuilding score
+    const elements = [bigChange, power, culture, tech, lived, history, economics];
+    const overall = Math.round(elements.reduce((s, e) => s + e.score, 0) / 7);
+    const strong = elements.filter(e => e.score >= 60).length;
+    const weak = elements.filter(e => e.score < 30).length;
+
+    // Build guidance for missing elements
+    const guidance = [];
+    const names = ['The One Big Change', 'Systems of Power', 'Culture & The Alien Other', 'Tech with Consequences', 'Lived Experience', 'History That Haunts', 'Everyday Economics'];
+    const tips = [
+      'What is your "What if...?" question? Every detail should trace back to this one big change.',
+      'Who makes the rules? Who suffers under them? Who\'s trying to tear them down?',
+      'What does it mean to be human in your world? Show us through beliefs, traditions, and the alien other.',
+      'Technology should create problems, not just solve them. Who has access? What happens when it fails?',
+      'How do people eat, travel, mourn, and love? Readers want to feel the world, not read a lecture about it.',
+      'What past event shaped the current world? Even a few references to "before" add enormous depth.',
+      'What is the most valuable resource? How do people earn a living? Scarcity creates conflict.'
+    ];
+    elements.forEach((e, i) => {
+      if (e.score < 40) {
+        guidance.push({ element: names[i], score: e.score, tip: tips[i], missing: e.missing });
+      }
+    });
+
+    return {
+      applicable: true,
+      overall,
+      strongElements: strong,
+      weakElements: weak,
+      elements: {
+        bigChange: { name: 'The One Big Change', ...bigChange },
+        power: { name: 'Systems of Power', ...power },
+        culture: { name: 'Culture & The Alien Other', ...culture },
+        tech: { name: 'Tech with Consequences', ...tech },
+        lived: { name: 'Lived Experience', ...lived },
+        history: { name: 'History That Haunts', ...history },
+        economics: { name: 'Everyday Economics', ...economics }
+      },
+      guidance
+    };
+  },
+
+  // ========================
+  // BLURB ENGINE
+  // ========================
   generateBlurbs(text, characters, genre, mode) {
     if (mode !== 'book' && text.split(/\s+/).length < 5000) {
       return { available: false, reason: 'Blurbs are generated for full manuscripts (book mode or 5000+ words). Upload a complete manuscript to unlock blurb suggestions.' };
@@ -1537,6 +1713,7 @@ const Analyzer = {
     const pacing = this.analyzePacing(text);
     const characters = this.analyzeCharacters(text);
     const blurbs = this.generateBlurbs(text, characters, genre, mode);
+    const scifiWorld = this.analyzeSciFiWorldbuilding(text, genre);
 
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const copyScore = this.scoreCopyEditing(allIssues, totalWords);
@@ -1573,7 +1750,7 @@ const Analyzer = {
         line: lineScore, style: style.score, dialogue: dialogue.score,
         showTell: showTellScore, grammar: 0
       },
-      writingQuality, lineEditing, blurbs,
+      writingQuality, lineEditing, blurbs, scifiWorld,
       plot, transitions, dialogue, style, sentenceVariety, readability,
       readerPerspective, pacing, characters,
       showTell: { score: showTellScore, issues: showTellIssues },
