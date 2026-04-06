@@ -21,6 +21,8 @@
   --weak-verb: #a29bfe;
   --wordy: #55efc4;
   --sentence-length: #fab1a0;
+  --show-tell: #fd79a8;
+  --grammar: #00b894;
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 4px 24px rgba(0,0,0,.3);
@@ -432,6 +434,80 @@ main {
 }
 .issue-text { color: var(--text); margin-bottom: .25rem; }
 .issue-suggestion { color: var(--text-muted); font-style: italic; }
+
+/* === Grammar API Key Input === */
+.api-key-input {
+  width: 100%;
+  margin-top: .75rem;
+  padding: .65rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: .85rem;
+}
+.api-key-input::placeholder { color: var(--text-muted); }
+
+/* === Issues Donut Chart === */
+.issues-visual { display: flex; gap: 2rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.issues-donut-wrap { flex-shrink: 0; }
+.issues-summary-bar { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+.issue-pill { display: flex; align-items: center; gap: .35rem; padding: .3rem .7rem; border-radius: 20px; font-size: .75rem; font-weight: 600; background: var(--surface); border: 1px solid var(--border); }
+.issue-pill .pill-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+/* === Accordion Issue Groups === */
+.issue-group { margin-bottom: .75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.issue-group-header { display: flex; align-items: center; justify-content: space-between; padding: .75rem 1rem; background: var(--surface); cursor: pointer; font-size: .9rem; font-weight: 600; transition: background .2s; }
+.issue-group-header:hover { background: var(--surface-2); }
+.issue-group-header .group-count { background: var(--surface-2); padding: .15rem .6rem; border-radius: 10px; font-size: .75rem; color: var(--text-muted); }
+.issue-group-header .group-arrow { transition: transform .2s; }
+.issue-group-header.collapsed .group-arrow { transform: rotate(-90deg); }
+.issue-group-body { padding: 0; max-height: 500px; overflow-y: auto; transition: max-height .3s ease; }
+.issue-group-body.collapsed { max-height: 0; overflow: hidden; }
+.issue-item .issue-location { font-size: .7rem; color: var(--text-muted); margin-top: .25rem; font-style: italic; }
+
+/* === Reader's View === */
+.reader-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.reader-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; }
+.reader-card h4 { font-size: .9rem; margin-bottom: .5rem; color: var(--accent-light); }
+.reader-card .big-score { font-size: 2.5rem; font-weight: 800; }
+.reader-card .score-label { color: var(--text-muted); font-size: .8rem; }
+
+.meter-bar { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; margin: .5rem 0; }
+.meter-fill { height: 100%; border-radius: 4px; transition: width .8s ease; }
+
+.dnf-meter { position: relative; }
+.dnf-label { display: flex; justify-content: space-between; font-size: .75rem; color: var(--text-muted); }
+
+.emotional-journey { min-height: 120px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
+.emotion-bar-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .4rem; font-size: .8rem; }
+.emotion-bar-row .emotion-label { width: 80px; text-align: right; color: var(--text-muted); }
+.emotion-bar-row .emotion-track { flex: 1; height: 6px; background: var(--surface-2); border-radius: 3px; }
+.emotion-bar-row .emotion-fill { height: 100%; border-radius: 3px; }
+
+.immersion-breaker-item { padding: .5rem .75rem; background: var(--surface); border-left: 3px solid var(--warning); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: .5rem; font-size: .85rem; }
+.immersion-breaker-item .breaker-location { font-size: .7rem; color: var(--text-muted); }
+
+/* === Pacing Heatmap === */
+.heatmap-container { display: flex; flex-wrap: wrap; gap: 3px; margin: .75rem 0; }
+.heatmap-block { width: 28px; height: 28px; border-radius: 4px; cursor: pointer; transition: transform .15s; position: relative; }
+.heatmap-block:hover { transform: scale(1.3); z-index: 2; }
+.heatmap-legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: .5rem; font-size: .75rem; color: var(--text-muted); }
+.heatmap-legend span { display: flex; align-items: center; gap: .3rem; }
+.heatmap-legend .legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+/* === Character Tracker === */
+.character-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: .75rem; }
+.character-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem; }
+.character-card .char-name { font-weight: 700; font-size: 1rem; margin-bottom: .25rem; }
+.character-card .char-mentions { color: var(--text-muted); font-size: .8rem; }
+.character-card .char-bar { height: 4px; background: var(--surface-2); border-radius: 2px; margin-top: .5rem; }
+.character-card .char-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+
+/* === Grammar Results === */
+.grammar-issue { padding: .6rem .9rem; background: var(--surface); border-left: 3px solid var(--grammar); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: .5rem; font-size: .85rem; }
+.grammar-issue .grammar-original { text-decoration: line-through; color: var(--danger); }
+.grammar-issue .grammar-corrected { color: var(--success); font-weight: 600; }
 
 /* === Actions Bar === */
 .actions-bar {

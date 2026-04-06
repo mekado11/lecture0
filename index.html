@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ManuscriptLens - Fiction Analysis & Line Editor</title>
+  <title>ManuscriptLens - Author's Best Buddy</title>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -12,7 +12,7 @@
   <header>
     <div class="header-inner">
       <h1 class="logo">ManuscriptLens</h1>
-      <p class="tagline">Fiction Analysis &middot; Copy Editor &middot; Line Editor</p>
+      <p class="tagline">Author's Best Buddy</p>
     </div>
   </header>
 
@@ -34,6 +34,9 @@
       <div id="file-info" class="file-info hidden">
         <span id="file-name"></span>
         <button id="clear-file" class="btn-clear">&times;</button>
+      </div>
+      <div class="optional-settings">
+        <input type="text" id="grammar-api-key" placeholder="RapidAPI Key (optional - for grammar check)">
       </div>
       <button id="analyze-btn" class="btn-primary hidden">Analyze Manuscript</button>
     </section>
@@ -126,6 +129,28 @@
           <h3>Dialogue</h3>
           <p class="score-desc">Naturalness, tags, pacing</p>
         </div>
+        <div class="score-card" data-category="show-tell">
+          <div class="score-ring">
+            <svg viewBox="0 0 36 36">
+              <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+              <path class="ring-fill" id="ring-show-tell" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+            </svg>
+            <span class="score-number" id="score-show-tell">0</span>
+          </div>
+          <h3>Show vs Tell</h3>
+          <p class="score-desc">Sensory detail, immersive writing</p>
+        </div>
+        <div class="score-card" data-category="grammar">
+          <div class="score-ring">
+            <svg viewBox="0 0 36 36">
+              <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+              <path class="ring-fill" id="ring-grammar" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+            </svg>
+            <span class="score-number" id="score-grammar">0</span>
+          </div>
+          <h3>Grammar & Spelling</h3>
+          <p class="score-desc">Correctness, spelling, punctuation</p>
+        </div>
       </div>
 
       <!-- Tab Navigation -->
@@ -133,11 +158,37 @@
         <button class="tab active" data-tab="detailed">Detailed Analysis</button>
         <button class="tab" data-tab="annotated">Annotated Text</button>
         <button class="tab" data-tab="issues">Issues List</button>
+        <button class="tab" data-tab="reader">Reader's View</button>
       </div>
 
       <!-- Detailed Analysis Tab -->
       <div id="tab-detailed" class="tab-content active">
         <div id="detailed-analysis"></div>
+
+        <!-- Pacing Heatmap -->
+        <div class="analysis-section">
+          <h3 class="section-title">Pacing Heatmap</h3>
+          <div id="pacing-heatmap" class="pacing-heatmap"></div>
+          <div class="heatmap-legend">
+            <span class="legend-item"><span class="legend-color" style="background:#e74c3c;"></span> Action</span>
+            <span class="legend-item"><span class="legend-color" style="background:#3498db;"></span> Dialogue</span>
+            <span class="legend-item"><span class="legend-color" style="background:#2ecc71;"></span> Description</span>
+            <span class="legend-item"><span class="legend-color" style="background:#f1c40f;"></span> Exposition</span>
+            <span class="legend-item"><span class="legend-color" style="background:#9b59b6;"></span> Reflection</span>
+          </div>
+        </div>
+
+        <!-- Character Tracker -->
+        <div class="analysis-section">
+          <h3 class="section-title">Character Tracker</h3>
+          <div id="character-tracker" class="character-tracker"></div>
+        </div>
+
+        <!-- Grammar Check Results -->
+        <div class="analysis-section">
+          <h3 class="section-title">Grammar Check</h3>
+          <div id="grammar-results" class="grammar-results"></div>
+        </div>
       </div>
 
       <!-- Annotated Text Tab -->
@@ -161,10 +212,59 @@
             <option value="severity">Sort by Severity</option>
             <option value="type">Sort by Type</option>
             <option value="position">Sort by Position</option>
+            <option value="group">Group by Type</option>
           </select>
           <span id="issue-count" class="issue-count"></span>
         </div>
+        <div id="issues-summary-bar" class="issues-summary-bar"></div>
+        <div class="issues-chart-container">
+          <canvas id="issues-donut" width="240" height="240"></canvas>
+        </div>
         <div id="issues-list" class="issues-list"></div>
+      </div>
+
+      <!-- Reader's View Tab -->
+      <div id="tab-reader" class="tab-content">
+        <div class="reader-view-grid">
+          <div class="reader-card">
+            <h4>Engagement Score</h4>
+            <div class="reader-score" id="reader-engagement">--</div>
+            <p class="reader-desc">How compelling the manuscript is for readers</p>
+          </div>
+          <div class="reader-card">
+            <h4>Pacing Feel</h4>
+            <div class="reader-indicator" id="reader-pacing">
+              <div class="pacing-meter">
+                <div class="pacing-fill" id="pacing-fill"></div>
+              </div>
+              <span class="pacing-label" id="pacing-label">--</span>
+            </div>
+            <p class="reader-desc">Overall rhythm and momentum</p>
+          </div>
+          <div class="reader-card">
+            <h4>Clarity Score</h4>
+            <div class="reader-score" id="reader-clarity">--</div>
+            <p class="reader-desc">How easily readers can follow the narrative</p>
+          </div>
+          <div class="reader-card">
+            <h4>DNF Risk</h4>
+            <div class="reader-meter" id="reader-dnf">
+              <div class="dnf-bar">
+                <div class="dnf-fill" id="dnf-fill"></div>
+              </div>
+              <span class="dnf-label" id="dnf-label">--</span>
+            </div>
+            <p class="reader-desc">Likelihood a reader will not finish</p>
+          </div>
+        </div>
+        <div class="reader-section">
+          <h4>Emotional Journey</h4>
+          <div id="emotional-journey" class="emotional-journey"></div>
+        </div>
+        <div class="reader-section">
+          <h4>Immersion Breakers</h4>
+          <div id="immersion-breakers" class="immersion-breakers"></div>
+        </div>
       </div>
 
       <!-- Actions -->
@@ -176,7 +276,7 @@
   </main>
 
   <footer>
-    <p>ManuscriptLens &middot; Fiction Analysis & Line Editor</p>
+    <p>ManuscriptLens &middot; Author's Best Buddy</p>
   </footer>
 
   <script src="analyzer.js"></script>
