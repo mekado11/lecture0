@@ -208,5 +208,10 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .modal-input{width:100%;padding:.5rem .65rem;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:.82rem;font-family:monospace}
 .modal-btns{display:flex;gap:.4rem;margin-top:.8rem;justify-content:flex-end}
 
+/* BLURBS */
+.blurb-card{border-left:3px solid var(--gold-d)}
+.blurb-text{background:var(--surface2);border-radius:var(--rs);padding:.75rem 1rem;font-size:.88rem;line-height:1.7;font-family:'Lora',serif;color:var(--text);white-space:pre-wrap;min-height:60px}
+.blurb-text[contenteditable="true"]{background:var(--surface3)}
+
 @media(max-width:900px){.left-panel{width:220px}.right-panel{width:250px}}
 @media(max-width:700px){.panels{flex-direction:column}.left-panel,.right-panel{width:100%;max-height:180px;border:none;border-bottom:1px solid var(--border)}}

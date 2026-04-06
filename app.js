@@ -54,7 +54,7 @@ function renderAll(){
   $('top-wc').textContent=r.totalWords.toLocaleString();
   $('top-status').textContent=r.genre.label+' \u00B7 '+r.manuscriptMode.label;
   drawGauge(r.overall);
-  renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderVersions();
+  renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderBlurbs(r);renderVersions();
   // Save version
   AIEngine.saveVersion(uploadedFile.name,analysisResult,null);
 }
@@ -455,6 +455,62 @@ function renderReader(r){
   d.innerHTML=h;
 }
 function rc(t,s,c,desc){return '<div class="rdr-card"><h4>'+t+'</h4><div class="rdr-big" style="color:'+c+'">'+s+'/100</div><div class="rdr-bar"><div class="rdr-fill" style="width:'+s+'%;background:'+c+'"></div></div><div class="rdr-lbl">'+desc+'</div></div>'}
+
+// BLURBS
+function renderBlurbs(r){
+  const d=$('ed-blurbs');if(!d)return;d.className='ms-page dark-page';
+  const b=r.blurbs;
+  if(!b||!b.available){
+    d.innerHTML='<div class="a-sec"><h3>Blurb Generator</h3><p style="color:var(--muted);font-size:.85rem">'+(b?.reason||'Upload a full manuscript to generate blurb suggestions.')+'</p><p style="color:var(--dim);font-size:.75rem;margin-top:.5rem">Blurbs are generated for books and manuscripts over 5,000 words. The engine extracts your story\'s core elements — protagonist, conflict, stakes — and assembles 5 variations in different styles.</p></div>';
+    return;
+  }
+  let h='<div class="a-sec"><h3>Blurb Generator</h3>';
+  h+='<div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:.75rem;font-size:.72rem;color:var(--muted)">';
+  h+='<span>Protagonist: <strong style="color:var(--gold-l)">'+esc(b.protagonist)+'</strong></span>';
+  if(b.antagonist)h+='<span>Antagonist: <strong style="color:var(--red)">'+esc(b.antagonist)+'</strong></span>';
+  h+='<span>Tone: <strong style="color:var(--text)">'+esc(b.toneDetected)+'</strong></span>';
+  h+='<span>Words: <strong>'+b.wordCount.toLocaleString()+'</strong></span>';
+  h+='</div></div>';
+
+  // 6-question framework breakdown
+  const fw=b.framework;
+  h+='<div class="a-sec"><h3>Story Framework <span style="font-size:.7rem;color:var(--muted);font-weight:400">(extracted from manuscript)</span></h3>';
+  const questions=[
+    {q:'What does the character want?',a:fw.statusQuo},
+    {q:'How does it change?',a:fw.incitingIncident},
+    {q:'How does it get worse?',a:fw.conflict},
+    {q:'How do they try to fix it?',a:fw.attempt},
+    {q:'How does that make it worse?',a:fw.crisis},
+    {q:'What is at stake?',a:fw.stakes}
+  ];
+  questions.forEach((q,i)=>{
+    h+='<div style="margin-bottom:.5rem"><div style="font-size:.72rem;color:var(--gold);font-weight:600;margin-bottom:.15rem">Q'+(i+1)+': '+q.q+'</div><div style="font-size:.8rem;color:'+(q.a?'var(--text)':'var(--dim)')+';padding-left:.6rem;border-left:2px solid var(--border)">'+(q.a?esc(q.a):'<em>Could not extract — try adding clearer story beats</em>')+'</div></div>';
+  });
+  h+='</div>';
+
+  // 5 Blurb variations
+  b.blurbs.forEach((bl,i)=>{
+    h+='<div class="a-sec blurb-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem"><h3 style="margin:0">'+esc(bl.style)+'</h3><span style="font-size:.65rem;color:var(--muted)">'+bl.wordCount+' words</span></div>';
+    h+='<div style="font-size:.7rem;color:var(--dim);margin-bottom:.5rem;font-style:italic">'+esc(bl.description)+'</div>';
+    h+='<div class="blurb-text" id="blurb-'+i+'">'+esc(bl.text).replace(/\n/g,'<br>')+'</div>';
+    h+='<div style="display:flex;gap:.3rem;margin-top:.5rem"><button class="btn-dark blurb-copy" data-idx="'+i+'" style="font-size:.7rem;padding:.25rem .6rem">Copy</button><button class="btn-dark blurb-edit" data-idx="'+i+'" style="font-size:.7rem;padding:.25rem .6rem">Edit</button></div>';
+    h+='</div>';
+  });
+
+  d.innerHTML=h;
+
+  // Copy buttons
+  d.querySelectorAll('.blurb-copy').forEach(btn=>{btn.addEventListener('click',()=>{
+    const idx=btn.dataset.idx;const el=$('blurb-'+idx);
+    navigator.clipboard.writeText(el.textContent);btn.textContent='Copied!';setTimeout(()=>{btn.textContent='Copy'},1500);
+  })});
+  // Edit buttons - make blurb editable
+  d.querySelectorAll('.blurb-edit').forEach(btn=>{btn.addEventListener('click',()=>{
+    const idx=btn.dataset.idx;const el=$('blurb-'+idx);
+    if(el.contentEditable==='true'){el.contentEditable='false';el.style.outline='';btn.textContent='Edit'}
+    else{el.contentEditable='true';el.style.outline='1px solid var(--gold-d)';el.style.outlineOffset='4px';el.focus();btn.textContent='Done'}
+  })});
+}
 
 // TABS (bottom)
 document.querySelectorAll('.btab').forEach(t=>{t.addEventListener('click',()=>{
