@@ -1338,6 +1338,139 @@ const Analyzer = {
   // then assembles 5 blurb variations. Only runs in book mode.
   // ========================
   // ========================
+  // OPENING DIAGNOSIS ENGINE
+  // Analyzes the first ~500 words for specific weakness patterns
+  // and provides genre-aware improvement strategies
+  // ========================
+  diagnoseOpening(text, genre) {
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+    const opening = paragraphs.slice(0, Math.min(5, paragraphs.length)).join('\n\n');
+    const openingLower = opening.toLowerCase();
+    const firstSentence = (text.match(/[^.!?]*[.!?]/)||[''])[0].trim();
+    const firstPara = (paragraphs[0] || '').trim();
+    const firstParaWords = firstPara.split(/\s+/).length;
+
+    const problems = [];
+    const strategies = [];
+
+    // === DETECT ANTI-PATTERNS ===
+
+    // 1. Weather opening ("It was a dark and stormy night")
+    if (/^(it was|the sun|the rain|the wind|the sky|the clouds|the fog|the snow|the storm|outside|the weather)/i.test(firstSentence)) {
+      problems.push({ id: 'weather', severity: 'high', title: 'Weather Opening', desc: 'Starting with weather is one of the most common weak openings. It tells the reader about the setting before giving them a reason to care about anyone in it.', fix: 'Start with a character doing something, or open with dialogue. Let weather emerge naturally as part of the scene.' });
+    }
+
+    // 2. Waking up / morning routine
+    if (/^(.*?(woke up|woke to|opened (his|her|their) eyes|alarm|morning|the alarm|rolled over|got out of bed|stretched|yawned))/i.test(firstPara)) {
+      problems.push({ id: 'waking', severity: 'high', title: 'Waking Up Opening', desc: 'Opening with a character waking up signals that nothing interesting is happening yet. The reader is waiting for the story to actually start.', fix: 'Start at the moment something changes. Skip the morning routine and drop the reader into the first conflict or tension.' });
+    }
+
+    // 3. Backstory dump (opening is all exposition, no action or dialogue)
+    const hasDialogue = /[""\u201C]/.test(firstPara);
+    const hasAction = /\b(walked|ran|grabbed|turned|looked|opened|closed|stepped|moved|reached|pulled|pushed)\b/i.test(firstPara);
+    const hasBackstory = (openingLower.match(/\b(had been|used to|always|years ago|before|once|growing up|childhood|remembered|back when|for as long as|ever since)\b/g) || []).length;
+    if (hasBackstory > 3 && !hasDialogue && !hasAction) {
+      problems.push({ id: 'backstory', severity: 'high', title: 'Backstory Dump', desc: 'The opening is explaining the character\'s past instead of showing them in the present. Readers haven\'t bonded with the character yet, so they don\'t care about their history.', fix: 'Start in the present moment with action or tension. Weave backstory in later, after the reader is invested.' });
+    }
+
+    // 4. "It was" / "There was" opening (weak, passive)
+    if (/^(it was|there was|there were|it is|there is)/i.test(firstSentence)) {
+      problems.push({ id: 'itwas', severity: 'medium', title: '"It was / There was" Opening', desc: 'Starting with "It was" or "There was" creates distance between the reader and the story. It\'s telling, not showing.', fix: 'Replace with a specific, concrete image or action. Instead of "It was quiet," try "Silence pressed against the walls."' });
+    }
+
+    // 5. Too much description, no character
+    const charMentions = (opening.match(/\b[A-Z][a-z]{2,}\b/g) || []).length;
+    if (firstParaWords > 60 && charMentions < 2 && !hasDialogue) {
+      problems.push({ id: 'nochar', severity: 'medium', title: 'Missing Character', desc: 'The opening paragraph is over 60 words with no named character and no dialogue. The reader has nobody to connect with.', fix: 'Introduce a character in the first sentence or two. Give them a name, a want, and a problem.' });
+    }
+
+    // 6. No tension/conflict in first 3 paragraphs
+    const earlyTension = (openingLower.match(/\b(but|however|problem|danger|wrong|strange|never|couldn\'t|shouldn\'t|threat|fear|worried|nervous|mistake|trouble|secret|lie|risk|deadline)\b/g) || []).length;
+    if (earlyTension < 2) {
+      problems.push({ id: 'notension', severity: 'medium', title: 'No Early Tension', desc: 'The first few paragraphs lack conflict or tension words. Without a question or problem, the reader has no reason to continue.', fix: 'Introduce a source of tension within the first page — a question unanswered, a problem unsolved, something off or wrong.' });
+    }
+
+    // 7. No hook (first sentence doesn't raise a question or create intrigue)
+    const firstSentWords = firstSentence.split(/\s+/).length;
+    const hasQuestion = firstSentence.includes('?');
+    const hasConflict = /\b(but|never|wrong|last|only|couldn\'t|shouldn\'t|dead|blood|secret|lie|strange|impossible)\b/i.test(firstSentence);
+    const hasSpecificity = /\b[A-Z][a-z]{2,}\b/.test(firstSentence); // proper noun
+    if (!hasQuestion && !hasConflict && !hasSpecificity && firstSentWords > 5) {
+      problems.push({ id: 'nohook', severity: 'low', title: 'Weak First Sentence', desc: 'The first sentence doesn\'t raise a question, create intrigue, or introduce a specific character. It\'s generic.', fix: 'Your first sentence should make the reader ask "What?" or "Why?" — create intrigue, specificity, or a micro-mystery.' });
+    }
+
+    // 8. Telling emotions instead of showing
+    const tellingOpening = (openingLower.match(/\b(felt sad|felt happy|felt angry|felt nervous|felt scared|was angry|was happy|was sad|was nervous|was excited|was worried)\b/g) || []).length;
+    if (tellingOpening > 1) {
+      problems.push({ id: 'telling', severity: 'medium', title: 'Telling Emotions in Opening', desc: 'The opening tells the reader how characters feel instead of showing through action and dialogue.', fix: '"She was nervous" → "Her fingers drummed the table." Show emotion through body language and action.' });
+    }
+
+    // 9. Passive voice heavy opening
+    const passiveOpening = (opening.match(/\b(was|were|is|are|been|being)\s+(being\s+)?\w+(ed|en)\b/gi) || []).length;
+    if (passiveOpening > 3) {
+      problems.push({ id: 'passive', severity: 'low', title: 'Passive Opening', desc: passiveOpening + ' passive constructions in the opening. Passive voice creates distance and weakens the prose.', fix: 'Rewrite in active voice: "The door was opened by Sarah" → "Sarah opened the door."' });
+    }
+
+    // 10. Too long before something happens
+    const firstActionIdx = opening.search(/\b(said|walked|ran|grabbed|turned|opened|closed|stepped|shouted|whispered|pulled|pushed|hit|threw|caught|dropped)\b/i);
+    if (firstActionIdx > 500) {
+      problems.push({ id: 'slowstart', severity: 'medium', title: 'Slow Start', desc: 'Over 500 characters of text before any physical action occurs. The opening feels static.', fix: 'Move action earlier. Start your character doing something — even a small gesture creates forward motion.' });
+    }
+
+    // === GENRE-AWARE STRATEGIES ===
+    const g = genre.primary;
+
+    // Universal strategies
+    strategies.push({ title: 'Start Mid-Scene', desc: 'Drop the reader into a moment already in progress. No setup, no explanation. The reader catches up naturally.', example: 'Instead of: "John had been a detective for twenty years..." Try: "The body was still warm when John arrived."' });
+
+    strategies.push({ title: 'Open with Voice', desc: 'Let your character\'s personality come through immediately. A distinctive voice hooks readers faster than any plot.', example: 'Instead of: "Sarah was a baker who lived in Portland." Try: "The sourdough starter had been alive longer than any of Sarah\'s relationships, and she was fine with that."' });
+
+    // Genre-specific strategies
+    if (g === 'thriller' || g === 'mystery') {
+      strategies.push({ title: 'Start with the Crime/Threat', desc: 'Open with the inciting incident or its immediate aftermath. Don\'t build up to it — start there.', example: '"The phone rang at 3 AM. Nobody calls at 3 AM with good news."' });
+      strategies.push({ title: 'Clock Starts Ticking', desc: 'Establish a deadline in the first paragraph. Urgency = unputdownable.', example: '"In forty-eight hours, someone in this room would be dead. The detective just didn\'t know who yet."' });
+    }
+    if (g === 'romance') {
+      strategies.push({ title: 'The Meet-Cute Collision', desc: 'Open with the love interests meeting in an unexpected, memorable way. Chemistry on page one.', example: '"She\'d spilled coffee on worse people. But none of them had looked at her like that afterward."' });
+      strategies.push({ title: 'Establish the Want', desc: 'Show what your protagonist is missing or has sworn off. The reader needs to know what they need before they get it.', example: '"Three rules: no dating coworkers, no dating neighbors, and absolutely no dating anyone who smiled like that."' });
+    }
+    if (g === 'fantasy' || g === 'scifi') {
+      strategies.push({ title: 'Ground in the Familiar, Then Break It', desc: 'Start with something the reader recognizes, then reveal the one thing that\'s different about your world.', example: '"The market looked like any other — until you noticed the prices were listed in memories, not coins."' });
+      strategies.push({ title: 'Start with a Rule Being Broken', desc: 'Show the rules of your world by having someone violate them. Instant tension + worldbuilding.', example: '"Nobody crossed the Wall. That\'s what they said. That\'s what everyone believed. Until Mara did."' });
+    }
+    if (g === 'horror') {
+      strategies.push({ title: 'Something Is Wrong', desc: 'Open with normalcy that has one detail slightly off. The reader feels unease before they know why.', example: '"The house was exactly as she remembered it. Except for the door. The door was on the wrong side."' });
+      strategies.push({ title: 'Foreshadow the End', desc: 'Hint at what\'s coming. Let the reader dread it.', example: '"If I had known what was in the basement, I never would have rented the house. But I didn\'t know. Not then."' });
+    }
+    if (g === 'literary') {
+      strategies.push({ title: 'Open with an Image', desc: 'A single, vivid, surprising image that captures the thematic heart of the story.', example: '"The light that morning was the color of old photographs — warm and already fading."' });
+    }
+    if (g === 'historical') {
+      strategies.push({ title: 'Sensory Time Travel', desc: 'Don\'t tell the reader the year. Make them feel it through smell, sound, and texture.', example: '"The air tasted of coal smoke and horse. Sarah pulled her shawl tighter and pushed through the crowd toward the factory gates."' });
+    }
+    if (g === 'ya') {
+      strategies.push({ title: 'Authentic Teen Voice', desc: 'Sound like a real teenager — not an adult writing a teenager. Voice > plot in the first paragraph.', example: '"Three things I knew for sure: my mom was going to kill me, my best friend already hated me, and this was definitely the worst Tuesday of my life."' });
+    }
+
+    // Always add this one last
+    strategies.push({ title: 'The One-Sentence Test', desc: 'If a reader only reads your first sentence and decides whether to continue — does your first sentence earn the second?', example: 'Read your first sentence in isolation. Does it make you want to know more? If not, rewrite it until it does.' });
+
+    // Score the opening
+    const severityWeight = { high: 3, medium: 2, low: 1 };
+    const totalPenalty = problems.reduce((s, p) => s + severityWeight[p.severity], 0);
+    const openingScore = Math.max(0, Math.min(100, 100 - totalPenalty * 8));
+
+    return {
+      score: openingScore,
+      firstSentence,
+      firstParagraph: firstPara,
+      problems,
+      strategies,
+      genre: genre.primary
+    };
+  },
+
+  // ========================
   // GENRE-SPECIFIC SCANNERS
   // Each genre has "what good looks like" — we check for essential elements
   // ========================
@@ -1890,6 +2023,7 @@ const Analyzer = {
     const blurbs = this.generateBlurbs(text, characters, genre, mode);
     const scifiWorld = this.analyzeSciFiWorldbuilding(text, genre);
     const genreElements = this.analyzeGenreElements(text, genre);
+    const openingDiagnosis = this.diagnoseOpening(text, genre);
 
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const copyScore = this.scoreCopyEditing(allIssues, totalWords);
@@ -1926,7 +2060,7 @@ const Analyzer = {
         line: lineScore, style: style.score, dialogue: dialogue.score,
         showTell: showTellScore, grammar: 0
       },
-      writingQuality, lineEditing, blurbs, scifiWorld, genreElements,
+      writingQuality, lineEditing, blurbs, scifiWorld, genreElements, openingDiagnosis,
       plot, transitions, dialogue, style, sentenceVariety, readability,
       readerPerspective, pacing, characters,
       showTell: { score: showTellScore, issues: showTellIssues },

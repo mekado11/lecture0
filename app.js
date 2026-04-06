@@ -253,17 +253,9 @@ function renderLeft(r){
   }).join('');
   // Draw rings
   cards.forEach((c,i)=>{const cvs=document.querySelectorAll('.lpc-ring canvas')[i];if(cvs)drawRing(cvs,c.inv?100-c.score:c.score,40)});
-  // Improve Opening buttons - scroll to first paragraph and highlight
+  // Improve Opening buttons - open coaching panel
   document.querySelectorAll('.lpc-action').forEach(btn=>{btn.addEventListener('click',()=>{
-    // Switch to annotated tab
-    document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
-    document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
-    document.querySelector('.btab[data-p="annotated"]').classList.add('active');
-    $('ed-annotated').classList.add('active');
-    // Scroll to top and flash first paragraph
-    const page=$('ed-annotated');page.scrollTop=0;
-    const firstHL=page.querySelector('.hl');
-    if(firstHL){firstHL.scrollIntoView({behavior:'smooth',block:'center'});firstHL.style.outline='2px solid var(--gold)';firstHL.style.outlineOffset='2px';setTimeout(()=>{firstHL.style.outline=''},2000)}
+    showOpeningCoach();
   })});
 }
 
@@ -501,6 +493,94 @@ function renderReader(r){
   d.innerHTML=h;
 }
 function rc(t,s,c,desc){return '<div class="rdr-card"><h4>'+t+'</h4><div class="rdr-big" style="color:'+c+'">'+s+'/100</div><div class="rdr-bar"><div class="rdr-fill" style="width:'+s+'%;background:'+c+'"></div></div><div class="rdr-lbl">'+desc+'</div></div>'}
+
+// OPENING COACH
+function showOpeningCoach(){
+  if(!analysisResult)return;
+  const od=analysisResult.openingDiagnosis;
+  // Switch to a new panel view in the center
+  document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
+
+  // Create or reuse coach content
+  let coach=$('ed-coach');
+  if(!coach){coach=document.createElement('div');coach.id='ed-coach';coach.className='ms-page dark-page active';$('manuscript-scroll').appendChild(coach)}
+  else{coach.classList.add('active');coach.classList.add('dark-page')}
+
+  let h='<div style="max-width:700px;margin:0 auto">';
+
+  // Header
+  h+='<div class="a-sec" style="border-left:3px solid var(--red);margin-bottom:1rem"><h3>Opening Diagnosis <span style="color:'+sc(od.score)+'">'+od.score+'/100</span></h3>';
+  h+='<p style="font-size:.78rem;color:var(--muted);margin-bottom:.6rem">Your opening is the most important part of your manuscript. Here\'s what we found:</p>';
+
+  // Show the actual first sentence
+  h+='<div style="background:var(--parchment);color:var(--ink);padding:.8rem 1rem;border-radius:var(--rs);font-family:Lora,serif;font-size:.95rem;line-height:1.6;margin-bottom:.75rem">';
+  h+='<div style="font-size:.65rem;color:#666;margin-bottom:.3rem;font-family:Inter,sans-serif;text-transform:uppercase;letter-spacing:.5px">Your First Sentence:</div>';
+  h+=esc(od.firstSentence);
+  h+='</div>';
+  h+='</div>';
+
+  // Problems found
+  if(od.problems.length>0){
+    h+='<div class="a-sec" style="border-left:3px solid var(--yellow)"><h3>Problems Detected ('+od.problems.length+')</h3>';
+    od.problems.forEach(p=>{
+      const col=p.severity==='high'?'var(--red)':p.severity==='medium'?'var(--yellow)':'var(--muted)';
+      const sev=p.severity==='high'?'CRITICAL':p.severity==='medium'?'IMPORTANT':'MINOR';
+      h+='<div style="margin-bottom:.75rem;padding-bottom:.75rem;border-bottom:1px solid var(--border)">';
+      h+='<div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.2rem"><span style="font-size:.6rem;font-weight:700;color:'+col+';background:'+col+'15;padding:.1rem .4rem;border-radius:3px">'+sev+'</span><strong style="font-size:.85rem">'+esc(p.title)+'</strong></div>';
+      h+='<p style="font-size:.78rem;color:var(--muted);margin-bottom:.3rem;line-height:1.5">'+esc(p.desc)+'</p>';
+      h+='<div style="font-size:.78rem;color:var(--green);background:var(--surface2);padding:.4rem .6rem;border-radius:var(--rs);border-left:2px solid var(--green)"><strong>Fix:</strong> '+esc(p.fix)+'</div>';
+      h+='</div>';
+    });
+    h+='</div>';
+  }else{
+    h+='<div class="a-sec" style="border-left:3px solid var(--green)"><h3 style="color:var(--green)">No Major Problems Found</h3><p style="font-size:.8rem;color:var(--muted)">Your opening avoids the most common pitfalls. Check the strategies below to make it even stronger.</p></div>';
+  }
+
+  // Strategies
+  h+='<div class="a-sec"><h3>Opening Strategies for '+esc(analysisResult.genre.label)+'</h3>';
+  h+='<p style="font-size:.72rem;color:var(--muted);margin-bottom:.6rem">Try rewriting your opening using one of these approaches:</p>';
+  od.strategies.forEach((s,i)=>{
+    h+='<div style="margin-bottom:.75rem;padding:.6rem .8rem;background:var(--surface2);border-radius:var(--rs);border-left:3px solid var(--gold)">';
+    h+='<div style="font-size:.82rem;font-weight:700;color:var(--gold-l);margin-bottom:.2rem">'+(i+1)+'. '+esc(s.title)+'</div>';
+    h+='<p style="font-size:.78rem;color:var(--muted);margin-bottom:.3rem;line-height:1.5">'+esc(s.desc)+'</p>';
+    h+='<div style="font-size:.8rem;font-family:Lora,serif;color:var(--text);background:var(--surface);padding:.4rem .6rem;border-radius:var(--rs);font-style:italic;line-height:1.6">'+esc(s.example)+'</div>';
+    h+='</div>';
+  });
+  h+='</div>';
+
+  // Show first paragraph for editing
+  h+='<div class="a-sec"><h3>Your Current Opening</h3>';
+  h+='<p style="font-size:.72rem;color:var(--muted);margin-bottom:.5rem">Edit directly below, then click "Re-analyze" to see your improved score:</p>';
+  h+='<div id="coach-editor" contenteditable="true" style="background:var(--parchment);color:var(--ink);padding:1rem 1.2rem;border-radius:var(--rs);font-family:Lora,serif;font-size:.95rem;line-height:1.8;min-height:120px;outline:1px solid var(--gold-d);outline-offset:2px">'+esc(od.firstParagraph)+'</div>';
+  h+='<div style="display:flex;gap:.4rem;margin-top:.6rem"><button class="btn-gold" id="coach-apply" style="width:auto;padding:.45rem 1.2rem;font-size:.8rem">Apply Changes & Re-analyze</button><button class="btn-dark" id="coach-back" style="font-size:.8rem">Back to Manuscript</button></div>';
+  h+='</div>';
+
+  h+='</div>'; // close max-width wrapper
+  coach.innerHTML=h;
+
+  // Button handlers
+  $('coach-apply')?.addEventListener('click',()=>{
+    const newOpening=$('coach-editor').textContent;
+    const oldFirst=od.firstParagraph;
+    // Replace the first paragraph in the extracted text
+    const idx=extractedText.indexOf(oldFirst);
+    if(idx>=0){extractedText=newOpening+extractedText.substring(idx+oldFirst.length)}
+    else{extractedText=newOpening+'\n\n'+extractedText}
+    // Re-analyze
+    analysisResult=Analyzer.analyze(extractedText);
+    if(!analysisResult.error)renderAll();
+    // Switch back to annotated
+    coach.classList.remove('active');
+    document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
+    $('ed-annotated')?.classList.add('active');
+  });
+  $('coach-back')?.addEventListener('click',()=>{
+    coach.classList.remove('active');
+    document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
+    $('ed-annotated')?.classList.add('active');
+  });
+}
 
 // BLURBS
 function renderBlurbs(r){
