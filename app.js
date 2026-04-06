@@ -144,43 +144,55 @@ function replaceAndFix(hlElement){
     else{replacement=original} // keep original, writer decides
   }else if(type==='sentence-length'){
     mode='split';
-    // Actually split the sentence at the best break point
     let text=original;
-    // Try splitting at ", and ", ", but ", ", or ", "; ", " - "
-    const splitPoints=[/, and\s/i,/, but\s/i,/, or\s/i,/;\s/,/ — /,/ - /,/, which\s/i,/, where\s/i,/, when\s/i];
-    let best=-1,bestPattern=null;
     const midpoint=text.length/2;
-    for(const pat of splitPoints){
-      const m=text.match(pat);
-      if(m){
-        const pos=text.indexOf(m[0]);
-        // Prefer splits closer to the middle of the sentence
-        if(best===-1||Math.abs(pos-midpoint)<Math.abs(best-midpoint)){best=pos;bestPattern=m[0]}
+
+    // Phase 1: Try splitting at comma+conjunction (strongest break)
+    const phase1=[/, and\s/i,/, but\s/i,/, or\s/i,/;\s/,/ — /,/ -- /];
+    // Phase 2: Bare conjunctions (no comma)
+    const phase2=[/\s+and\s+/i,/\s+but\s+/i,/\s+or\s+/i];
+    // Phase 3: Relative/subordinate clauses
+    const phase3=[/\s+who\s+/i,/\s+which\s+/i,/\s+where\s+/i,/\s+when\s+/i,/\s+that\s+/i,/\s+while\s+/i,/\s+although\s+/i,/\s+because\s+/i];
+    // Phase 4: Any comma at all
+    const phase4=[/,\s+/];
+
+    function findBestSplit(patterns,minPos){
+      let best=-1,bestPat=null;
+      for(const pat of patterns){
+        const r=new RegExp(pat.source,'gi');
+        let m;
+        while((m=r.exec(text))!==null){
+          const pos=m.index;
+          if(pos<(minPos||15)||pos>text.length-15)continue;
+          if(best===-1||Math.abs(pos-midpoint)<Math.abs(best-midpoint)){best=pos;bestPat=m[0]}
+        }
       }
+      return {pos:best,pat:bestPat};
     }
-    if(best>10&&best<text.length-10){
-      // Split here: end first part with period, capitalize second part
-      const part1=text.substring(0,best).trim();
-      let connector=bestPattern.trim();
-      let part2=text.substring(best+bestPattern.length).trim();
+
+    let split=findBestSplit(phase1,15);
+    if(split.pos===-1)split=findBestSplit(phase2,20);
+    if(split.pos===-1)split=findBestSplit(phase3,20);
+    if(split.pos===-1)split=findBestSplit(phase4,15);
+
+    if(split.pos>10){
+      const splitStr=split.pat;
+      const part1=text.substring(0,split.pos).trim();
+      let part2=text.substring(split.pos+splitStr.length).trim();
       // Capitalize first letter of part2
-      part2=part2.charAt(0).toUpperCase()+part2.slice(1);
-      // Remove leading conjunction from part2 if the split was at ", and"
-      if(connector.startsWith(','))connector='';
-      // Build result: first sentence ends with period, second starts fresh
-      const p1end=part1.endsWith('.')||part1.endsWith('!')||part1.endsWith('?')?'':'.';
+      if(part2.length>0)part2=part2.charAt(0).toUpperCase()+part2.slice(1);
+      // Add period to part1 if it doesn't end with punctuation
+      const p1end=/[.!?]$/.test(part1)?'':'.';
       replacement=part1+p1end+' '+part2;
+      // Clean up: if part2 starts with "and "/"but " from a bare conjunction split, keep it
     }else{
-      // Fallback: split at nearest comma after midpoint
-      const commaPos=text.indexOf(',',Math.floor(midpoint*0.6));
-      if(commaPos>10){
-        const p1=text.substring(0,commaPos).trim()+'.';
-        let p2=text.substring(commaPos+1).trim();
-        p2=p2.charAt(0).toUpperCase()+p2.slice(1);
-        replacement=p1+' '+p2;
-      }else{
-        replacement=original; // truly can't split
-      }
+      // Last resort: hard split near midpoint at a word boundary
+      const words=text.split(/\s+/);
+      const halfIdx=Math.floor(words.length/2);
+      const p1=words.slice(0,halfIdx).join(' ').trim()+'.';
+      let p2=words.slice(halfIdx).join(' ').trim();
+      if(p2.length>0)p2=p2.charAt(0).toUpperCase()+p2.slice(1);
+      replacement=p1+' '+p2;
     }
   }
 
@@ -346,6 +358,35 @@ function renderReader(r){
   h+='<div class="rdr-card"><h4>Pacing</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.pacingFeel)+'</p></div>';
   h+='<div class="rdr-card"><h4>Verdict</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.overallVerdict)+'</p></div>';
   h+='</div>';
+  // Writing Quality Engine breakdown
+  if(r.writingQuality){
+    const wq=r.writingQuality;
+    h+='<div class="a-sec"><h3>Writing Quality Engine <span style="color:'+sc(wq.overall)+'">'+wq.overall+'/100</span></h3>';
+    h+='<p style="font-size:.75rem;color:var(--muted);margin-bottom:.5rem">Algorithmic assessment: clarity, discipline, efficiency, engagement, momentum</p>';
+    const metrics=[
+      {name:'Clarity',score:wq.clarityScore,desc:'Direct, easy to follow, no unnecessary complexity'},
+      {name:'Discipline',score:wq.disciplineScore,desc:'Tight prose, no filler words, strong verbs'},
+      {name:'Efficiency',score:wq.efficiencyScore,desc:'High meaning-to-word ratio, no over-explanation'},
+      {name:'Engagement',score:wq.engagementScore,desc:'Maintains curiosity, sensory language, avoids info dumps'},
+      {name:'Momentum',score:wq.momentumScore,desc:'Forward motion, no excessive backstory or stalling'}
+    ];
+    metrics.forEach(m=>{
+      h+='<div style="margin-bottom:.4rem"><div style="display:flex;justify-content:space-between;font-size:.78rem;margin-bottom:.15rem"><span>'+m.name+'</span><span style="color:'+sc(m.score)+';font-weight:700">'+m.score+'/100</span></div><div class="rdr-bar"><div class="rdr-fill" style="width:'+m.score+'%;background:'+sc(m.score)+'"></div></div><div style="font-size:.65rem;color:var(--dim)">'+m.desc+'</div></div>';
+    });
+    // Specific findings
+    const d=wq.details;
+    if(d.fillerWords>0||d.hedgeWords>0||d.weakOpenings>0){
+      h+='<div style="margin-top:.5rem;padding:.4rem;background:var(--surface2);border-radius:var(--rs);font-size:.72rem;color:var(--muted)">';
+      if(d.fillerWords>0)h+='<div>Filler words found: <strong style="color:var(--yellow)">'+d.fillerWords+'</strong> ('+d.fillerRate+' per 1000 words)</div>';
+      if(d.hedgeWords>0)h+='<div>Hedge phrases: <strong style="color:var(--yellow)">'+d.hedgeWords+'</strong> ("seemed to", "began to", etc.)</div>';
+      if(d.weakOpenings>0)h+='<div>Weak openings: <strong style="color:var(--red)">'+d.weakOpenings+'</strong> ("It was", "There was")</div>';
+      if(d.infoDumps>0)h+='<div>Potential info dumps: <strong style="color:var(--red)">'+d.infoDumps+'</strong></div>';
+      if(d.overExplain>0)h+='<div>Over-explanations: <strong style="color:var(--yellow)">'+d.overExplain+'</strong></div>';
+      if(d.sensoryWords>0)h+='<div>Sensory words: <strong style="color:var(--green)">'+d.sensoryWords+'</strong> (good for immersion)</div>';
+      h+='</div>';
+    }
+    h+='</div>';
+  }
   const ec={exciting:'#c0392b',tense:'#f39c12',sad:'#2980b9',calm:'#27ae60',hopeful:'#8e44ad'};
   h+='<div class="a-sec"><h3>Emotional Journey</h3>';
   rp.emotionalJourney.forEach(e=>{h+='<div class="emo-row"><span class="emo-name">'+e.emotion+'</span><div class="emo-track"><div class="emo-fill" style="width:'+e.intensity+'%;background:'+(ec[e.emotion]||'#888')+'"></div></div><span style="font-size:.62rem;color:var(--muted);width:35px">'+e.intensity+'%</span></div>'});
