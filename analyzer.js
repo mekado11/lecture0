@@ -360,91 +360,157 @@ const Analyzer = {
   },
 
   // ========================
-  // GENRE DETECTION (FIXED)
+  // GENRE DETECTION - FULL SPECTRUM
   // ========================
   detectGenre(text) {
     const lower = text.toLowerCase();
-    const scores = { fiction: 0, scifi: 0, nonfiction: 0, fantasy: 0, thriller: 0 };
-
-    // Sci-fi indicators
-    const scifiWords = ['spaceship','galaxy','planet','alien','robot','android','laser',
-      'cybernetic','hologram','warp','hyperspace','terraforming','quantum','nanobots',
-      'dystopia','utopia','cyborg','artificial intelligence','starship','colonize',
-      'interstellar','dimension','futuristic','simulation','clone','mutation','spacecraft',
-      'colony','station','reactor','orbit','shuttle','faster-than-light','light-year',
-      'star system','solar system','asteroid','nebula','federation','empire','credits',
-      'ai ','neural','implant','augment','mech','drone','sentient','biotech','nanotech',
-      'cryosleep','cryo','fold','jump drive','wormhole','singularity','exodus',
-      'outpost','off-world','deep space','outer rim','sector','docking','airlock',
-      'centauri','proxima','europa','mars','titan','cargo ship','pilot','crew',
-      'radiation','oxygen','atmosphere','habitat','terraformed','genetically','engineered',
-      'holographic','transmission','signal','beacon','distress','protocol'];
-    scifiWords.forEach(w => { if (lower.includes(w)) scores.scifi += 3; });
-
-    // Fantasy indicators
-    const fantasyWords = ['dragon','wizard','magic','sword','kingdom','castle','spell',
-      'enchanted','elf','dwarf','quest','prophecy','sorcerer','mythical','realm',
-      'throne','potion','wand','goblin','troll','knight','ancient'];
-    fantasyWords.forEach(w => { if (lower.includes(w)) scores.fantasy += 3; });
-
-    // Thriller indicators
-    const thrillerWords = ['murder','detective','suspect','crime','investigate','weapon',
-      'victim','witness','chase','escape','danger','threat','conspiracy','assassin',
-      'knife','gun','blood','shadow','followed','stalked'];
-    thrillerWords.forEach(w => { if (lower.includes(w)) scores.thriller += 3; });
-
-    // Fiction indicators - IMPROVED
+    const scores = {};
     const dialogueCount = (text.match(/[""\u201C][^""\u201D]*[""\u201D]/g) || []).length;
-    if (dialogueCount > 3) scores.fiction += 15;
-    if (dialogueCount > 10) scores.fiction += 10;
-    if (dialogueCount > 20) scores.fiction += 10;
-
-    // Narrative past tense patterns (strong fiction signal)
     const narrativePatterns = (text.match(/\b(he|she|they|it)\s+(said|walked|looked|turned|stood|sat|ran|felt|knew|thought|asked|whispered|replied|nodded|shook|grabbed|pulled|pushed|stepped|moved|watched|stared|smiled|laughed|cried|screamed|shouted|muttered|sighed|gasped|frowned)\b/gi) || []).length;
-    if (narrativePatterns > 3) scores.fiction += 15;
-    if (narrativePatterns > 10) scores.fiction += 10;
 
-    // Sensory/emotional language (fiction signal)
-    const sensoryWords = ['heart pounding','eyes narrowing','hands trembling','voice steady',
-      'breath caught','stomach churned','skin crawled','blood ran cold','pulse racing',
-      'tears','sobbed','grinned','smirked','scowled','grimaced','shuddered','flinched'];
-    sensoryWords.forEach(w => { if (lower.includes(w)) scores.fiction += 2; });
+    // Helper: count keyword hits
+    const countHits = (words) => words.reduce((n, w) => n + (lower.includes(w) ? 1 : 0), 0);
 
-    // Character names (proper nouns appearing multiple times)
+    // ---- FICTION GENRES ----
+
+    // Science Fiction
+    scores.scifi = countHits(['spaceship','galaxy','planet','alien','robot','android','laser','cybernetic','hologram','warp','hyperspace','terraforming','quantum','nanobots','dystopia','utopia','cyborg','artificial intelligence','starship','colonize','interstellar','futuristic','simulation','clone','mutation','spacecraft','colony','reactor','orbit','shuttle','faster-than-light','star system','asteroid','nebula','federation','neural','implant','drone','sentient','biotech','nanotech','cryosleep','wormhole','singularity','outpost','off-world','deep space','radiation','oxygen','atmosphere','habitat','cargo ship','beacon','protocol']) * 3;
+
+    // Fantasy
+    scores.fantasy = countHits(['dragon','wizard','magic','sword','kingdom','castle','spell','enchanted','elf','dwarf','quest','prophecy','sorcerer','mythical','realm','throne','potion','wand','goblin','troll','knight','ancient','mage','conjure','enchantment','dark lord','chosen one','amulet','artifact','magical','fae','faerie','elven','dwarven','orc','demon','summoner','necromancer','warlock','paladin','arcane','rune','scroll','staff','cloak','dungeon','tower','forest','enchanted forest','dark magic','blood magic']) * 3;
+
+    // Romance
+    scores.romance = countHits(['love','kiss','heart','passion','desire','romance','attraction','chemistry','relationship','boyfriend','girlfriend','husband','wife','wedding','marriage','swoon','embrace','caress','longing','yearning','soulmate','first love','falling for','butterflies','date','dating','proposal','heartbreak','second chance','enemies to lovers','slow burn','forbidden love']) * 3;
+    // Dialogue + emotional language boost for romance
+    if (dialogueCount > 10 && scores.romance > 5) scores.romance += 10;
+
+    // Thriller & Suspense
+    scores.thriller = countHits(['murder','detective','suspect','crime','investigate','weapon','victim','witness','chase','escape','danger','threat','conspiracy','assassin','knife','gun','blood','shadow','followed','stalked','hostage','ransom','bomb','undercover','agent','CIA','FBI','operative','target','surveillance','sniper','intel','classified','deadline','ticking','countdown','betrayal','double-cross']) * 3;
+
+    // Mystery & Crime
+    scores.mystery = countHits(['clue','murder','detective','suspect','alibi','evidence','crime scene','forensic','investigation','whodunit','corpse','body','motive','red herring','sleuth','case','solved','unsolved','inspector','witness','testimony','interrogation','confession']) * 3;
+
+    // Horror & Paranormal
+    scores.horror = countHits(['horror','terror','ghost','haunted','demon','possession','curse','evil','nightmare','scream','blood','gore','undead','zombie','vampire','werewolf','creature','monster','dark','shadow','dread','fear','spine','chill','supernatural','paranormal','poltergeist','exorcism','ritual','sacrifice','occult','séance','crypt','cemetery','grave','asylum']) * 3;
+
+    // Historical Fiction
+    scores.historical = countHits(['century','era','reign','king','queen','emperor','duke','duchess','lord','lady','manor','estate','carriage','horse','musket','cannon','regiment','soldier','battle','treaty','colony','colonial','plantation','slavery','abolition','suffrage','revolution','civil war','victorian','medieval','renaissance','tudor','regency','edwardian','ancient rome','ancient greece','war of','the great war','prohibition','depression','1800s','1900s']) * 3;
+
+    // Dystopian
+    scores.dystopian = countHits(['dystopia','dystopian','regime','totalitarian','surveillance','oppression','freedom','rebellion','resistance','uprising','control','propaganda','citizen','subject','district','zone','sector','ration','curfew','forbidden','outlawed','compliance','dissent','underground','escape','wall','barrier','test','trial','chosen','sorted','selected','engineered','modified']) * 3;
+    // Dystopian is close to sci-fi, boost if both present
+    if (scores.dystopian > 5 && scores.scifi > 5) scores.dystopian += 10;
+
+    // Young Adult
+    scores.ya = countHits(['school','high school','college','teenager','teen','prom','homework','parents','mom','dad','best friend','crush','locker','cafeteria','bully','popular','cool kids','first time','growing up','coming of age','sixteen','seventeen','eighteen','graduation','summer break']) * 3;
+
+    // Literary Fiction (harder to detect - focus on style markers)
+    scores.literary = 0;
+    const avgSentLen = text.split(/[.!?]+/).filter(s=>s.trim()).length;
+    const uniqueWords = new Set((text.match(/\b[a-z]+\b/g)||[]).map(w=>w.toLowerCase()));
+    const lexDiv = uniqueWords.size / Math.max(text.split(/\s+/).length, 1);
+    if (lexDiv > 0.55) scores.literary += 10;
+    if (narrativePatterns > 10 && dialogueCount < 5) scores.literary += 8; // heavy narration, light dialogue
+    if (countHits(['metaphor','silence','memory','light','shadow','weight','absence','longing','reflection','consciousness','identity','solitude','meaning','truth','beauty','time','loss']) > 4) scores.literary += 10;
+
+    // Romantasy (Romance + Fantasy)
+    scores.romantasy = 0;
+    if (scores.romance > 10 && scores.fantasy > 10) scores.romantasy = Math.round((scores.romance + scores.fantasy) * 0.6);
+
+    // Cozy Mystery
+    scores.cozyMystery = 0;
+    if (scores.mystery > 5 && countHits(['cat','dog','bakery','bookshop','cafe','village','neighbor','garden','knitting','baking','tea','cozy','small town','amateur','curious']) > 2) scores.cozyMystery = scores.mystery + 10;
+
+    // Adventure
+    scores.adventure = countHits(['adventure','journey','treasure','map','expedition','discover','explore','survive','wild','jungle','island','mountain','ocean','ship','sail','pirate','cave','danger','quest','navigate','compass','voyage']) * 3;
+
+    // Western
+    scores.western = countHits(['cowboy','ranch','saloon','sheriff','outlaw','frontier','prairie','desert','horse','cattle','revolver','duel','marshal','gunfight','posse','wanted','stagecoach','gold rush','homestead','rustler']) * 3;
+
+    // ---- NON-FICTION GENRES ----
+
+    // Memoir & Autobiography
+    scores.memoir = 0;
+    const firstPersonCount = (text.match(/\bI\b/g) || []).length;
+    const totalWords = text.split(/\s+/).length;
+    if (firstPersonCount / totalWords > 0.03 && countHits(['remember','childhood','grew up','my mother','my father','my family','looking back','years later','in those days','my life','i was born','memoir','autobiography']) > 2) scores.memoir = 20 + countHits(['remember','childhood','grew up','my mother','my father','my family','looking back','years later','in those days','my life']) * 3;
+
+    // Self-Help
+    scores.selfHelp = countHits(['habit','mindset','productivity','goal','success','motivation','strategy','step-by-step','exercise','practice','technique','improve','transform','achieve','overcome','chapter summary','action item','takeaway','framework','principle','rule','tip']) * 3;
+
+    // Biography
+    scores.biography = 0;
+    if (countHits(['born in','early life','career','legacy','death of','the life of','biography','biographical','his life','her life','contributions','achievements','influential']) > 3) scores.biography = 15;
+
+    // History (non-fiction)
+    scores.historyNF = countHits(['historical','historian','archaeological','document','primary source','secondary source','archive','century','era','civilization','dynasty','empire','colony','revolution','according to records','historians believe','evidence suggests']) * 3;
+
+    // True Crime
+    scores.trueCrime = 0;
+    if (countHits(['true crime','real-life','case file','investigation','detective','police report','forensic','convicted','trial','prosecution','defense','jury','verdict','sentence','prison','parole','cold case','serial','perpetrator']) > 3) scores.trueCrime = 15;
+
+    // Philosophy & Religion
+    scores.philosophy = countHits(['philosophy','philosophical','existence','consciousness','morality','ethics','belief','faith','spiritual','divine','sacred','theology','metaphysics','epistemology','ontology','existential','nihilism','stoicism','mindfulness','meditation','soul','enlightenment']) * 3;
+
+    // General fiction signals
+    let fictionBase = 0;
+    if (dialogueCount > 3) fictionBase += 15;
+    if (dialogueCount > 10) fictionBase += 10;
+    if (narrativePatterns > 3) fictionBase += 15;
+    if (narrativePatterns > 10) fictionBase += 10;
     const properNouns = text.match(/\b[A-Z][a-z]{2,}\b/g) || [];
     const nameFreq = {};
     properNouns.forEach(n => { nameFreq[n] = (nameFreq[n] || 0) + 1; });
-    const recurringNames = Object.values(nameFreq).filter(c => c >= 3).length;
-    if (recurringNames >= 2) scores.fiction += 10;
+    if (Object.values(nameFreq).filter(c => c >= 3).length >= 2) fictionBase += 10;
 
-    // Nonfiction indicators (FIXED - removed ambiguous words)
-    const nonfictionWords = ['research','study','according to','evidence','data','analysis',
-      'conclusion','hypothesis','methodology','statistics','furthermore','therefore',
-      'consequently','in conclusion'];
-    nonfictionWords.forEach(w => { if (lower.includes(w)) scores.nonfiction += 3; });
+    // Nonfiction base signals
+    let nfBase = countHits(['research','study','according to','evidence','data','analysis','conclusion','hypothesis','methodology','statistics','furthermore','therefore','consequently','in conclusion']) * 3;
+    if ((text.match(/^\d+\.\s/gm) || []).length > 3) nfBase += 8;
+    if ((text.match(/\(\d{4}\)/g) || []).length > 2) nfBase += 10;
 
-    // Academic/formal structure
-    const hasNumberedSections = (text.match(/^\d+\.\s/gm) || []).length > 3;
-    const hasCitations = (text.match(/\(\d{4}\)/g) || []).length > 2;
-    if (hasNumberedSections) scores.nonfiction += 8;
-    if (hasCitations) scores.nonfiction += 10;
+    // Determine winner
+    // Fiction genres get fiction base added
+    const fictionGenres = ['scifi','fantasy','romance','thriller','mystery','horror','historical','dystopian','ya','literary','romantasy','cozyMystery','adventure','western'];
+    fictionGenres.forEach(g => { if (scores[g] > 0) scores[g] += fictionBase; });
 
-    // Determine primary genre - default to fiction when ambiguous
+    // Nonfiction genres get nf base added
+    const nfGenres = ['memoir','selfHelp','biography','historyNF','trueCrime','philosophy'];
+    nfGenres.forEach(g => { if (scores[g] > 0) scores[g] += nfBase; });
+
+    // Add fallback fiction/nonfiction
+    scores.fiction = fictionBase;
+    scores.nonfiction = nfBase;
+
+    // Sort and pick winner
     const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
     let primary = sorted[0][1] > 0 ? sorted[0][0] : 'fiction';
 
-    // If fiction-family genres win, check sub-genre
-    if (['scifi','fantasy','thriller'].includes(primary)) {
-      // These are sub-genres of fiction, keep them
-    } else if (primary === 'nonfiction' && scores.fiction >= scores.nonfiction * 0.6) {
-      primary = 'fiction'; // Fiction signals close enough, default to fiction
+    // If nonfiction wins but fiction signals are strong, default to fiction
+    if (['nonfiction','historyNF','biography'].includes(primary) && fictionBase >= nfBase * 0.6) {
+      primary = 'fiction';
     }
 
     const genreLabels = {
       fiction:'Fiction', scifi:'Science Fiction', nonfiction:'Nonfiction',
-      fantasy:'Fantasy', thriller:'Thriller/Mystery'
+      fantasy:'Fantasy', thriller:'Thriller/Suspense', mystery:'Mystery/Crime',
+      horror:'Horror/Paranormal', historical:'Historical Fiction',
+      dystopian:'Dystopian', ya:'Young Adult', literary:'Literary Fiction',
+      romance:'Romance', romantasy:'Romantasy', cozyMystery:'Cozy Mystery',
+      adventure:'Adventure', western:'Western',
+      memoir:'Memoir/Autobiography', selfHelp:'Self-Help',
+      biography:'Biography', historyNF:'History (Non-Fiction)',
+      trueCrime:'True Crime', philosophy:'Philosophy/Religion'
     };
-    return { primary, label: genreLabels[primary], scores };
+
+    // Also detect secondary genre
+    const secondary = sorted[1] && sorted[1][1] > 5 ? sorted[1][0] : null;
+
+    return {
+      primary,
+      label: genreLabels[primary] || primary,
+      secondary: secondary ? genreLabels[secondary] || secondary : null,
+      scores
+    };
   },
 
   // ========================
@@ -1272,6 +1338,115 @@ const Analyzer = {
   // then assembles 5 blurb variations. Only runs in book mode.
   // ========================
   // ========================
+  // GENRE-SPECIFIC SCANNERS
+  // Each genre has "what good looks like" — we check for essential elements
+  // ========================
+  analyzeGenreElements(text, genre) {
+    const primary = genre.primary;
+    const lower = text.toLowerCase();
+    const countHits = (words) => words.reduce((n, w) => n + (lower.includes(w) ? 1 : 0), 0);
+    const countAll = (words) => words.reduce((n, w) => n + ((lower.match(new RegExp('\\b' + w + '\\b', 'g')) || []).length), 0);
+
+    // Define elements per genre
+    const genreElements = {
+      romance: {
+        name: 'Romance',
+        elements: [
+          { name: 'Meet-Cute / Introduction', check: () => countHits(['met','first time','noticed','caught my eye','walked in','stranger','new','arrived']) > 1, tip: 'How do the love interests meet? Make the first encounter memorable.' },
+          { name: 'Chemistry & Attraction', check: () => countHits(['heart','pulse','breath','skin','lips','eyes','smile','touch','close','warmth','electricity','tension','aware']) > 3, tip: 'Show physical and emotional chemistry through sensory detail, not just telling.' },
+          { name: 'Obstacles to Love', check: () => countHits(['but','however','couldn\'t','shouldn\'t','wrong','forbidden','complicated','secret','lie','past','fear','trust','distance','rival']) > 3, tip: 'What keeps them apart? The best romances have internal AND external obstacles.' },
+          { name: 'Emotional Vulnerability', check: () => countHits(['afraid','scared','trust','hurt','pain','wall','guard','open up','let in','vulnerable','honest','truth','confess','admit']) > 2, tip: 'Characters must become emotionally vulnerable. Walls coming down = reader investment.' },
+          { name: 'Resolution / HEA', check: () => countHits(['together','love','forever','always','finally','happy','smile','home','future','promise','yes','stay','chose','choice']) > 2, tip: 'Romance readers expect a satisfying emotional payoff — HEA (Happily Ever After) or HFN (Happy For Now).' }
+        ]
+      },
+      thriller: {
+        name: 'Thriller/Suspense',
+        elements: [
+          { name: 'Ticking Clock', check: () => countHits(['time','deadline','hours','minutes','before','too late','running out','countdown','hurry','race','must','now']) > 2, tip: 'Create urgency. Give the protagonist a deadline that raises stakes with every passing moment.' },
+          { name: 'Escalating Stakes', check: () => countHits(['worse','escalat','danger','threat','kill','death','lose','everything','no way out','trapped','closing in']) > 3, tip: 'Each chapter should raise the stakes higher. What starts as a problem should become life-or-death.' },
+          { name: 'Cliffhanger Chapter Endings', check: () => { const paras = text.split(/\n\s*\n/); const hooks = paras.filter(p => /[?!]$|but\b|however\b|suddenly\b|then\b/.test(p.trim())); return hooks.length > paras.length * 0.3; }, tip: 'End chapters on cliffhangers. The reader should NEED to turn the page.' },
+          { name: 'Red Herrings / Misdirection', check: () => countHits(['seemed','appeared','thought','assumed','believed','suspected','wrong','mislead','deceive','trick','real','actually','truth']) > 3, tip: 'Plant false leads. Make the reader suspect the wrong person or solution.' },
+          { name: 'Twist / Revelation', check: () => countHits(['reveal','truth','real','actually','all along','never','secret','discovered','realized','impossible','can\'t believe']) > 2, tip: 'A great thriller needs at least one major twist that reframes everything the reader thought they knew.' }
+        ]
+      },
+      mystery: {
+        name: 'Mystery/Crime',
+        elements: [
+          { name: 'Crime / Puzzle Setup', check: () => countHits(['murder','dead','body','crime','missing','stolen','disappear','found','scene','victim']) > 2, tip: 'Establish the crime or mystery clearly. The reader needs to know what question they\'re trying to answer.' },
+          { name: 'Clues Planted Fairly', check: () => countHits(['noticed','found','detail','evidence','clue','mark','trace','fingerprint','witness','saw','heard','remembered']) > 3, tip: 'Plant clues the reader can find. A fair mystery gives the reader a chance to solve it before the detective does.' },
+          { name: 'Suspect Pool', check: () => countHits(['suspect','alibi','motive','could have','might have','accused','questioned','interrogat','interview','denied','admitted']) > 2, tip: 'Create at least 3-4 viable suspects, each with motive and opportunity.' },
+          { name: 'Red Herrings', check: () => countHits(['seemed','appeared','wrong','mislead','innocent','wasn\'t','actually','surprise']) > 2, tip: 'Plant false leads that logically misdirect without cheating the reader.' },
+          { name: 'Satisfying Reveal', check: () => countHits(['reveal','truth','real','killer','guilty','confession','proof','solved','answer','finally']) > 1, tip: 'The reveal should be surprising yet inevitable — the clues were there all along.' }
+        ]
+      },
+      horror: {
+        name: 'Horror/Paranormal',
+        elements: [
+          { name: 'Atmosphere & Dread', check: () => countHits(['dark','shadow','silence','cold','chill','creep','whisper','echo','empty','alone','watching','presence','something','beneath','behind']) > 4, tip: 'Build dread through atmosphere. The scariest moments happen BEFORE the monster appears.' },
+          { name: 'The Unknown / Threat', check: () => countHits(['what was','something','creature','thing','it','shape','figure','form','sound','noise','movement','can\'t explain','impossible','shouldn\'t']) > 3, tip: 'What you don\'t show is scarier than what you do. Keep the threat partially hidden.' },
+          { name: 'Isolation', check: () => countHits(['alone','isolated','trapped','no one','nowhere','cut off','no signal','no help','locked','stranded','abandoned']) > 2, tip: 'Isolation amplifies fear. Remove escape routes, allies, and communication.' },
+          { name: 'Escalating Terror', check: () => countHits(['worse','more','again','louder','closer','faster','stronger','spread','growing','intensif']) > 2, tip: 'Each encounter should be more terrifying than the last. Build a crescendo of horror.' },
+          { name: 'Sensory Horror', check: () => countHits(['smell','taste','touch','wet','slick','sticky','rot','decay','metallic','copper','bile','flesh','bone','cold','burning']) > 2, tip: 'Engage all five senses. Horror lives in the visceral, physical experience.' }
+        ]
+      },
+      historical: {
+        name: 'Historical Fiction',
+        elements: [
+          { name: 'Period Setting Detail', check: () => countHits(['century','era','year','period','age','ancient','medieval','victorian','colonial','war','reign','king','queen','lord','lady','manor','estate']) > 3, tip: 'Ground the reader in the specific time period through setting details that could only exist then.' },
+          { name: 'Period-Appropriate Language', check: () => countHits(['sir','madam','thy','thou','pray tell','indeed','forthwith','honour','favour','carriage','horse','candle','servant','master','good sir','my lord','my lady']) > 2, tip: 'Language should feel authentic without being incomprehensible. Avoid modern slang.' },
+          { name: 'Historical Events/Context', check: () => countHits(['war','battle','treaty','revolution','plague','famine','king','queen','emperor','decree','law','rebellion','independence','reform']) > 2, tip: 'Weave real historical events into your narrative to ground the fiction in reality.' },
+          { name: 'Social Dynamics', check: () => countHits(['class','rank','station','proper','improper','scandal','reputation','duty','honor','marriage','dowry','arrangement','society','customs']) > 2, tip: 'Show how social class, gender, and race shaped daily life differently than today.' },
+          { name: 'Sensory Period Detail', check: () => countHits(['candle','lamp','fire','horse','cobblestone','dust','smoke','ink','parchment','leather','wool','silk','bread','ale','wine']) > 2, tip: 'What did the era smell, taste, and sound like? Period-specific sensory details create immersion.' }
+        ]
+      },
+      ya: {
+        name: 'Young Adult',
+        elements: [
+          { name: 'Teen Protagonist', check: () => countHits(['school','sixteen','seventeen','eighteen','freshman','sophomore','junior','senior','teenager','teen','young']) > 1, tip: 'YA protagonists should be 12-18. Their voice and concerns must feel authentically teen.' },
+          { name: 'Coming-of-Age Theme', check: () => countHits(['growing up','first time','learned','discovered','realized','changed','understand','identity','who I am','belong','fit in','different']) > 2, tip: 'YA is about becoming. What is your character learning about themselves and the world?' },
+          { name: 'Accessible Readability', check: () => { const fk = Analyzer.fleschKincaid(text); return fk.grade < 10; }, tip: 'YA readability should target grade 6-9. Keep sentences clear and vocabulary accessible.' },
+          { name: 'Peer Relationships', check: () => countHits(['friend','best friend','group','crew','squad','team','together','loyalty','betrayal','popular','outcast','belong','alone']) > 2, tip: 'Friendships and peer dynamics are as important as romance in YA.' },
+          { name: 'Stakes That Feel World-Ending', check: () => countHits(['everything','never','forever','destroy','lose','end','impossible','can\'t','won\'t','refuse','fight']) > 2, tip: 'Teen emotions are intense. What feels like a small problem to adults should feel catastrophic to your character.' }
+        ]
+      },
+      literary: {
+        name: 'Literary Fiction',
+        elements: [
+          { name: 'Prose Quality', check: () => { const uniq = new Set((text.match(/\b[a-z]+\b/g)||[]).map(w=>w.toLowerCase())); return uniq.size / Math.max(text.split(/\s+/).length,1) > 0.5; }, tip: 'Literary fiction lives in the quality of each sentence. Every word should be precise and intentional.' },
+          { name: 'Interiority', check: () => countAll(['thought','felt','wondered','remembered','realized','considered','reflected','mused','recalled','imagined']) > 5, tip: 'Literary fiction goes deep into character consciousness. Show us what they think and feel, not just what happens.' },
+          { name: 'Thematic Depth', check: () => countHits(['meaning','truth','beauty','loss','time','memory','identity','belonging','freedom','death','love','silence','absence','weight','light','shadow']) > 4, tip: 'Literary fiction explores themes. What is your story really about, beneath the plot?' },
+          { name: 'Subtext', check: () => countHits(['unsaid','between','beneath','silence','pause','glance','hint','implied','unspoken','hidden','surface','underneath']) > 2, tip: 'What\'s NOT said is as important as what is. Create moments where meaning lives between the lines.' },
+          { name: 'Distinctive Voice', check: () => { const fk = Analyzer.fleschKincaid(text); return fk.grade > 8; }, tip: 'Literary fiction rewards a distinctive authorial voice. Don\'t flatten your style to be "accessible."' }
+        ]
+      }
+    };
+
+    const scanner = genreElements[primary];
+    if (!scanner) return { applicable: false, genre: primary };
+
+    const results = scanner.elements.map(el => ({
+      name: el.name,
+      present: el.check(),
+      tip: el.tip
+    }));
+
+    const presentCount = results.filter(r => r.present).length;
+    const score = Math.round(presentCount / results.length * 100);
+    const missing = results.filter(r => !r.present);
+
+    return {
+      applicable: true,
+      genre: primary,
+      genreName: scanner.name,
+      score,
+      presentCount,
+      totalElements: results.length,
+      elements: results,
+      guidance: missing.map(m => ({ element: m.name, tip: m.tip }))
+    };
+  },
+
+  // ========================
   // SCI-FI WORLDBUILDING SCANNER
   // Checks for the 7 essential elements of sci-fi worldbuilding.
   // Only runs when genre is detected as Science Fiction.
@@ -1714,6 +1889,7 @@ const Analyzer = {
     const characters = this.analyzeCharacters(text);
     const blurbs = this.generateBlurbs(text, characters, genre, mode);
     const scifiWorld = this.analyzeSciFiWorldbuilding(text, genre);
+    const genreElements = this.analyzeGenreElements(text, genre);
 
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const copyScore = this.scoreCopyEditing(allIssues, totalWords);
@@ -1750,7 +1926,7 @@ const Analyzer = {
         line: lineScore, style: style.score, dialogue: dialogue.score,
         showTell: showTellScore, grammar: 0
       },
-      writingQuality, lineEditing, blurbs, scifiWorld,
+      writingQuality, lineEditing, blurbs, scifiWorld, genreElements,
       plot, transitions, dialogue, style, sentenceVariety, readability,
       readerPerspective, pacing, characters,
       showTell: { score: showTellScore, issues: showTellIssues },

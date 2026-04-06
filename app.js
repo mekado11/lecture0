@@ -52,7 +52,7 @@ function renderAll(){
   const r=analysisResult;
   $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
   $('top-wc').textContent=r.totalWords.toLocaleString();
-  $('top-status').textContent=r.genre.label+' \u00B7 '+r.manuscriptMode.label;
+  $('top-status').textContent=r.genre.label+(r.genre.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+r.manuscriptMode.label;
   drawGauge(r.overall);
   renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderBlurbs(r);renderVersions();
   // Save version
@@ -401,6 +401,25 @@ function renderDetailed(r){
   h+='<div class="a-sec"><h3>Pacing Heatmap</h3><div class="hm-wrap">'+r.pacing.segments.map((s,i)=>'<div class="hm-blk" style="background:'+cols[s.type]+'" title="Seg '+(i+1)+': '+s.type+'"></div>').join('')+'</div><div class="hm-leg"><span><span class="hm-dot" style="background:#c0392b"></span>Action</span><span><span class="hm-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="hm-dot" style="background:#27ae60"></span>Description</span><span><span class="hm-dot" style="background:#f39c12"></span>Exposition</span><span><span class="hm-dot" style="background:#8e44ad"></span>Reflection</span></div></div>'}
   // Characters
   if(r.characters.list.length>0){const mx=Math.max(...r.characters.list.map(c=>c.mentions));h+='<div class="a-sec"><h3>Characters</h3><div class="ch-grid">'+r.characters.list.map(c=>'<div class="ch-card"><div class="ch-name">'+esc(c.name)+'</div><div class="ch-cnt">'+c.mentions+' mentions</div><div class="ch-bar"><div class="ch-fill" style="width:'+Math.round(c.mentions/mx*100)+'%"></div></div></div>').join('')+'</div></div>'}
+  // Genre-Specific Elements Scanner
+  if(r.genreElements&&r.genreElements.applicable){
+    const ge=r.genreElements;
+    h+='<div class="a-sec" style="border-left:3px solid var(--gold)"><h3>'+esc(ge.genreName)+' Elements <span style="color:'+sc(ge.score)+'">'+ge.score+'/100</span></h3>';
+    h+='<p style="font-size:.72rem;color:var(--muted);margin-bottom:.5rem">'+ge.presentCount+'/'+ge.totalElements+' essential elements detected in your manuscript.</p>';
+    ge.elements.forEach(el=>{
+      const col=el.present?'var(--green)':'var(--red)';
+      const icon=el.present?'\u2713':'\u2717';
+      h+='<div style="display:flex;align-items:flex-start;gap:.5rem;padding:.35rem 0;border-bottom:1px solid var(--border)">';
+      h+='<span style="color:'+col+';font-weight:700;font-size:.85rem;min-width:16px">'+icon+'</span>';
+      h+='<div style="flex:1"><div style="font-size:.78rem;font-weight:600;color:'+(el.present?'var(--text)':'var(--muted)')+'">'+esc(el.name)+'</div>';
+      if(!el.present)h+='<div style="font-size:.68rem;color:var(--yellow);margin-top:.1rem;line-height:1.4">'+esc(el.tip)+'</div>';
+      h+='</div></div>';
+    });
+    if(ge.guidance.length>0){
+      h+='<div style="margin-top:.5rem;padding:.4rem .5rem;background:var(--surface2);border-radius:var(--rs);font-size:.7rem;color:var(--muted)"><strong style="color:var(--gold-l)">Focus areas:</strong> '+ge.guidance.map(g=>g.element).join(', ')+'</div>';
+    }
+    h+='</div>';
+  }
   // Sci-Fi Worldbuilding Scanner
   if(r.scifiWorld&&r.scifiWorld.applicable){
     const sw=r.scifiWorld;
