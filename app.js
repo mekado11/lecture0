@@ -66,50 +66,138 @@ function replaceAndFix(hlElement){
   const suggestion=hlElement.dataset.s||'';
   const original=hlElement.textContent;
   let replacement='';
+  let mode='replace'; // 'replace', 'remove', 'split'
 
-  // Determine real replacement based on issue type
   if(type==='weak-verb'){
-    // "Try: strode, ambled, trudged" -> pick first
     const m=suggestion.match(/Try:\s*(.+)/i);
     replacement=m?m[1].split(',')[0].trim():original;
   }else if(type==='wordy'){
-    // 'Replace with: "to"' -> extract
     const m=suggestion.match(/Replace with:\s*"(.+?)"/i);
     replacement=m?m[1]:'';
-    if(replacement==='(omit)'||replacement==='(omit or rephrase)')replacement='';
+    if(replacement==='(omit)'||replacement==='(omit or rephrase)'){replacement='';mode='remove'}
+    else if(!replacement){mode='remove';replacement=''}
   }else if(type==='passive'){
-    // Passive voice: rewrite "was being followed" -> "someone followed her"
-    // Best we can do without AI: remove "was/were being" wrapper
     replacement=original.replace(/\b(was|were)\s+(being\s+)?/i,'').trim();
-    if(replacement===original) replacement=original; // can't auto-fix, leave
   }else if(type==='adverb'){
-    // Remove the adverb entirely (e.g. "walked slowly" -> "walked")
-    replacement='';
+    replacement='';mode='remove';
   }else if(type==='cliche'){
-    replacement='[rewrite needed]';
+    // Map common cliches to plain alternatives
+    const fixes={
+      'the calm before the storm':'the tense quiet before everything changed',
+      'crystal clear':'completely obvious','like a punch to the gut':'a sudden shock',
+      'hit her like':'struck her as','hit him like':'struck him as',
+      'at the end of the day':'ultimately','few and far between':'rare',
+      'in the nick of time':'just barely in time','beat around the bush':'avoid the point',
+      'bite the bullet':'face it directly','break the ice':'ease the tension',
+      'cold as ice':'frigid','cool as a cucumber':'completely calm',
+      'dead as a doornail':'lifeless','easy as pie':'effortless',
+      'heart of gold':'genuinely kind','piece of cake':'simple',
+      'once in a blue moon':'very rarely','under the weather':'feeling ill',
+      'tip of the iceberg':'only the surface','needle in a haystack':'nearly impossible to find',
+      'on thin ice':'in a precarious position','raining cats and dogs':'pouring rain',
+      'the elephant in the room':'the obvious unspoken issue',
+      'water under the bridge':'already past','head over heels':'completely captivated',
+      'every cloud has a silver lining':'there is an upside',
+      'butterflies in my stomach':'a nervous flutter',
+      'light at the end of the tunnel':'a sign of hope ahead',
+      'back to the drawing board':'starting over','add insult to injury':'making it worse',
+      'caught between a rock and a hard place':'trapped with no good option'
+    };
+    const lo=original.toLowerCase().trim();
+    replacement=fixes[lo]||Object.entries(fixes).find(([k])=>lo.includes(k))?.[1]||'';
+    if(!replacement){
+      // Generic: strip the cliche structure, keep core meaning
+      replacement=original.replace(/\b(like|as)\s+a\s+/gi,'').trim();
+      if(replacement===original)replacement=original+' [replace with original phrasing]';
+    }
   }else if(type==='show-tell'){
-    // "felt afraid" -> remove "felt" filter word
     replacement=original.replace(/\b(felt|feeling|could feel|could sense|could tell|could see|obviously|clearly|evidently|apparently)\s*/i,'').trim();
-    if(!replacement)replacement=original;
+    if(!replacement||replacement===original){
+      // "was beautiful" -> "beautiful" (let writer expand into showing)
+      replacement=original.replace(/\b(was|were|seemed|looked)\s+/i,'').trim();
+    }
   }else if(type==='repetition'){
-    // Can't auto-fix repetition meaningfully
-    replacement=original;
+    // Provide a synonym from a basic map
+    const synonyms={
+      'said':['stated','mentioned','noted','remarked'],
+      'looked':['glanced','peered','gazed','watched'],
+      'walked':['moved','strode','made their way','went'],
+      'made':['created','produced','crafted','formed'],
+      'came':['arrived','appeared','emerged','approached'],
+      'went':['headed','moved','traveled','proceeded'],
+      'here':['this place','this spot','nearby','in this location'],
+      'there':['that place','that spot','in that direction'],
+      'very':['extremely','remarkably','incredibly','deeply'],
+      'really':['truly','genuinely','absolutely','certainly'],
+      'just':['simply','merely','only','precisely'],
+      'back':['returned','again','behind','rear'],
+      'time':['moment','occasion','instance','period'],
+      'eyes':['gaze','stare','glance','look'],
+      'hand':['palm','grip','fingers','fist'],
+      'face':['expression','features','countenance','visage'],
+      'dark':['dim','shadowed','unlit','gloomy'],
+      'door':['entrance','doorway','threshold','entry']
+    };
+    const lo=original.toLowerCase().trim();
+    const syns=synonyms[lo];
+    if(syns){replacement=syns[Math.floor(Math.random()*syns.length)]}
+    else{replacement=original} // keep original, writer decides
   }else if(type==='sentence-length'){
-    // Can't split sentences automatically without AI
-    replacement=original;
+    mode='split';
+    // Actually split the sentence at the best break point
+    let text=original;
+    // Try splitting at ", and ", ", but ", ", or ", "; ", " - "
+    const splitPoints=[/, and\s/i,/, but\s/i,/, or\s/i,/;\s/,/ — /,/ - /,/, which\s/i,/, where\s/i,/, when\s/i];
+    let best=-1,bestPattern=null;
+    const midpoint=text.length/2;
+    for(const pat of splitPoints){
+      const m=text.match(pat);
+      if(m){
+        const pos=text.indexOf(m[0]);
+        // Prefer splits closer to the middle of the sentence
+        if(best===-1||Math.abs(pos-midpoint)<Math.abs(best-midpoint)){best=pos;bestPattern=m[0]}
+      }
+    }
+    if(best>10&&best<text.length-10){
+      // Split here: end first part with period, capitalize second part
+      const part1=text.substring(0,best).trim();
+      let connector=bestPattern.trim();
+      let part2=text.substring(best+bestPattern.length).trim();
+      // Capitalize first letter of part2
+      part2=part2.charAt(0).toUpperCase()+part2.slice(1);
+      // Remove leading conjunction from part2 if the split was at ", and"
+      if(connector.startsWith(','))connector='';
+      // Build result: first sentence ends with period, second starts fresh
+      const p1end=part1.endsWith('.')||part1.endsWith('!')||part1.endsWith('?')?'':'.';
+      replacement=part1+p1end+' '+part2;
+    }else{
+      // Fallback: split at nearest comma after midpoint
+      const commaPos=text.indexOf(',',Math.floor(midpoint*0.6));
+      if(commaPos>10){
+        const p1=text.substring(0,commaPos).trim()+'.';
+        let p2=text.substring(commaPos+1).trim();
+        p2=p2.charAt(0).toUpperCase()+p2.slice(1);
+        replacement=p1+' '+p2;
+      }else{
+        replacement=original; // truly can't split
+      }
+    }
   }
 
   // Apply the replacement
   const span=document.createElement('span');
   span.className='fix-applied';
-  if(replacement===original||replacement==='[rewrite needed]'){
-    // Can't auto-fix: strikethrough original and show note
-    span.innerHTML='<s style="opacity:.5">'+esc(original)+'</s> <em style="color:var(--gold);font-size:.85em">[needs manual rewrite]</em>';
-  }else if(replacement===''){
-    // Delete the word (adverb removed, wordy phrase omitted)
-    span.innerHTML='<span style="color:var(--green);font-size:.75em;background:rgba(93,186,125,.15);padding:1px 4px;border-radius:3px">removed: "'+esc(original)+'"</span>';
+  if(replacement===original){
+    // Truly can't fix - but still useful, highlight it for the writer
+    span.innerHTML='<span style="outline:2px dashed var(--gold);outline-offset:2px;padding:1px 2px">'+esc(original)+'</span>';
+    span.title='This needs a manual rewrite - click to edit directly';
+  }else if(mode==='remove'||replacement===''){
+    span.textContent=''; // just remove it
   }else{
-    // Show the fix: strikethrough old, bold new
+    // Show the replacement directly (clean, no strikethrough clutter)
+    span.textContent=replacement;
+    span.style.color='#2d6b45';span.style.fontWeight='600';
+  }
     span.innerHTML='<s style="opacity:.4;font-size:.9em">'+esc(original)+'</s> <strong style="color:var(--green);background:rgba(93,186,125,.12);padding:1px 4px;border-radius:3px">'+esc(replacement)+'</strong>';
   }
   hlElement.replaceWith(span);
