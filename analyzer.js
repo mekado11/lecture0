@@ -3,6 +3,52 @@
 const Analyzer = {
 
   // ========================
+  // MANUSCRIPT MODE DETECTION
+  // ========================
+  detectMode(text) {
+    const words = (text.match(/\b\w+\b/g) || []).length;
+    const lower = text.toLowerCase();
+
+    // Check for chapter headings
+    const chapterHeadings = (text.match(/^(chapter\s+\d+|chapter\s+[a-z]+|part\s+\d+|part\s+[a-z]+)/gim) || []).length;
+    // Scene breaks
+    const sceneBreaks = (text.match(/\n\s*(\*\s*\*\s*\*|---|\* \* \*|#)\s*\n/g) || []).length;
+    // Estimated pages (~250 words/page)
+    const estPages = Math.round(words / 250);
+
+    let mode = 'chapter'; // default
+    let confidence = 'auto';
+
+    if (chapterHeadings >= 3) {
+      mode = 'book';
+    } else if (words > 25000) {
+      mode = 'book';
+    } else if (words > 8000 && (chapterHeadings >= 1 || sceneBreaks >= 3)) {
+      mode = 'book';
+    } else if (words < 1500) {
+      mode = 'excerpt';
+    } else {
+      mode = 'chapter';
+    }
+
+    const modeLabels = {
+      excerpt: 'Excerpt / Scene',
+      chapter: 'Chapter',
+      book: 'Full Manuscript'
+    };
+
+    return {
+      mode,
+      label: modeLabels[mode],
+      confidence,
+      wordCount: words,
+      estPages,
+      chapterHeadings,
+      sceneBreaks
+    };
+  },
+
+  // ========================
   // PASSIVE VOICE DETECTION
   // ========================
   PASSIVE_PATTERNS: [
@@ -396,11 +442,11 @@ const Analyzer = {
   // ========================
   // PLOT STRUCTURE ANALYSIS
   // ========================
-  analyzePlot(text) {
+  analyzePlot(text, mode) {
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const totalParagraphs = paragraphs.length;
     if (totalParagraphs < 3) {
-      return { score: 50, arc: 'too-short', details: 'Text too short for meaningful plot analysis.', hasRisingAction: false, hasClimax: false, hasResolution: false, paragraphCount: totalParagraphs, quarters: [] };
+      return { score: 50, arc: 'too-short', details: 'Text too short for plot analysis.', hasRisingAction: false, hasClimax: false, hasResolution: false, hasCliffhanger: false, hasSceneGoal: false, paragraphCount: totalParagraphs, quarters: [] };
     }
     const tensionWords = ['but','however','suddenly','unfortunately','despite','conflict',
       'struggle','fight','danger','threat','problem','challenge','crisis','desperate',
@@ -420,22 +466,49 @@ const Analyzer = {
       resolutionWords.forEach(w => { const m = section.match(new RegExp(`\\b${w}\\b`, 'g')); if (m) resolution += m.length; });
       quarters.push({ tension, resolution, wordCount: section.split(/\s+/).length });
     }
-    let score = 60;
     const hasRisingAction = quarters[1].tension > quarters[0].tension;
     const hasClimax = quarters[2].tension >= quarters[1].tension || quarters[2].tension >= quarters[0].tension;
     const hasResolution = quarters[3].resolution > quarters[2].resolution || quarters[3].tension < quarters[2].tension;
-    if (hasRisingAction) score += 12;
-    if (hasClimax) score += 12;
-    if (hasResolution) score += 12;
+
+    // Chapter-level: check for scene goal and cliffhanger ending
+    const lastPara = paragraphs[paragraphs.length - 1].toLowerCase();
+    const hasCliffhanger = /\?$/.test(lastPara.trim()) || /\b(but|however|suddenly|then|until|never|everything changed)\b/.test(lastPara);
+    const firstPara = paragraphs[0].toLowerCase();
+    const hasSceneGoal = /\b(need|must|had to|wanted|determined|searching|looking for|trying to)\b/.test(firstPara);
+
+    let score = 60;
+    if (mode === 'chapter' || mode === 'excerpt') {
+      // Chapter mode: score micro-arc (scene goal, tension build, cliffhanger)
+      // Do NOT penalize for missing resolution — chapters should leave things open
+      if (hasSceneGoal) score += 10;
+      if (hasRisingAction) score += 10;
+      if (hasClimax) score += 8;
+      if (hasCliffhanger) score += 12; // reward cliffhanger endings
+      // Resolution is neutral in chapter mode (not penalized, small bonus if present)
+      if (hasResolution) score += 3;
+    } else {
+      // Book mode: full arc expected
+      if (hasRisingAction) score += 12;
+      if (hasClimax) score += 12;
+      if (hasResolution) score += 12;
+    }
     const wordCounts = quarters.map(q => q.wordCount);
     const avgWords = wordCounts.reduce((a, b) => a + b, 0) / 4;
     const paceVariance = wordCounts.reduce((sum, w) => sum + Math.pow(w - avgWords, 2), 0) / 4;
     if (paceVariance < avgWords * avgWords * 0.25) score += 4;
+
     let arcType = 'flat';
-    if (hasRisingAction && hasClimax && hasResolution) arcType = 'classic';
-    else if (hasRisingAction && hasClimax) arcType = 'rising';
-    else if (hasResolution) arcType = 'resolution-focused';
-    return { score: Math.min(100, Math.max(0, score)), arc: arcType, quarters, hasRisingAction, hasClimax, hasResolution, paragraphCount: totalParagraphs };
+    if (mode === 'chapter' || mode === 'excerpt') {
+      if (hasSceneGoal && hasRisingAction && hasCliffhanger) arcType = 'strong-scene';
+      else if (hasRisingAction && hasCliffhanger) arcType = 'building';
+      else if (hasRisingAction) arcType = 'rising';
+      else if (hasCliffhanger) arcType = 'hook-ending';
+    } else {
+      if (hasRisingAction && hasClimax && hasResolution) arcType = 'classic';
+      else if (hasRisingAction && hasClimax) arcType = 'rising';
+      else if (hasResolution) arcType = 'resolution-focused';
+    }
+    return { score: Math.min(100, Math.max(0, score)), arc: arcType, quarters, hasRisingAction, hasClimax, hasResolution, hasCliffhanger, hasSceneGoal, paragraphCount: totalParagraphs };
   },
 
   // ========================
@@ -606,7 +679,7 @@ const Analyzer = {
   // ========================
   // READER'S PERSPECTIVE
   // ========================
-  analyzeReaderPerspective(text) {
+  analyzeReaderPerspective(text, mode) {
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const totalWords = text.split(/\s+/).length;
     const lower = text.toLowerCase();
@@ -692,12 +765,27 @@ const Analyzer = {
       emotion, intensity: Math.round(count / maxEmotion * 100)
     }));
 
-    // DNF Risk
-    let dnfRisk = 30; // base
-    if (hookStrength < 50) dnfRisk += 20;
-    if (avgParaLen > 120) dnfRisk += 15;
-    if (clarityScore < 60) dnfRisk += 15;
-    if (emotionalConnection < 20) dnfRisk += 10;
+    // DNF Risk - mode-aware
+    let dnfRisk = 30;
+    if (mode === 'book') {
+      // For books: first chapter hook is critical, pacing across the whole matters
+      if (hookStrength < 50) dnfRisk += 25;
+      if (avgParaLen > 120) dnfRisk += 15;
+      if (clarityScore < 60) dnfRisk += 15;
+      if (emotionalConnection < 20) dnfRisk += 10;
+    } else if (mode === 'chapter') {
+      // For chapters: does this chapter make you want to read the next one?
+      // Ending hook matters more than opening
+      const lastPara = paragraphs[paragraphs.length - 1] || '';
+      const endHook = /[?!]$/.test(lastPara.trim()) || /\b(but|however|suddenly|then|never|everything)\b/i.test(lastPara);
+      if (!endHook) dnfRisk += 20;
+      if (avgParaLen > 150) dnfRisk += 10;
+      if (emotionalConnection < 15) dnfRisk += 10;
+    } else {
+      // Excerpt: just basic quality checks
+      if (hookStrength < 40) dnfRisk += 15;
+      if (clarityScore < 50) dnfRisk += 10;
+    }
     dnfRisk = Math.min(100, Math.max(5, dnfRisk));
 
     // Overall verdict
@@ -877,6 +965,10 @@ const Analyzer = {
       return { error: 'Text too short for meaningful analysis. Please provide at least a few paragraphs.' };
     }
 
+    // Detect manuscript mode first
+    const manuscriptMode = this.detectMode(text);
+    const mode = manuscriptMode.mode;
+
     const passiveIssues = this.findPassiveVoice(text);
     const adverbIssues = this.findAdverbs(text);
     const clicheIssues = this.findCliches(text);
@@ -892,14 +984,15 @@ const Analyzer = {
       ...longSentenceIssues, ...showTellIssues
     ].sort((a, b) => a.index - b.index);
 
-    const plot = this.analyzePlot(text);
+    // Pass mode to mode-aware analyzers
+    const plot = this.analyzePlot(text, mode);
     const transitions = this.analyzeTransitions(text);
     const dialogue = this.analyzeDialogue(text);
     const style = this.analyzeStyle(text);
     const sentenceVariety = this.analyzeSentenceVariety(text);
     const readability = this.fleschKincaid(text);
     const genre = this.detectGenre(text);
-    const readerPerspective = this.analyzeReaderPerspective(text);
+    const readerPerspective = this.analyzeReaderPerspective(text, mode);
     const pacing = this.analyzePacing(text);
     const characters = this.analyzeCharacters(text);
 
@@ -927,8 +1020,11 @@ const Analyzer = {
       writingQuality.momentumScore * 0.05
     );
 
+    // Issue density normalized per 1000 words
+    const issuesPerK = Math.round(allIssues.length / Math.max(totalWords, 1) * 1000 * 10) / 10;
+
     return {
-      overall, genre, totalWords,
+      overall, genre, totalWords, manuscriptMode, issuesPerK,
       scores: {
         plot: plot.score, transitions: transitions.score, copy: copyScore,
         line: lineScore, style: style.score, dialogue: dialogue.score,

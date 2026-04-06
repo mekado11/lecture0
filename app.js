@@ -52,7 +52,7 @@ function renderAll(){
   const r=analysisResult;
   $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
   $('top-wc').textContent=r.totalWords.toLocaleString();
-  $('top-status').textContent=r.genre.label;
+  $('top-status').textContent=r.genre.label+' \u00B7 '+r.manuscriptMode.label;
   drawGauge(r.overall);
   renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderVersions();
   // Save version
@@ -328,9 +328,23 @@ function renderAnnotated(text,issues){
 // DETAILED
 function renderDetailed(r){
   const d=$('ed-detailed');d.className='ms-page dark-page';
-  const pl={classic:'Classic arc (rising action, climax, resolution)',rising:'Rising tension, resolution needs work','resolution-focused':'Strong resolution, rising action weak',flat:'Flat tension curve',  'too-short':'Too short for plot analysis'};
+  const isChapter=r.manuscriptMode.mode==='chapter'||r.manuscriptMode.mode==='excerpt';
+  const pl={
+    classic:'Classic arc (rising action, climax, resolution)',rising:'Rising tension, resolution needs work',
+    'resolution-focused':'Strong resolution, rising action weak',flat:isChapter?'Flat scene — add a clearer scene goal or tension build':'Flat tension curve — add more conflict',
+    'too-short':'Too short for plot analysis',
+    'strong-scene':'Strong scene arc (goal, tension, cliffhanger)',
+    'building':'Tension builds well through the chapter',
+    'hook-ending':'Effective cliffhanger ending — pulls reader forward'
+  };
   let h='';
-  h+=sec('Plot Structure',r.scores.plot,[pl[r.plot.arc]||'',sr('Rising Action',r.plot.hasRisingAction?'Yes':'Weak'),sr('Climax',r.plot.hasClimax?'Yes':'Weak'),sr('Resolution',r.plot.hasResolution?'Yes':'Weak')]);
+  const plotLabel=isChapter?'Scene Structure':'Plot Structure';
+  const plotRows=[pl[r.plot.arc]||'',sr('Rising Action',r.plot.hasRisingAction?'Yes':'Weak')];
+  if(isChapter){plotRows.push(sr('Scene Goal',r.plot.hasSceneGoal?'Detected':'Missing'));plotRows.push(sr('Cliffhanger',r.plot.hasCliffhanger?'Yes — strong chapter ending':'No — consider a hook'))}
+  else{plotRows.push(sr('Climax',r.plot.hasClimax?'Yes':'Weak'));plotRows.push(sr('Resolution',r.plot.hasResolution?'Yes':'Weak'))}
+  plotRows.push(sr('Mode',r.manuscriptMode.label+' (~'+r.manuscriptMode.estPages+' pages)'));
+  plotRows.push(sr('Issues/1K words',r.issuesPerK));
+  h+=sec(plotLabel,r.scores.plot,plotRows);
   h+=sec('Transitions',r.scores.transitions,[r.transitions.smoothRate+'% smooth',sr('Transition Words',r.transitions.transitionsUsed),sr('Smooth',r.transitions.smoothTransitions+'/'+(r.transitions.totalParagraphs-1))]);
   h+=sec('Copy Editing',r.scores.copy,[r.issues.length+' issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell'])]);
   h+=sec('Line Editing',r.scores.line,[sr('Readability Grade',r.readability.grade),sr('Flesch Ease',r.readability.ease+'/100'),sr('Sentence Variety',r.sentenceVariety.score+'/100')]);
