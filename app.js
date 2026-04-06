@@ -369,7 +369,33 @@ function renderDetailed(r){
   lineRows.push(sr('Flesch Ease',r.readability.ease+'/100'));
   h+=sec('Line Editing',r.scores.line,lineRows);
   h+=sec('Style & Voice',r.scores.style,[sr('POV',r.style.pov),sr('Lexical Diversity',r.style.lexicalDiversity+'/100'),sr('Unique Words',r.style.uniqueWords.toLocaleString())]);
-  h+=sec('Dialogue',r.scores.dialogue,[r.dialogue.count===0?'No dialogue detected.':'',sr('Lines',r.dialogue.count),sr('Ratio',r.dialogue.ratio+'/100')]);
+  // Dialogue (deep analysis)
+  const dl=r.dialogue;
+  const dlRows=[dl.count===0?'No dialogue detected.':''];
+  dlRows.push(sr('Lines',dl.count));dlRows.push(sr('Ratio',dl.ratio+'% of text'));
+  if(dl.count>0){
+    dlRows.push(sr('Tag Discipline',dl.tagDiscipline+'/100'));
+    dlRows.push(sr('Conciseness',dl.conciseness+'/100'));
+    dlRows.push(sr('Show Not Tell',dl.showNotTell+'/100'));
+    dlRows.push(sr('Purposefulness',dl.purposefulness+'/100'));
+    dlRows.push(sr('Naturalness',dl.naturalness+'/100'));
+    dlRows.push(sr('Avg Line Length',dl.avgLength+' words'));
+    dlRows.push(sr('Length Variety',dl.lengthVariety||0));
+    dlRows.push(sr('"Said/Asked" Rate',dl.saidRatio+'%'));
+    if(dl.exoticTags>0)dlRows.push(sr('Exotic Tags',dl.exoticTags));
+    if(dl.adverbTags>0)dlRows.push(sr('Adverb Tags',dl.adverbTags));
+    if(dl.smallTalk>0)dlRows.push(sr('Small Talk Lines',dl.smallTalk));
+    // Findings
+    if(dl.findings&&dl.findings.length>0){
+      dlRows.push('<div style="margin-top:.4rem;border-top:1px solid var(--border);padding-top:.4rem">');
+      dl.findings.forEach(f=>{
+        const col=f.severity==='high'?'var(--red)':f.severity==='medium'?'var(--yellow)':'var(--muted)';
+        dlRows.push('<div style="font-size:.72rem;color:'+col+';padding:.2rem 0;border-bottom:1px solid var(--border)">'+esc(f.message)+'</div>');
+      });
+      dlRows.push('</div>');
+    }
+  }
+  h+=sec('Dialogue',r.scores.dialogue,dlRows);
   // Pacing heatmap
   if(r.pacing){const cols={action:'#c0392b',dialogue:'#2980b9',description:'#27ae60',exposition:'#f39c12',reflection:'#8e44ad'};
   h+='<div class="a-sec"><h3>Pacing Heatmap</h3><div class="hm-wrap">'+r.pacing.segments.map((s,i)=>'<div class="hm-blk" style="background:'+cols[s.type]+'" title="Seg '+(i+1)+': '+s.type+'"></div>').join('')+'</div><div class="hm-leg"><span><span class="hm-dot" style="background:#c0392b"></span>Action</span><span><span class="hm-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="hm-dot" style="background:#27ae60"></span>Description</span><span><span class="hm-dot" style="background:#f39c12"></span>Exposition</span><span><span class="hm-dot" style="background:#8e44ad"></span>Reflection</span></div></div>'}

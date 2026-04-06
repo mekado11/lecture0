@@ -554,25 +554,154 @@ const Analyzer = {
     const dialogueMatches = text.match(/[""\u201C][^""\u201D]*[""\u201D]/g) || [];
     const dialogueCount = dialogueMatches.length;
     const totalWords = text.split(/\s+/).length;
-    if (dialogueCount === 0) return { score: 50, count: 0, ratio: 0, tags: {}, saidRatio: 0, avgLength: 0 };
+    const lower = text.toLowerCase();
+    const findings = [];
+
+    if (dialogueCount === 0) return {
+      score: 50, count: 0, ratio: 0, tags: {}, saidRatio: 0, avgLength: 0,
+      tagDiscipline: 50, conciseness: 50, showNotTell: 50, purposefulness: 50, naturalness: 50,
+      findings: [{ type: 'dialogue', severity: 'medium', message: 'No dialogue detected. If this is fiction, dialogue is one of the fastest ways to pull readers into a moment.' }]
+    };
+
     const dialogueWords = dialogueMatches.reduce((sum, d) => sum + d.split(/\s+/).length, 0);
     const ratio = dialogueWords / totalWords;
+
+    // === TAG DISCIPLINE ===
+    // Good dialogue uses "said"/"asked" (invisible tags) and beats (action) instead of exotic tags
+    let tagDiscipline = 100;
     const tagPatterns = text.match(/[""\u201D]\s*(said|asked|whispered|shouted|muttered|replied|exclaimed|declared|murmured|yelled|cried|answered|stated|remarked|noted|suggested|demanded|insisted|pleaded|warned|admitted|announced|argued|claimed|complained|confirmed|denied|explained|observed|protested|responded|sighed|snapped|stammered)\b/gi) || [];
     const tags = {};
     tagPatterns.forEach(t => { const verb = t.replace(/[""\u201D]\s*/, '').toLowerCase(); tags[verb] = (tags[verb] || 0) + 1; });
-    const saidCount = tags['said'] || 0;
+    const saidAskedCount = (tags['said'] || 0) + (tags['asked'] || 0);
     const totalTags = tagPatterns.length;
-    const saidRatio = totalTags > 0 ? saidCount / totalTags : 0;
-    let score = 65;
-    if (ratio > 0.1 && ratio < 0.5) score += 10;
-    if (Object.keys(tags).length > 3) score += 10;
-    if (saidRatio < 0.7) score += 10;
-    if (saidRatio > 0.85) score -= 10;
-    const lengths = dialogueMatches.map(d => d.split(/\s+/).length);
+    const saidRatio = totalTags > 0 ? saidAskedCount / totalTags : 0;
+    // Exotic tags (not said/asked)
+    const exoticTags = totalTags - saidAskedCount;
+    const exoticRatio = totalTags > 0 ? exoticTags / totalTags : 0;
+    if (exoticRatio > 0.5) {
+      tagDiscipline -= 20;
+      findings.push({ type: 'tags', severity: 'medium', message: 'Over-decorated dialogue tags: ' + exoticTags + '/' + totalTags + ' are exotic ("exclaimed", "murmured", etc). Use "said" — it\'s invisible to readers. Let the words carry emotion.' });
+    }
+    // Adverb-modified tags ("said angrily", "whispered softly")
+    const adverbTags = (text.match(/[""\u201D]\s*\w+\s+(angrily|sadly|happily|nervously|excitedly|furiously|quietly|loudly|softly|tearfully|breathlessly|anxiously|impatiently|curiously|coldly|warmly|flatly|sharply|gently|bitterly|wearily|desperately|hopefully|hoarsely|fiercely|slowly|quickly)/gi) || []).length;
+    if (adverbTags > 0) {
+      tagDiscipline -= adverbTags * 5;
+      findings.push({ type: 'tags', severity: 'medium', message: adverbTags + ' adverb-modified tag(s) ("said angrily", "whispered softly"). Cut the adverb — if the dialogue needs an adverb to convey emotion, the dialogue itself is too weak.' });
+    }
+    // Over-attribution: tagging every single line
+    if (totalTags > 0 && totalTags / dialogueCount > 0.7) {
+      tagDiscipline -= 10;
+      findings.push({ type: 'tags', severity: 'low', message: 'Over-attributed: ' + totalTags + ' tags for ' + dialogueCount + ' lines. In back-and-forth dialogue, drop tags after establishing speakers. Use action beats instead.' });
+    }
+    // NO tags at all (also a problem — reader gets lost)
+    if (dialogueCount > 4 && totalTags === 0) {
+      tagDiscipline -= 10;
+      findings.push({ type: 'tags', severity: 'low', message: 'No dialogue tags found. While minimal tags are good, zero tags across ' + dialogueCount + ' lines can confuse readers about who is speaking.' });
+    }
+
+    // === CONCISENESS ===
+    // Dialogue should be tighter than narration. Long speeches = lecture, not conversation
+    let conciseness = 100;
+    const lengths = dialogueMatches.map(d => d.replace(/[""\u201C\u201D]/g, '').trim().split(/\s+/).length);
     const avgLen = lengths.reduce((a, b) => a + b, 0) / lengths.length;
-    const lenVariance = lengths.reduce((sum, l) => sum + Math.pow(l - avgLen, 2), 0) / lengths.length;
-    if (Math.sqrt(lenVariance) > 3) score += 5;
-    return { score: Math.min(100, Math.max(0, score)), count: dialogueCount, ratio: Math.round(ratio * 100), tags, saidRatio: Math.round(saidRatio * 100), avgLength: Math.round(avgLen) };
+    const longSpeeches = lengths.filter(l => l > 40).length;
+    const shortPunches = lengths.filter(l => l <= 5).length;
+    if (longSpeeches > 0) {
+      conciseness -= longSpeeches * 8;
+      findings.push({ type: 'conciseness', severity: 'medium', message: longSpeeches + ' dialogue line(s) over 40 words. Characters shouldn\'t give speeches — break into exchange, use interruptions, or move info to narration.' });
+    }
+    if (avgLen > 20) {
+      conciseness -= 10;
+      findings.push({ type: 'conciseness', severity: 'low', message: 'Average dialogue line is ' + Math.round(avgLen) + ' words. Real conversation is shorter. Mix long and short — a one-word reply can be more powerful than a paragraph.' });
+    }
+    // Reward short, punchy exchanges
+    if (shortPunches > dialogueCount * 0.3) conciseness += 5;
+
+    // === SHOW NOT TELL IN DIALOGUE CONTEXT ===
+    // Narration around dialogue shouldn't explain what the dialogue already shows
+    let showNotTell = 100;
+    // "he said angrily" when the dialogue is clearly angry
+    // Emotion-explaining narration near dialogue
+    const emotionExplainers = (text.match(/[""\u201D][^""\u201C]*\b(was angry|was upset|was nervous|was scared|was happy|was sad|felt angry|felt nervous|felt scared|felt happy|felt sad|with anger|with frustration|in frustration|in anger|with fear)\b/gi) || []).length;
+    if (emotionExplainers > 0) {
+      showNotTell -= emotionExplainers * 8;
+      findings.push({ type: 'showing', severity: 'high', message: emotionExplainers + ' emotion explanation(s) near dialogue ("was angry", "felt nervous"). If the dialogue shows anger, don\'t explain it — trust the reader. Use action beats: "His jaw tightened" not "He was angry."' });
+    }
+    // Action beats that tell instead of show
+    const tellingBeats = (text.match(/[""\u201D][^""\u201C]*(trying to calm|trying to hide|trying to sound|wanting to say|hoping to|meaning to)\b/gi) || []).length;
+    if (tellingBeats > 0) {
+      showNotTell -= tellingBeats * 5;
+      findings.push({ type: 'showing', severity: 'medium', message: tellingBeats + ' telling beat(s) near dialogue ("trying to calm him down"). Show the attempt through action, not narration of intent.' });
+    }
+
+    // === PURPOSEFULNESS ===
+    // Every line should: move plot, reveal character, or build tension
+    // We can detect anti-patterns: small talk, greetings, empty exchanges
+    let purposefulness = 100;
+    const smallTalk = dialogueMatches.filter(d => {
+      const dl = d.toLowerCase().replace(/[""\u201C\u201D]/g, '').trim();
+      return /^(hi|hello|hey|how are you|good morning|good evening|nice to meet you|what's up|goodbye|bye|see you|take care|thanks|thank you|you're welcome|no problem|sure|okay|ok|yeah|yes|no|fine|right|well|hmm|huh|oh)\s*[.!?]*$/i.test(dl);
+    }).length;
+    if (smallTalk > 0) {
+      purposefulness -= smallTalk * 6;
+      findings.push({ type: 'purpose', severity: 'low', message: smallTalk + ' small-talk/filler line(s) ("Hi", "How are you", "Okay"). Every dialogue line should move the story, reveal character, or build tension. Cut pleasantries unless they serve a purpose.' });
+    }
+    // Repetitive dialogue (character repeating what was just said)
+    for (let i = 1; i < dialogueMatches.length; i++) {
+      const prev = dialogueMatches[i - 1].toLowerCase().replace(/[""\u201C\u201D]/g, '').trim();
+      const curr = dialogueMatches[i].toLowerCase().replace(/[""\u201C\u201D]/g, '').trim();
+      if (prev.length > 10 && curr.includes(prev.substring(0, Math.min(prev.length, 20)))) {
+        purposefulness -= 5;
+      }
+    }
+
+    // === NATURALNESS ===
+    // Dialogue shouldn't sound like exposition dressed as speech
+    let naturalness = 100;
+    // "As you know" / exposition dumps in dialogue
+    const asYouKnow = (text.match(/[""\u201C][^""\u201D]*(as you know|as we discussed|as I mentioned|let me explain|the thing is|you see|I should tell you|you need to understand|what you don't realize)\b/gi) || []).length;
+    if (asYouKnow > 0) {
+      naturalness -= asYouKnow * 8;
+      findings.push({ type: 'naturalness', severity: 'high', message: asYouKnow + ' exposition-in-dialogue ("As you know...", "Let me explain..."). People don\'t explain things the other person already knows. Move backstory to narration or show it through conflict.' });
+    }
+    // Characters speaking in complete, formal sentences (real people fragment)
+    const formalDialogue = dialogueMatches.filter(d => {
+      const words = d.replace(/[""\u201C\u201D]/g, '').trim().split(/\s+/);
+      return words.length > 15 && !/[—\-?!]/.test(d) && !/\.\.\.|\.{3}/.test(d);
+    }).length;
+    if (formalDialogue > dialogueCount * 0.6 && dialogueCount > 3) {
+      naturalness -= 10;
+      findings.push({ type: 'naturalness', severity: 'low', message: 'Most dialogue lines are long, complete sentences. Real people trail off, interrupt, fragment. Add "—" dashes, "..." ellipses, and sentence fragments for realism.' });
+    }
+    // Length variety (conversations have rhythm — long, short, long, short)
+    const lenStdDev = Math.sqrt(lengths.reduce((s, l) => s + Math.pow(l - avgLen, 2), 0) / lengths.length);
+    if (lenStdDev < 3 && dialogueCount > 4) {
+      naturalness -= 8;
+      findings.push({ type: 'naturalness', severity: 'low', message: 'Dialogue lines are all similar length (stddev: ' + lenStdDev.toFixed(1) + '). Real conversations have rhythm — a rapid-fire exchange, then a longer statement, then silence. Vary line lengths.' });
+    }
+    if (lenStdDev > 5) naturalness += 3; // good variety
+
+    // Clamp all
+    tagDiscipline = Math.min(100, Math.max(0, tagDiscipline));
+    conciseness = Math.min(100, Math.max(0, conciseness));
+    showNotTell = Math.min(100, Math.max(0, showNotTell));
+    purposefulness = Math.min(100, Math.max(0, purposefulness));
+    naturalness = Math.min(100, Math.max(0, naturalness));
+
+    const score = Math.round(tagDiscipline * 0.2 + conciseness * 0.2 + showNotTell * 0.25 + purposefulness * 0.15 + naturalness * 0.2);
+
+    return {
+      score: Math.min(100, Math.max(0, score)),
+      count: dialogueCount, ratio: Math.round(ratio * 100),
+      tags, saidRatio: Math.round((totalTags > 0 ? saidAskedCount / totalTags : 0) * 100),
+      avgLength: Math.round(avgLen),
+      // Sub-scores
+      tagDiscipline, conciseness, showNotTell, purposefulness, naturalness,
+      // Details
+      exoticTags, adverbTags, longSpeeches, shortPunches, smallTalk, asYouKnow,
+      lengthVariety: Math.round(lenStdDev * 10) / 10,
+      findings
+    };
   },
 
   // ========================
