@@ -36,7 +36,8 @@
         <button id="clear-file" class="btn-clear">&times;</button>
       </div>
       <div class="optional-settings">
-        <input type="text" id="grammar-api-key" placeholder="RapidAPI Key (optional - for grammar check)">
+        <input type="text" id="grammar-api-key" class="api-key-input" placeholder="RapidAPI Key (optional - for grammar check)">
+        <input type="text" id="claude-api-key" class="api-key-input" placeholder="Claude API Key (optional - for AI critique, comp titles, query letter, beta readers)">
       </div>
       <button id="analyze-btn" class="btn-primary hidden">Analyze Manuscript</button>
     </section>
@@ -159,6 +160,8 @@
         <button class="tab" data-tab="annotated">Annotated Text</button>
         <button class="tab" data-tab="issues">Issues List</button>
         <button class="tab" data-tab="reader">Reader's View</button>
+        <button class="tab" data-tab="ai">AI Critique</button>
+        <button class="tab" data-tab="versions">Version History</button>
       </div>
 
       <!-- Detailed Analysis Tab -->
@@ -267,6 +270,45 @@
         </div>
       </div>
 
+      <!-- AI Critique Tab -->
+      <div id="tab-ai" class="tab-content">
+        <div id="ai-status" class="ai-status hidden">
+          <div class="loader" style="width:24px;height:24px;border-width:3px;display:inline-block;vertical-align:middle"></div>
+          <span id="ai-status-text" style="margin-left:.75rem">Running AI analysis...</span>
+        </div>
+        <div id="ai-no-key" class="ai-no-key">
+          <p>Enter your Claude API key above to unlock AI-powered features:</p>
+          <ul>
+            <li>Deep Narrative Critique</li>
+            <li>Comparable Titles ("reads like X meets Y")</li>
+            <li>Query Letter Generator</li>
+            <li>Beta Reader Simulation (4 simulated readers)</li>
+            <li>Market Readiness Score</li>
+            <li>Chapter-by-Chapter Breakdown</li>
+          </ul>
+          <button id="run-ai-btn" class="btn-primary" style="max-width:300px;margin-top:1rem">Run AI Analysis</button>
+        </div>
+        <div id="ai-results" class="hidden">
+          <div id="ai-cache-info" class="cache-info"></div>
+          <div id="ai-deep-critique" class="analysis-section"></div>
+          <div id="ai-comp-titles" class="analysis-section"></div>
+          <div id="ai-query-letter" class="analysis-section"></div>
+          <div id="ai-beta-readers" class="analysis-section"></div>
+          <div id="ai-market-readiness" class="analysis-section"></div>
+          <div id="ai-chapter-breakdown" class="analysis-section"></div>
+        </div>
+      </div>
+
+      <!-- Version History Tab -->
+      <div id="tab-versions" class="tab-content">
+        <div class="version-header">
+          <h3>Revision History</h3>
+          <button id="clear-versions-btn" class="btn-secondary" style="font-size:.75rem;padding:.4rem .8rem">Clear History</button>
+        </div>
+        <div id="version-list" class="version-list"></div>
+        <div id="version-comparison" class="version-comparison hidden"></div>
+      </div>
+
       <!-- Actions -->
       <div class="actions-bar">
         <button id="export-btn" class="btn-secondary">Export Report</button>
@@ -280,6 +322,7 @@
   </footer>
 
   <script src="analyzer.js"></script>
+  <script src="ai-engine.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

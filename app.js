@@ -483,6 +483,209 @@
   });
 
   // ========================
+  // AI CRITIQUE TAB
+  // ========================
+  $('run-ai-btn')?.addEventListener('click', async () => {
+    const apiKey = $('claude-api-key')?.value?.trim();
+    if (!apiKey) { alert('Please enter your Claude API key in the upload section.'); return; }
+    if (!analysisResult) { alert('Run the basic analysis first.'); return; }
+
+    const statusEl = $('ai-status');
+    const statusText = $('ai-status-text');
+    const resultsEl = $('ai-results');
+    const noKeyEl = $('ai-no-key');
+    statusEl.classList.remove('hidden');
+    noKeyEl.classList.add('hidden');
+
+    try {
+      const aiResults = await AIEngine.runAllFeatures(apiKey, extractedText, analysisResult, (label, i, total) => {
+        statusText.textContent = label + ' (' + (i+1) + '/' + total + ')';
+      });
+      analysisResult._aiResults = aiResults;
+      renderAIResults(aiResults);
+      statusEl.classList.add('hidden');
+      resultsEl.classList.remove('hidden');
+
+      // Save version after AI analysis
+      AIEngine.saveVersion(uploadedFile.name, analysisResult, aiResults);
+      renderVersionHistory();
+
+      // Show cache savings
+      let totalCache = 0, totalInput = 0;
+      Object.values(aiResults).forEach(r => {
+        if (r._cacheInfo) {
+          totalCache += r._cacheInfo.cache_read || 0;
+          totalInput += r._cacheInfo.input_tokens || 0;
+        }
+      });
+      if (totalCache > 0) {
+        $('ai-cache-info').innerHTML = '<p style="color:var(--success);font-size:.8rem">Cache saved ' + totalCache.toLocaleString() + ' input tokens across calls (' + Math.round(totalCache/Math.max(totalInput,1)*100) + '% savings)</p>';
+      }
+    } catch (err) {
+      statusEl.classList.add('hidden');
+      noKeyEl.classList.remove('hidden');
+      alert('AI Analysis error: ' + err.message);
+    }
+  });
+
+  function renderAIResults(ai) {
+    // Deep Critique
+    const dc = ai.deepCritique;
+    if (dc && !dc.error) {
+      $('ai-deep-critique').innerHTML = '<h3>Deep Narrative Critique</h3>' +
+        '<p style="margin:.75rem 0">' + escapeHtml(dc.overallAssessment || '') + '</p>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:.75rem 0">' +
+        '<div><h4 style="color:var(--success);font-size:.85rem;margin-bottom:.5rem">Strengths</h4><ul class="ai-list">' + (dc.strengths||[]).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul></div>' +
+        '<div><h4 style="color:var(--danger);font-size:.85rem;margin-bottom:.5rem">Weaknesses</h4><ul class="ai-list">' + (dc.weaknesses||[]).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul></div></div>' +
+        '<div class="stat-row"><span class="stat-label">Character Depth</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(dc.characterDepth || '') + '</span></div>' +
+        '<div class="stat-row"><span class="stat-label">Narrative Voice</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(dc.narrativeVoice || '') + '</span></div>' +
+        '<div class="stat-row"><span class="stat-label">Emotional Impact</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(dc.emotionalImpact || '') + '</span></div>' +
+        '<div style="margin-top:1rem;padding:.75rem;background:var(--surface-2);border-radius:var(--radius-sm)"><strong style="color:var(--warning)">Priority Fix:</strong> ' + escapeHtml(dc.priorityFix || '') + '</div>' +
+        '<h4 style="margin-top:1rem;font-size:.85rem;color:var(--accent-light)">Suggestions</h4><ul class="ai-list">' + (dc.suggestions||[]).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul>';
+    } else if (dc?.error) {
+      $('ai-deep-critique').innerHTML = '<h3>Deep Critique</h3><p style="color:var(--danger)">' + escapeHtml(dc.error) + '</p>';
+    }
+
+    // Comp Titles
+    const ct = ai.compTitles;
+    if (ct && !ct.error) {
+      $('ai-comp-titles').innerHTML = '<h3>Comparable Titles</h3>' +
+        '<div style="padding:.75rem;background:var(--surface-2);border-radius:var(--radius-sm);margin:.75rem 0;font-size:1.1rem;font-weight:600;color:var(--accent-light)">' + escapeHtml(ct.pitchLine || '') + '</div>' +
+        '<div class="comp-grid">' + (ct.compTitles||[]).map(c =>
+          '<div class="comp-card"><div class="comp-title">' + escapeHtml(c.title) + '</div><div class="comp-author">by ' + escapeHtml(c.author) + '</div><div class="comp-reason">' + escapeHtml(c.reason) + '</div></div>'
+        ).join('') + '</div>' +
+        '<div class="stat-row" style="margin-top:.75rem"><span class="stat-label">Target Audience</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(ct.targetAudience || '') + '</span></div>' +
+        '<div class="stat-row"><span class="stat-label">Shelf Placement</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(ct.shelfPlacement || '') + '</span></div>';
+    }
+
+    // Query Letter
+    const ql = ai.queryLetter;
+    if (ql && !ql.error) {
+      $('ai-query-letter').innerHTML = '<h3>Query Letter</h3>' +
+        '<div style="margin:.75rem 0;padding:.75rem;background:var(--surface-2);border-radius:var(--radius-sm);font-weight:600;color:var(--warning)">' + escapeHtml(ql.hookLine || '') + '</div>' +
+        '<div class="query-letter-text">' + escapeHtml(ql.queryLetter || '').replace(/\n/g, '<br>') + '</div>' +
+        '<div style="margin-top:1rem"><h4 style="font-size:.85rem;color:var(--accent-light);margin-bottom:.5rem">Tips</h4><ul class="ai-list">' + (ql.tips||[]).map(t => '<li>' + escapeHtml(t) + '</li>').join('') + '</ul></div>' +
+        '<button class="btn-secondary" style="margin-top:.75rem" onclick="navigator.clipboard.writeText(' + JSON.stringify(ql.queryLetter||'').replace(/'/g,"\\'") + ');this.textContent=\'Copied!\'">Copy Query Letter</button>';
+    }
+
+    // Beta Readers
+    const br = ai.betaReaders;
+    if (br && !br.error) {
+      $('ai-beta-readers').innerHTML = '<h3>Beta Reader Simulation</h3>' +
+        '<div class="beta-grid">' + (br.readers||[]).map(r =>
+          '<div class="beta-card"><div class="beta-header"><span class="beta-name">' + escapeHtml(r.name) + ' ' + (r.emoticon||'') + '</span><span class="beta-rating">' + '&#9733;'.repeat(r.rating||0) + '&#9734;'.repeat(5-(r.rating||0)) + '</span></div>' +
+          '<div class="beta-profile">' + escapeHtml(r.profile) + '</div>' +
+          '<div class="beta-reaction">' + escapeHtml(r.reaction) + '</div>' +
+          '<div style="font-size:.8rem;margin-top:.5rem"><span style="color:var(--success)">Loved:</span> ' + escapeHtml(r.favoritepart||'') + '</div>' +
+          '<div style="font-size:.8rem;margin-top:.25rem"><span style="color:var(--danger)">Issue:</span> ' + escapeHtml(r.confusion||'') + '</div>' +
+          '<div style="font-size:.75rem;margin-top:.5rem;color:var(--text-muted)">Would recommend: ' + (r.wouldRecommend ? 'Yes' : 'No') + '</div></div>'
+        ).join('') + '</div>' +
+        '<div style="margin-top:1rem"><div class="stat-row"><span class="stat-label">Consensus Rating</span><span class="stat-value">' + (br.consensusRating||0) + '/5</span></div>' +
+        '<div class="stat-row"><span class="stat-label">Common Praise</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(br.commonPraise||'') + '</span></div>' +
+        '<div class="stat-row"><span class="stat-label">Common Criticism</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(br.commonCriticism||'') + '</span></div></div>';
+    }
+
+    // Market Readiness
+    const mr = ai.marketReadiness;
+    if (mr && !mr.error) {
+      const mrColor = (mr.readinessScore||0) >= 70 ? 'var(--success)' : (mr.readinessScore||0) >= 50 ? 'var(--warning)' : 'var(--danger)';
+      $('ai-market-readiness').innerHTML = '<h3>Market Readiness</h3>' +
+        '<div style="display:flex;align-items:center;gap:1.5rem;margin:.75rem 0"><div style="font-size:2.5rem;font-weight:800;color:' + mrColor + '">' + (mr.readinessScore||0) + '</div><div><div style="font-size:1.2rem;font-weight:600">' + escapeHtml(mr.readinessGrade||'') + '</div><div style="color:var(--text-muted);font-size:.85rem">' + escapeHtml(mr.developmentalStage||'') + '</div></div></div>' +
+        '<div class="stat-row"><span class="stat-label">Publishing Path</span><span class="stat-value">' + escapeHtml(mr.publishingPath||'') + '</span></div>' +
+        '<div class="stat-row"><span class="stat-label">Market Fit</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(mr.marketFit||'') + '</span></div>' +
+        '<div class="stat-row"><span class="stat-label">Est. Revisions</span><span class="stat-value">' + escapeHtml(mr.estimatedRevisions||'') + '</span></div>' +
+        '<div class="stat-row"><span class="stat-label">Trend Alignment</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(mr.trendAlignment||'') + '</span></div>' +
+        '<h4 style="margin-top:1rem;font-size:.85rem;color:var(--accent-light)">Next Steps</h4><ol class="ai-list">' + (mr.nextSteps||[]).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ol>';
+    }
+
+    // Chapter Breakdown
+    const cb = ai.chapterBreakdown;
+    if (cb && !cb.error) {
+      $('ai-chapter-breakdown').innerHTML = '<h3>Chapter Breakdown</h3>' +
+        '<p style="margin:.75rem 0;color:var(--text-muted);font-size:.85rem">' + escapeHtml(cb.structureAssessment||'') + '</p>' +
+        '<div class="chapter-grid">' + (cb.chapters||[]).map(c =>
+          '<div class="chapter-card"><div class="chapter-num">Ch. ' + c.number + '</div>' +
+          '<div class="chapter-title">' + escapeHtml(c.title||'') + '</div>' +
+          '<div class="chapter-summary">' + escapeHtml(c.summary||'') + '</div>' +
+          '<div style="display:flex;gap:.5rem;margin-top:.5rem;font-size:.75rem">' +
+          '<span class="chapter-badge" style="background:var(--surface-2)">Pacing: ' + (c.pacingGrade||'?') + '</span>' +
+          '<span class="chapter-badge" style="background:var(--surface-2)">Tension: ' + (c.tensionLevel||'?') + '</span></div>' +
+          (c.issue ? '<div style="font-size:.8rem;color:var(--warning);margin-top:.35rem">' + escapeHtml(c.issue) + '</div>' : '') +
+          '</div>'
+        ).join('') + '</div>' +
+        '<div style="margin-top:1rem;padding:.75rem;background:var(--surface-2);border-radius:var(--radius-sm)"><strong>Recommendation:</strong> ' + escapeHtml(cb.recommendation||'') + '</div>';
+    }
+  }
+
+  // ========================
+  // VERSION HISTORY
+  // ========================
+  function renderVersionHistory() {
+    const versions = AIEngine.getVersionHistory();
+    const container = $('version-list');
+    if (!container) return;
+    if (versions.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-muted);font-size:.9rem;text-align:center;padding:2rem">No versions yet. Run an analysis to start tracking your progress.</p>';
+      return;
+    }
+    let html = '<div class="version-timeline">';
+    versions.slice().reverse().forEach((v, i) => {
+      const date = new Date(v.date);
+      const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      const gradeColor = v.overall >= 80 ? 'var(--success)' : v.overall >= 60 ? 'var(--warning)' : 'var(--danger)';
+      html += '<div class="version-item" data-version-id="' + v.id + '">' +
+        '<div class="version-dot" style="background:' + gradeColor + '"></div>' +
+        '<div class="version-content">' +
+        '<div class="version-top"><span class="version-grade" style="color:' + gradeColor + '">' + v.grade + ' (' + v.overall + ')</span>' +
+        '<span class="version-date">' + dateStr + '</span></div>' +
+        '<div class="version-name">' + escapeHtml(v.fileName) + '</div>' +
+        '<div class="version-stats">' + v.wordCount.toLocaleString() + ' words &middot; ' + v.totalIssues + ' issues &middot; ' + v.genre + '</div>';
+      // Show delta from previous version
+      if (i < versions.length - 1) {
+        const prev = versions[versions.length - 1 - i - 1]; // actually reversed
+        // Compare only if available
+      }
+      html += '</div></div>';
+    });
+    html += '</div>';
+
+    // Show improvement summary if 2+ versions
+    if (versions.length >= 2) {
+      const first = versions[0], last = versions[versions.length - 1];
+      const delta = last.overall - first.overall;
+      const issueDelta = last.totalIssues - first.totalIssues;
+      html += '<div class="version-summary">' +
+        '<h4>Progress Summary</h4>' +
+        '<div class="stat-row"><span class="stat-label">Overall Score Change</span><span class="stat-value" style="color:' + (delta >= 0 ? 'var(--success)' : 'var(--danger)') + '">' + (delta >= 0 ? '+' : '') + delta + ' points</span></div>' +
+        '<div class="stat-row"><span class="stat-label">Issues Change</span><span class="stat-value" style="color:' + (issueDelta <= 0 ? 'var(--success)' : 'var(--danger)') + '">' + (issueDelta >= 0 ? '+' : '') + issueDelta + '</span></div>' +
+        '<div class="stat-row"><span class="stat-label">Versions Tracked</span><span class="stat-value">' + versions.length + '</span></div>' +
+        '</div>';
+    }
+    container.innerHTML = html;
+  }
+
+  // Auto-save version on basic analysis
+  const origRenderResults = renderResults;
+  renderResults = function() {
+    origRenderResults();
+    // Save basic version (no AI results yet)
+    if (uploadedFile && analysisResult) {
+      AIEngine.saveVersion(uploadedFile.name, analysisResult, null);
+      renderVersionHistory();
+    }
+  };
+
+  $('clear-versions-btn')?.addEventListener('click', () => {
+    if (confirm('Clear all version history?')) {
+      AIEngine.clearVersionHistory();
+      renderVersionHistory();
+    }
+  });
+
+  // Initial render of version history
+  renderVersionHistory();
+
+  // ========================
   // NEW ANALYSIS
   // ========================
   $('new-analysis-btn')?.addEventListener('click', () => {

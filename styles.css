@@ -509,6 +509,62 @@ main {
 .grammar-issue .grammar-original { text-decoration: line-through; color: var(--danger); }
 .grammar-issue .grammar-corrected { color: var(--success); font-weight: 600; }
 
+/* === AI Critique Tab === */
+.ai-status { display: flex; align-items: center; padding: 1.5rem; justify-content: center; }
+.ai-no-key { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; }
+.ai-no-key p { margin-bottom: .75rem; }
+.ai-no-key ul { list-style: none; padding: 0; }
+.ai-no-key li { padding: .3rem 0; font-size: .9rem; color: var(--text-muted); }
+.ai-no-key li::before { content: "\2713"; color: var(--accent); margin-right: .5rem; }
+.cache-info { margin-bottom: 1rem; }
+
+.ai-list { list-style: none; padding: 0; }
+.ai-list li { padding: .35rem 0; font-size: .85rem; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+.ai-list li::before { content: ">"; color: var(--accent); font-weight: 700; margin-right: .5rem; }
+ol.ai-list { list-style: decimal; padding-left: 1.5rem; }
+ol.ai-list li::before { content: none; }
+
+.comp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: .75rem; margin: .75rem 0; }
+.comp-card { background: var(--surface-2); border-radius: var(--radius-sm); padding: .75rem; }
+.comp-title { font-weight: 700; font-size: .9rem; }
+.comp-author { font-size: .8rem; color: var(--text-muted); }
+.comp-reason { font-size: .78rem; color: var(--text-muted); margin-top: .35rem; font-style: italic; }
+
+.query-letter-text { background: var(--surface-2); border-radius: var(--radius-sm); padding: 1rem; font-size: .9rem; line-height: 1.7; white-space: pre-wrap; }
+
+.beta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .75rem; margin: .75rem 0; }
+.beta-card { background: var(--surface-2); border-radius: var(--radius-sm); padding: 1rem; }
+.beta-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: .35rem; }
+.beta-name { font-weight: 700; font-size: .9rem; }
+.beta-rating { color: var(--warning); font-size: .9rem; }
+.beta-profile { font-size: .75rem; color: var(--text-muted); margin-bottom: .5rem; }
+.beta-reaction { font-size: .85rem; font-style: italic; }
+
+.chapter-grid { display: flex; flex-direction: column; gap: .5rem; margin: .75rem 0; }
+.chapter-card { background: var(--surface-2); border-radius: var(--radius-sm); padding: .75rem 1rem; display: flex; gap: 1rem; align-items: flex-start; }
+.chapter-num { font-weight: 800; font-size: .85rem; color: var(--accent); min-width: 40px; }
+.chapter-title { font-weight: 600; font-size: .9rem; }
+.chapter-summary { font-size: .85rem; color: var(--text-muted); margin-top: .2rem; }
+.chapter-badge { padding: .1rem .5rem; border-radius: 8px; font-size: .7rem; }
+
+/* === Version History === */
+.version-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.version-header h3 { font-size: 1rem; }
+.version-timeline { position: relative; padding-left: 1.5rem; }
+.version-timeline::before { content: ''; position: absolute; left: 6px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+.version-item { position: relative; margin-bottom: 1rem; }
+.version-dot { position: absolute; left: -1.5rem; top: 4px; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--bg); z-index: 1; }
+.version-content { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .75rem 1rem; }
+.version-top { display: flex; justify-content: space-between; align-items: center; }
+.version-grade { font-weight: 700; font-size: 1rem; }
+.version-date { font-size: .75rem; color: var(--text-muted); }
+.version-name { font-size: .85rem; margin-top: .15rem; }
+.version-stats { font-size: .75rem; color: var(--text-muted); margin-top: .15rem; }
+.version-summary { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin-top: 1rem; }
+.version-summary h4 { font-size: .9rem; margin-bottom: .5rem; color: var(--accent-light); }
+
+.optional-settings { margin-top: .75rem; display: flex; flex-direction: column; gap: .5rem; }
+
 /* === Actions Bar === */
 .actions-bar {
   display: flex;
