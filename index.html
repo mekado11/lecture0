@@ -9,317 +9,204 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
-  <header>
-    <div class="header-inner">
-      <h1 class="logo">ManuscriptLens</h1>
-      <p class="tagline">Author's Best Buddy</p>
-    </div>
-  </header>
 
-  <main id="app">
-    <!-- Upload Section -->
-    <section id="upload-section" class="section">
+  <!-- ====== UPLOAD VIEW ====== -->
+  <div id="upload-view" class="upload-view">
+    <div class="upload-card">
+      <div class="upload-logo">
+        <span class="logo-icon">&#9998;</span>
+        <h1>ManuscriptLens</h1>
+        <p class="tagline">Author's Best Buddy</p>
+      </div>
       <div id="drop-zone" class="drop-zone">
-        <div class="drop-zone-content">
-          <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-          <p class="drop-text">Drop your manuscript here</p>
-          <p class="drop-subtext">or click to browse &middot; .docx, .pdf, .txt</p>
-          <input type="file" id="file-input" accept=".docx,.pdf,.txt" hidden>
-        </div>
+        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <p class="drop-text">Drop your manuscript here</p>
+        <p class="drop-subtext">or click to browse &middot; .docx, .pdf, .txt</p>
+        <input type="file" id="file-input" accept=".docx,.pdf,.txt" hidden>
       </div>
       <div id="file-info" class="file-info hidden">
         <span id="file-name"></span>
         <button id="clear-file" class="btn-clear">&times;</button>
       </div>
-      <div class="optional-settings">
-        <input type="text" id="grammar-api-key" class="api-key-input" placeholder="RapidAPI Key (optional - for grammar check)">
-        <input type="text" id="claude-api-key" class="api-key-input" placeholder="Claude API Key (optional - for AI critique, comp titles, query letter, beta readers)">
-      </div>
       <button id="analyze-btn" class="btn-primary hidden">Analyze Manuscript</button>
-    </section>
-
-    <!-- Loading -->
-    <section id="loading-section" class="section hidden">
-      <div class="loader-container">
+      <div id="upload-loading" class="upload-loading hidden">
         <div class="loader"></div>
-        <p class="loader-text" id="loader-text">Extracting text...</p>
+        <p id="loader-text">Extracting text...</p>
       </div>
-    </section>
+    </div>
+  </div>
 
-    <!-- Results Dashboard -->
-    <section id="results-section" class="section hidden">
-      <!-- Overall Score -->
-      <div class="overall-score-card">
-        <div class="overall-grade" id="overall-grade">A</div>
-        <div class="overall-details">
-          <h2 id="manuscript-title">Manuscript Analysis</h2>
-          <p id="genre-badge" class="genre-badge">Fiction</p>
-          <p class="word-count">Word count: <span id="word-count">0</span></p>
-        </div>
+  <!-- ====== EDITOR VIEW (3-panel) ====== -->
+  <div id="editor-view" class="editor-view hidden">
+
+    <!-- Top Bar -->
+    <header class="top-bar">
+      <div class="top-left">
+        <span class="logo-icon-sm">&#9998;</span>
+        <span class="top-brand">ManuscriptLens</span>
+        <span class="top-status" id="top-status">Ready</span>
       </div>
-
-      <!-- Score Cards -->
-      <div class="score-grid">
-        <div class="score-card" data-category="plot">
-          <div class="score-ring">
-            <svg viewBox="0 0 36 36">
-              <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-              <path class="ring-fill" id="ring-plot" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-            </svg>
-            <span class="score-number" id="score-plot">0</span>
-          </div>
-          <h3>Plot Structure</h3>
-          <p class="score-desc">Narrative arc, pacing, tension</p>
-        </div>
-        <div class="score-card" data-category="transitions">
-          <div class="score-ring">
-            <svg viewBox="0 0 36 36">
-              <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-              <path class="ring-fill" id="ring-transitions" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-            </svg>
-            <span class="score-number" id="score-transitions">0</span>
-          </div>
-          <h3>Transitions</h3>
-          <p class="score-desc">Scene flow, paragraph connections</p>
-        </div>
-        <div class="score-card" data-category="copy">
-          <div class="score-ring">
-            <svg viewBox="0 0 36 36">
-              <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-              <path class="ring-fill" id="ring-copy" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-            </svg>
-            <span class="score-number" id="score-copy">0</span>
-          </div>
-          <h3>Copy Editing</h3>
-          <p class="score-desc">Grammar, passive voice, clich&eacute;s</p>
-        </div>
-        <div class="score-card" data-category="line">
-          <div class="score-ring">
-            <svg viewBox="0 0 36 36">
-              <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-              <path class="ring-fill" id="ring-line" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-            </svg>
-            <span class="score-number" id="score-line">0</span>
-          </div>
-          <h3>Line Editing</h3>
-          <p class="score-desc">Sentence variety, readability, flow</p>
-        </div>
-        <div class="score-card" data-category="style">
-          <div class="score-ring">
-            <svg viewBox="0 0 36 36">
-              <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-              <path class="ring-fill" id="ring-style" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-            </svg>
-            <span class="score-number" id="score-style">0</span>
-          </div>
-          <h3>Style & Voice</h3>
-          <p class="score-desc">Consistency, tone, word choice</p>
-        </div>
-        <div class="score-card" data-category="dialogue">
-          <div class="score-ring">
-            <svg viewBox="0 0 36 36">
-              <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-              <path class="ring-fill" id="ring-dialogue" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-            </svg>
-            <span class="score-number" id="score-dialogue">0</span>
-          </div>
-          <h3>Dialogue</h3>
-          <p class="score-desc">Naturalness, tags, pacing</p>
-        </div>
-        <div class="score-card" data-category="show-tell">
-          <div class="score-ring">
-            <svg viewBox="0 0 36 36">
-              <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-              <path class="ring-fill" id="ring-show-tell" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-            </svg>
-            <span class="score-number" id="score-show-tell">0</span>
-          </div>
-          <h3>Show vs Tell</h3>
-          <p class="score-desc">Sensory detail, immersive writing</p>
-        </div>
-        <div class="score-card" data-category="grammar">
-          <div class="score-ring">
-            <svg viewBox="0 0 36 36">
-              <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-              <path class="ring-fill" id="ring-grammar" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-            </svg>
-            <span class="score-number" id="score-grammar">0</span>
-          </div>
-          <h3>Grammar & Spelling</h3>
-          <p class="score-desc">Correctness, spelling, punctuation</p>
-        </div>
+      <div class="top-center">
+        <span id="top-filename">Untitled</span>
       </div>
-
-      <!-- Tab Navigation -->
-      <div class="tabs">
-        <button class="tab active" data-tab="detailed">Detailed Analysis</button>
-        <button class="tab" data-tab="annotated">Annotated Text</button>
-        <button class="tab" data-tab="issues">Issues List</button>
-        <button class="tab" data-tab="reader">Reader's View</button>
-        <button class="tab" data-tab="ai">AI Critique</button>
-        <button class="tab" data-tab="versions">Version History</button>
+      <div class="top-right">
+        <span class="top-wordcount">Words: <strong id="top-wordcount">0</strong></span>
+        <button id="export-btn" class="top-btn" title="Export Report">&#8681; Export</button>
+        <button id="new-analysis-btn" class="top-btn" title="New Analysis">&#8634; New</button>
       </div>
+    </header>
 
-      <!-- Detailed Analysis Tab -->
-      <div id="tab-detailed" class="tab-content active">
-        <div id="detailed-analysis"></div>
+    <div class="panels">
 
-        <!-- Pacing Heatmap -->
-        <div class="analysis-section">
-          <h3 class="section-title">Pacing Heatmap</h3>
-          <div id="pacing-heatmap" class="pacing-heatmap"></div>
-          <div class="heatmap-legend">
-            <span class="legend-item"><span class="legend-color" style="background:#e74c3c;"></span> Action</span>
-            <span class="legend-item"><span class="legend-color" style="background:#3498db;"></span> Dialogue</span>
-            <span class="legend-item"><span class="legend-color" style="background:#2ecc71;"></span> Description</span>
-            <span class="legend-item"><span class="legend-color" style="background:#f1c40f;"></span> Exposition</span>
-            <span class="legend-item"><span class="legend-color" style="background:#9b59b6;"></span> Reflection</span>
+      <!-- ====== LEFT SIDEBAR: Document Health ====== -->
+      <aside class="sidebar-left" id="sidebar-left">
+        <div class="sidebar-header">
+          <h3>Document Health</h3>
+        </div>
+
+        <!-- Overall Score Gauge -->
+        <div class="health-overall">
+          <div class="gauge-ring" id="gauge-overall">
+            <svg viewBox="0 0 120 120">
+              <circle class="gauge-bg" cx="60" cy="60" r="52"/>
+              <circle class="gauge-fill" id="gauge-fill-overall" cx="60" cy="60" r="52"/>
+            </svg>
+            <div class="gauge-center">
+              <span class="gauge-number" id="overall-score">0</span>
+              <span class="gauge-label">Overall Score</span>
+            </div>
+          </div>
+          <div class="health-subcategories" id="health-subcategories">
+            Plot &middot; Clarity &middot; Pacing &middot; Dialogue
           </div>
         </div>
 
-        <!-- Character Tracker -->
-        <div class="analysis-section">
-          <h3 class="section-title">Character Tracker</h3>
-          <div id="character-tracker" class="character-tracker"></div>
+        <!-- Score Cards (left sidebar) -->
+        <div class="health-cards" id="health-cards">
+          <!-- Dynamically rendered -->
+        </div>
+      </aside>
+
+      <!-- ====== CENTER: Manuscript Editor ====== -->
+      <main class="editor-main">
+        <div class="editor-toolbar">
+          <div class="editor-tabs">
+            <button class="ed-tab active" data-tab="annotated">Annotated</button>
+            <button class="ed-tab" data-tab="detailed">Detailed</button>
+            <button class="ed-tab" data-tab="reader">Reader View</button>
+            <button class="ed-tab" data-tab="ai">AI Critique</button>
+            <button class="ed-tab" data-tab="versions">Versions</button>
+          </div>
+          <div class="editor-filters" id="editor-filters">
+            <label><input type="checkbox" class="filter-check" value="passive" checked> Passive</label>
+            <label><input type="checkbox" class="filter-check" value="adverb" checked> Adverbs</label>
+            <label><input type="checkbox" class="filter-check" value="cliche" checked> Clich&eacute;s</label>
+            <label><input type="checkbox" class="filter-check" value="weak-verb" checked> Weak Verbs</label>
+            <label><input type="checkbox" class="filter-check" value="show-tell" checked> Show/Tell</label>
+            <label><input type="checkbox" class="filter-check" value="repetition" checked> Repetition</label>
+            <label><input type="checkbox" class="filter-check" value="wordy" checked> Wordy</label>
+            <label><input type="checkbox" class="filter-check" value="sentence-length" checked> Long Sent.</label>
+          </div>
         </div>
 
-        <!-- Grammar Check Results -->
-        <div class="analysis-section">
-          <h3 class="section-title">Grammar Check</h3>
-          <div id="grammar-results" class="grammar-results"></div>
+        <!-- Tab Contents -->
+        <div id="ed-tab-annotated" class="ed-tab-content active">
+          <div id="annotated-text" class="manuscript-text"></div>
         </div>
-      </div>
-
-      <!-- Annotated Text Tab -->
-      <div id="tab-annotated" class="tab-content">
-        <div class="annotation-toolbar">
-          <label><input type="checkbox" class="filter-check" value="passive" checked> Passive Voice</label>
-          <label><input type="checkbox" class="filter-check" value="adverb" checked> Adverbs</label>
-          <label><input type="checkbox" class="filter-check" value="cliche" checked> Clich&eacute;s</label>
-          <label><input type="checkbox" class="filter-check" value="repetition" checked> Repetition</label>
-          <label><input type="checkbox" class="filter-check" value="weak-verb" checked> Weak Verbs</label>
-          <label><input type="checkbox" class="filter-check" value="wordy" checked> Wordy Phrases</label>
-          <label><input type="checkbox" class="filter-check" value="sentence-length" checked> Long Sentences</label>
+        <div id="ed-tab-detailed" class="ed-tab-content">
+          <div id="detailed-analysis" class="detailed-content"></div>
+          <div class="analysis-section"><h3>Pacing Heatmap</h3><div id="pacing-heatmap"></div>
+            <div class="heatmap-legend"><span><span class="legend-dot" style="background:#c0392b"></span>Action</span><span><span class="legend-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="legend-dot" style="background:#27ae60"></span>Description</span><span><span class="legend-dot" style="background:#f39c12"></span>Exposition</span><span><span class="legend-dot" style="background:#8e44ad"></span>Reflection</span></div>
+          </div>
+          <div class="analysis-section"><h3>Character Tracker</h3><div id="character-tracker"></div></div>
+          <div class="analysis-section"><h3>Grammar Check</h3><div id="grammar-results"></div></div>
         </div>
-        <div id="annotated-text" class="annotated-text"></div>
-      </div>
+        <div id="ed-tab-reader" class="ed-tab-content">
+          <div id="reader-view-content"></div>
+        </div>
+        <div id="ed-tab-ai" class="ed-tab-content">
+          <div id="ai-panel-content">
+            <div class="ai-intro">
+              <p>AI-powered deep analysis features:</p>
+              <ul>
+                <li>Deep Narrative Critique</li>
+                <li>Comparable Titles</li>
+                <li>Query Letter Generator</li>
+                <li>Beta Reader Simulation</li>
+                <li>Market Readiness Score</li>
+                <li>Chapter Breakdown</li>
+              </ul>
+              <button id="run-ai-btn" class="btn-primary" style="margin-top:1rem">Run AI Analysis</button>
+              <div id="ai-status" class="hidden" style="margin-top:1rem"><div class="loader" style="width:20px;height:20px;border-width:2px;display:inline-block;vertical-align:middle"></div> <span id="ai-status-text"></span></div>
+            </div>
+            <div id="ai-results" class="hidden">
+              <div id="ai-cache-info"></div>
+              <div id="ai-deep-critique" class="analysis-section"></div>
+              <div id="ai-comp-titles" class="analysis-section"></div>
+              <div id="ai-query-letter" class="analysis-section"></div>
+              <div id="ai-beta-readers" class="analysis-section"></div>
+              <div id="ai-market-readiness" class="analysis-section"></div>
+              <div id="ai-chapter-breakdown" class="analysis-section"></div>
+            </div>
+          </div>
+        </div>
+        <div id="ed-tab-versions" class="ed-tab-content">
+          <div class="version-header"><h3>Revision History</h3><button id="clear-versions-btn" class="btn-secondary" style="font-size:.7rem;padding:.3rem .6rem">Clear</button></div>
+          <div id="version-list"></div>
+        </div>
+      </main>
 
-      <!-- Issues List Tab -->
-      <div id="tab-issues" class="tab-content">
-        <div class="issues-header">
-          <select id="issue-sort">
-            <option value="severity">Sort by Severity</option>
-            <option value="type">Sort by Type</option>
-            <option value="position">Sort by Position</option>
-            <option value="group">Group by Type</option>
+      <!-- ====== RIGHT SIDEBAR: AI Feedback ====== -->
+      <aside class="sidebar-right" id="sidebar-right">
+        <div class="sidebar-header">
+          <h3>AI Feedback</h3>
+          <select id="feedback-mode">
+            <option value="suggestions">Suggestions</option>
+            <option value="rewrite">Rewrite</option>
+            <option value="tone">Tone Shift</option>
           </select>
-          <span id="issue-count" class="issue-count"></span>
         </div>
-        <div id="issues-summary-bar" class="issues-summary-bar"></div>
-        <div class="issues-chart-container">
-          <canvas id="issues-donut" width="240" height="240"></canvas>
+        <div class="feedback-tabs">
+          <button class="fb-tab active" data-fb="suggestions">Suggestions</button>
+          <button class="fb-tab" data-fb="rewrite">Rewrite</button>
+          <button class="fb-tab" data-fb="tone">Tone Shift</button>
+          <button class="fb-tab" data-fb="dialogue">Dialogue</button>
         </div>
-        <div id="issues-list" class="issues-list"></div>
-      </div>
 
-      <!-- Reader's View Tab -->
-      <div id="tab-reader" class="tab-content">
-        <div class="reader-view-grid">
-          <div class="reader-card">
-            <h4>Engagement Score</h4>
-            <div class="reader-score" id="reader-engagement">--</div>
-            <p class="reader-desc">How compelling the manuscript is for readers</p>
-          </div>
-          <div class="reader-card">
-            <h4>Pacing Feel</h4>
-            <div class="reader-indicator" id="reader-pacing">
-              <div class="pacing-meter">
-                <div class="pacing-fill" id="pacing-fill"></div>
-              </div>
-              <span class="pacing-label" id="pacing-label">--</span>
-            </div>
-            <p class="reader-desc">Overall rhythm and momentum</p>
-          </div>
-          <div class="reader-card">
-            <h4>Clarity Score</h4>
-            <div class="reader-score" id="reader-clarity">--</div>
-            <p class="reader-desc">How easily readers can follow the narrative</p>
-          </div>
-          <div class="reader-card">
-            <h4>DNF Risk</h4>
-            <div class="reader-meter" id="reader-dnf">
-              <div class="dnf-bar">
-                <div class="dnf-fill" id="dnf-fill"></div>
-              </div>
-              <span class="dnf-label" id="dnf-label">--</span>
-            </div>
-            <p class="reader-desc">Likelihood a reader will not finish</p>
-          </div>
+        <!-- Issue score cards on right -->
+        <div id="right-score-cards" class="right-score-cards">
+          <!-- Dynamically rendered -->
         </div>
-        <div class="reader-section">
-          <h4>Emotional Journey</h4>
-          <div id="emotional-journey" class="emotional-journey"></div>
-        </div>
-        <div class="reader-section">
-          <h4>Immersion Breakers</h4>
-          <div id="immersion-breakers" class="immersion-breakers"></div>
-        </div>
-      </div>
 
-      <!-- AI Critique Tab -->
-      <div id="tab-ai" class="tab-content">
-        <div id="ai-status" class="ai-status hidden">
-          <div class="loader" style="width:24px;height:24px;border-width:3px;display:inline-block;vertical-align:middle"></div>
-          <span id="ai-status-text" style="margin-left:.75rem">Running AI analysis...</span>
+        <!-- Active issue detail -->
+        <div id="right-issue-detail" class="right-issue-detail hidden">
+          <h4 id="detail-category-title"></h4>
+          <div id="detail-issues-list" class="detail-issues-list"></div>
         </div>
-        <div id="ai-no-key" class="ai-no-key">
-          <p>Enter your Claude API key above to unlock AI-powered features:</p>
-          <ul>
-            <li>Deep Narrative Critique</li>
-            <li>Comparable Titles ("reads like X meets Y")</li>
-            <li>Query Letter Generator</li>
-            <li>Beta Reader Simulation (4 simulated readers)</li>
-            <li>Market Readiness Score</li>
-            <li>Chapter-by-Chapter Breakdown</li>
-          </ul>
-          <button id="run-ai-btn" class="btn-primary" style="max-width:300px;margin-top:1rem">Run AI Analysis</button>
-        </div>
-        <div id="ai-results" class="hidden">
-          <div id="ai-cache-info" class="cache-info"></div>
-          <div id="ai-deep-critique" class="analysis-section"></div>
-          <div id="ai-comp-titles" class="analysis-section"></div>
-          <div id="ai-query-letter" class="analysis-section"></div>
-          <div id="ai-beta-readers" class="analysis-section"></div>
-          <div id="ai-market-readiness" class="analysis-section"></div>
-          <div id="ai-chapter-breakdown" class="analysis-section"></div>
-        </div>
-      </div>
+      </aside>
 
-      <!-- Version History Tab -->
-      <div id="tab-versions" class="tab-content">
-        <div class="version-header">
-          <h3>Revision History</h3>
-          <button id="clear-versions-btn" class="btn-secondary" style="font-size:.75rem;padding:.4rem .8rem">Clear History</button>
-        </div>
-        <div id="version-list" class="version-list"></div>
-        <div id="version-comparison" class="version-comparison hidden"></div>
-      </div>
+    </div><!-- /panels -->
+  </div><!-- /editor-view -->
 
-      <!-- Actions -->
-      <div class="actions-bar">
-        <button id="export-btn" class="btn-secondary">Export Report</button>
-        <button id="new-analysis-btn" class="btn-secondary">New Analysis</button>
-      </div>
-    </section>
-  </main>
+  <!-- Tooltip -->
+  <div class="tooltip" id="tooltip"></div>
 
-  <footer>
-    <p>ManuscriptLens &middot; Author's Best Buddy</p>
-  </footer>
+  <!-- API Key Modal -->
+  <div id="api-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>API Configuration</h3>
+      <p>Enter your API key to enable AI features. Your key is stored only in your browser's session and is never sent to our servers.</p>
+      <input type="password" id="modal-api-key" class="modal-input" placeholder="Claude API Key (sk-ant-...)">
+      <div class="modal-actions">
+        <button id="modal-save" class="btn-primary">Save & Run</button>
+        <button id="modal-cancel" class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
 
   <script src="analyzer.js"></script>
   <script src="ai-engine.js"></script>

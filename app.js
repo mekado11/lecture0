@@ -1,502 +1,333 @@
-// ManuscriptLens - Application Logic v2
-
+// ManuscriptLens - 3-Panel Editor App v3
 (function() {
-  let uploadedFile = null;
-  let extractedText = '';
-  let analysisResult = null;
-
+  let uploadedFile = null, extractedText = '', analysisResult = null;
   const $ = id => document.getElementById(id);
-  const dropZone = $('drop-zone');
-  const fileInput = $('file-input');
-  const fileInfo = $('file-info');
-  const fileName = $('file-name');
-  const clearBtn = $('clear-file');
-  const analyzeBtn = $('analyze-btn');
-  const uploadSection = $('upload-section');
-  const loadingSection = $('loading-section');
-  const resultsSection = $('results-section');
-  const loaderText = $('loader-text');
 
   // ========================
   // FILE UPLOAD
   // ========================
+  const dropZone = $('drop-zone'), fileInput = $('file-input');
   dropZone.addEventListener('click', () => fileInput.click());
   dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
   dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
   dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
   fileInput.addEventListener('change', e => { if (e.target.files.length) handleFile(e.target.files[0]); });
-  clearBtn.addEventListener('click', () => { uploadedFile = null; extractedText = ''; fileInfo.classList.add('hidden'); analyzeBtn.classList.add('hidden'); fileInput.value = ''; });
+  $('clear-file').addEventListener('click', () => { uploadedFile = null; $('file-info').classList.add('hidden'); $('analyze-btn').classList.add('hidden'); fileInput.value = ''; });
 
   function handleFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
     if (!['docx','pdf','txt'].includes(ext)) { alert('Please upload a .docx, .pdf, or .txt file.'); return; }
     uploadedFile = file;
-    fileName.textContent = file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
-    fileInfo.classList.remove('hidden');
-    analyzeBtn.classList.remove('hidden');
+    $('file-name').textContent = file.name + ' (' + (file.size/1024).toFixed(1) + ' KB)';
+    $('file-info').classList.remove('hidden');
+    $('analyze-btn').classList.remove('hidden');
   }
 
-  // ========================
-  // TEXT EXTRACTION
-  // ========================
   async function extractText(file) {
     const ext = file.name.split('.').pop().toLowerCase();
     if (ext === 'txt') return await file.text();
-    if (ext === 'docx') {
-      loaderText.textContent = 'Extracting text from Word document...';
-      const arrayBuffer = await file.arrayBuffer();
-      const result = await mammoth.extractRawText({ arrayBuffer });
-      return result.value;
-    }
+    if (ext === 'docx') { $('loader-text').textContent = 'Extracting from Word...'; return (await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value; }
     if (ext === 'pdf') {
-      loaderText.textContent = 'Extracting text from PDF...';
-      const arrayBuffer = await file.arrayBuffer();
+      $('loader-text').textContent = 'Extracting from PDF...';
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      let text = '';
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        text += content.items.map(item => item.str).join(' ') + '\n\n';
-      }
-      return text;
+      const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+      let t = ''; for (let i = 1; i <= pdf.numPages; i++) { const c = await (await pdf.getPage(i)).getTextContent(); t += c.items.map(x => x.str).join(' ') + '\n\n'; } return t;
     }
-    throw new Error('Unsupported file type');
   }
 
-  // ========================
-  // ANALYZE
-  // ========================
-  analyzeBtn.addEventListener('click', async () => {
+  $('analyze-btn').addEventListener('click', async () => {
     if (!uploadedFile) return;
-    uploadSection.classList.add('hidden');
-    loadingSection.classList.remove('hidden');
-    resultsSection.classList.add('hidden');
+    $('analyze-btn').classList.add('hidden');
+    $('upload-loading').classList.remove('hidden');
     try {
-      loaderText.textContent = 'Extracting text...';
+      $('loader-text').textContent = 'Extracting text...';
       extractedText = await extractText(uploadedFile);
-      loaderText.textContent = 'Analyzing manuscript...';
+      $('loader-text').textContent = 'Analyzing manuscript...';
       await new Promise(r => setTimeout(r, 100));
       analysisResult = Analyzer.analyze(extractedText);
-      if (analysisResult.error) { alert(analysisResult.error); loadingSection.classList.add('hidden'); uploadSection.classList.remove('hidden'); return; }
-      // Grammar API
-      const apiKey = $('grammar-api-key')?.value?.trim();
-      if (apiKey) {
-        loaderText.textContent = 'Checking grammar & spelling...';
-        const grammarResult = await Analyzer.checkGrammarAPI(extractedText, apiKey);
-        analysisResult.grammarResult = grammarResult;
-        if (grammarResult && !grammarResult.error) {
-          const corrections = grammarResult.corrections || grammarResult.matches || [];
-          analysisResult.scores.grammar = Math.max(0, 100 - corrections.length * 3);
-        }
-      }
-      renderResults();
-      loadingSection.classList.add('hidden');
-      resultsSection.classList.remove('hidden');
-    } catch (err) {
-      console.error(err);
-      alert('Error processing file: ' + err.message);
-      loadingSection.classList.add('hidden');
-      uploadSection.classList.remove('hidden');
-    }
+      if (analysisResult.error) { alert(analysisResult.error); $('upload-loading').classList.add('hidden'); $('analyze-btn').classList.remove('hidden'); return; }
+      $('upload-view').classList.add('hidden');
+      $('editor-view').classList.remove('hidden');
+      renderAll();
+    } catch (err) { alert('Error: ' + err.message); $('upload-loading').classList.add('hidden'); $('analyze-btn').classList.remove('hidden'); }
   });
 
   // ========================
   // HELPERS
   // ========================
-  function escapeHtml(str) { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  function escapeAttr(str) { return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-  function getParagraphNumber(text, charIndex) {
-    const before = text.substring(0, charIndex);
-    return (before.match(/\n\s*\n/g) || []).length + 1;
-  }
-
-  function drawDonutChart(canvasId, data) {
-    const canvas = $(canvasId);
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const w = canvas.width, h = canvas.height;
-    const cx = w / 2, cy = h / 2;
-    const outerR = Math.min(cx, cy) - 10;
-    const innerR = outerR * 0.6;
-    const total = data.reduce((s, d) => s + d.value, 0);
-    if (total === 0) return;
-
-    let startAngle = -Math.PI / 2;
-    data.forEach(d => {
-      const sliceAngle = (d.value / total) * 2 * Math.PI;
-      ctx.beginPath();
-      ctx.arc(cx, cy, outerR, startAngle, startAngle + sliceAngle);
-      ctx.arc(cx, cy, innerR, startAngle + sliceAngle, startAngle, true);
-      ctx.closePath();
-      ctx.fillStyle = d.color;
-      ctx.fill();
-      startAngle += sliceAngle;
-    });
-
-    // Center text
-    ctx.fillStyle = '#e8eaf0';
-    ctx.font = 'bold 24px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(total, cx, cy - 8);
-    ctx.font = '11px -apple-system, sans-serif';
-    ctx.fillStyle = '#8b90a5';
-    ctx.fillText('issues', cx, cy + 12);
-  }
+  function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function escA(s) { return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function paraNum(text, idx) { return (text.substring(0, idx).match(/\n\s*\n/g) || []).length + 1; }
+  function scoreColor(s) { return s >= 70 ? 'var(--success)' : s >= 45 ? 'var(--warning)' : 'var(--danger)'; }
 
   // ========================
-  // RENDER RESULTS
+  // RENDER ALL
   // ========================
-  function renderResults() {
+  function renderAll() {
     const r = analysisResult;
-    $('overall-grade').textContent = Analyzer.getGrade(r.overall);
-    $('manuscript-title').textContent = uploadedFile.name.replace(/\.\w+$/, '');
-    $('genre-badge').textContent = r.genre.label;
-    $('word-count').textContent = r.totalWords.toLocaleString();
+    $('top-filename').textContent = uploadedFile.name.replace(/\.\w+$/, '');
+    $('top-wordcount').textContent = r.totalWords.toLocaleString();
+    $('top-status').textContent = r.genre.label;
 
-    const categories = ['plot','transitions','copy','line','style','dialogue','showTell','grammar'];
-    const ringIds = { showTell: 'show-tell', grammar: 'grammar' };
-    categories.forEach(cat => {
-      const score = r.scores[cat] || 0;
-      const id = ringIds[cat] || cat;
-      const scoreEl = $('score-' + id);
-      const ringEl = $('ring-' + id);
-      if (scoreEl) scoreEl.textContent = score;
-      if (ringEl) {
-        ringEl.style.strokeDasharray = score + ' ' + (100 - score);
-        ringEl.style.stroke = score >= 80 ? 'var(--success)' : score >= 60 ? 'var(--warning)' : 'var(--danger)';
+    // Overall gauge
+    $('overall-score').textContent = r.overall;
+    const circumference = 2 * Math.PI * 52; // r=52
+    const fill = $('gauge-fill-overall');
+    fill.style.strokeDasharray = (r.overall / 100 * circumference) + ' ' + circumference;
+    fill.style.stroke = scoreColor(r.overall);
+
+    renderLeftSidebar(r);
+    renderRightSidebar(r);
+    renderAnnotatedText(extractedText, r.issues);
+    renderDetailed(r);
+    renderReaderView(r);
+    renderVersionHistory();
+  }
+
+  // ========================
+  // LEFT SIDEBAR
+  // ========================
+  function renderLeftSidebar(r) {
+    const rp = r.readerPerspective;
+    const cards = [
+      { name: 'Engagement Score', score: rp.engagementScore, sub: 'How hooked will readers be?', action: '+ Improve Opening' },
+      { name: 'Hook Strength', score: rp.hookStrength, sub: (r.issueCounts.passive + r.issueCounts.adverb) + ' Issues', action: '+ Improve Opening' },
+      { name: 'Clarity', score: rp.clarityScore, sub: 'Weak transitions', action: null },
+      { name: 'Pacing', score: Math.round((r.scores.plot + r.scores.transitions) / 2), sub: rp.pacingFeel.split(' - ')[0] || rp.pacingFeel, action: null, badge: rp.pacingFeel.includes('Rushed') ? 'Rushed' : rp.pacingFeel.includes('Slow') ? 'Slow' : 'Good' },
+      { name: 'DNF Risk', score: rp.dnfRisk, sub: rp.dnfRisk > 60 ? 'At Risk' : rp.dnfRisk > 30 ? 'Moderate' : 'Safe', invert: true }
+    ];
+    const container = $('health-cards');
+    container.innerHTML = cards.map(c => {
+      const displayScore = c.score;
+      const color = c.invert ? scoreColor(100 - displayScore) : scoreColor(displayScore);
+      const ringPct = displayScore;
+      return '<div class="health-card">' +
+        '<div class="hc-ring"><svg viewBox="0 0 36 36"><circle class="hc-bg" cx="18" cy="18" r="15.9155"/><circle class="hc-fill" cx="18" cy="18" r="15.9155" style="stroke-dasharray:' + ringPct + ' ' + (100-ringPct) + ';stroke:' + color + '"/></svg><span class="hc-num" style="color:' + color + '">' + displayScore + '</span></div>' +
+        '<div class="hc-info"><div class="hc-name">' + c.name + '</div><div class="hc-sub">' + esc(c.sub) + '</div>' +
+        (c.action ? '<span class="hc-action">' + c.action + '</span>' : '') + '</div>' +
+        (c.badge ? '<span class="rc-badge" style="background:var(--surface-2);color:' + color + '">' + c.badge + '</span>' : '<span class="hc-score" style="color:' + color + '">' + displayScore + '</span>') +
+        '</div>';
+    }).join('');
+  }
+
+  // ========================
+  // RIGHT SIDEBAR
+  // ========================
+  function renderRightSidebar(r) {
+    const categories = [
+      { key: 'plot', name: 'Plot Structure', score: r.scores.plot, issues: 0 },
+      { key: 'copy', name: 'Copy Editing', score: r.scores.copy, issues: r.issues.length },
+      { key: 'clarity', name: 'Clarity', score: r.readerPerspective.clarityScore, issues: r.issueCounts.passive },
+      { key: 'pacing', name: 'Pacing', score: Math.round((r.scores.plot + r.scores.transitions) / 2), issues: r.issueCounts['sentence-length'] },
+      { key: 'hookStrength', name: 'Hook Strength', score: r.readerPerspective.hookStrength, issues: r.issueCounts.adverb },
+      { key: 'style', name: 'Style & Voice', score: r.scores.style, issues: r.issueCounts['weak-verb'] },
+      { key: 'dialogue', name: 'Dialogue', score: r.scores.dialogue, issues: 0 },
+      { key: 'showTell', name: 'Show vs Tell', score: r.scores.showTell, issues: r.issueCounts['show-tell'] }
+    ];
+    const container = $('right-score-cards');
+    container.innerHTML = categories.map(c => {
+      const color = scoreColor(c.score);
+      return '<div class="right-card" data-cat="' + c.key + '">' +
+        '<div class="rc-ring"><svg viewBox="0 0 36 36"><circle class="rc-bg" cx="18" cy="18" r="15.9155"/><circle class="rc-fill" cx="18" cy="18" r="15.9155" style="stroke-dasharray:' + c.score + ' ' + (100-c.score) + ';stroke:' + color + '"/></svg><span class="rc-num" style="color:' + color + '">' + c.score + '</span></div>' +
+        '<div class="rc-info"><div class="rc-name">' + c.name + '</div><div class="rc-sub">' + c.issues + ' Issues</div></div>' +
+        '<span class="rc-score" style="color:' + color + '">' + c.score + '</span></div>';
+    }).join('');
+
+    // Click to expand issues
+    container.querySelectorAll('.right-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const cat = card.dataset.cat;
+        showCategoryDetail(cat);
+        container.querySelectorAll('.right-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+      });
+    });
+  }
+
+  function showCategoryDetail(cat) {
+    const r = analysisResult;
+    const detail = $('right-issue-detail');
+    detail.classList.remove('hidden');
+    const typeMap = { plot: null, copy: null, clarity: 'passive', pacing: 'sentence-length', hookStrength: 'adverb', style: 'weak-verb', dialogue: null, showTell: 'show-tell' };
+    const issueType = typeMap[cat];
+    const typeLabels = { passive:'Passive Voice Detected', adverb:'Adverb Overuse', cliche:'Cliche Detected', 'weak-verb':'Weak Verb', wordy:'Wordy Phrase', repetition:'Word Repetition', 'sentence-length':'Long Sentence', 'show-tell':'Show vs Tell' };
+    const title = { plot:'Plot Structure', copy:'Copy Editing', clarity:'Clarity', pacing:'Pacing', hookStrength:'Hook Strength', style:'Style & Voice', dialogue:'Dialogue', showTell:'Show vs Tell' };
+    $('detail-category-title').textContent = title[cat] || cat;
+    const issues = issueType ? r.issues.filter(i => i.type === issueType).slice(0, 8) : r.issues.slice(0, 5);
+    $('detail-issues-list').innerHTML = issues.length === 0 ? '<p style="color:var(--text-muted);font-size:.8rem">No specific issues in this category.</p>' :
+      issues.map(i => '<div class="detail-issue"><div class="detail-issue-title">' + (typeLabels[i.type] || i.type) + '</div><div class="detail-issue-desc">' + esc(i.suggestion) + '</div><div class="detail-issue-quote">\u201C' + esc(i.text.substring(0, 60)) + '\u201D</div><div class="detail-issue-actions"><button class="tip-btn tip-btn-fix" onclick="alert(\'Replace & Fix coming soon\')">Replace &amp; Fix</button><button class="tip-btn tip-btn-ignore" onclick="this.closest(\'.detail-issue\').remove()">Ignore</button></div></div>').join('');
+  }
+
+  // ========================
+  // ANNOTATED TEXT (parchment)
+  // ========================
+  function renderAnnotatedText(text, issues) {
+    const container = $('annotated-text');
+    const sorted = [...issues].sort((a, b) => a.index - b.index);
+    const noOverlap = []; let lastEnd = -1;
+    for (const i of sorted) { if (i.index >= lastEnd) { noOverlap.push(i); lastEnd = i.index + i.length; } }
+    let html = '', pos = 0;
+    for (const i of noOverlap) {
+      if (i.index > pos) html += esc(text.substring(pos, i.index));
+      html += '<span class="highlight" data-type="' + i.type + '" data-msg="' + escA(i.message) + '" data-suggestion="' + escA(i.suggestion) + '">' + esc(text.substring(i.index, i.index + i.length)) + '</span>';
+      pos = i.index + i.length;
+    }
+    if (pos < text.length) html += esc(text.substring(pos));
+    container.innerHTML = html;
+
+    // Tooltip with Replace & Fix / Ignore
+    const tooltip = $('tooltip');
+    const typeLabels = { passive:'Passive Voice', adverb:'Adverb', cliche:'Cliche', repetition:'Repetition', 'weak-verb':'Weak Verb', wordy:'Wordy Phrase', 'sentence-length':'Long Sentence', 'show-tell':'Show vs Tell' };
+    container.addEventListener('mouseover', e => {
+      const hl = e.target.closest('.highlight');
+      if (hl && !hl.classList.contains('hidden-type')) {
+        tooltip.innerHTML = '<div class="tip-type" style="color:var(--' + hl.dataset.type + ')">' + (typeLabels[hl.dataset.type] || hl.dataset.type) + '</div>' +
+          '<div class="tip-suggestion">\u2192 Suggestion:<br>' + hl.dataset.suggestion + '</div>' +
+          '<div class="tip-actions"><button class="tip-btn tip-btn-fix">Replace &amp; Fix</button><button class="tip-btn tip-btn-ignore">Ignore</button></div>';
+        tooltip.classList.add('visible');
+        const rect = hl.getBoundingClientRect();
+        tooltip.style.top = (rect.bottom + 8) + 'px';
+        tooltip.style.left = Math.min(rect.left, window.innerWidth - 340) + 'px';
+        // Ignore button
+        tooltip.querySelector('.tip-btn-ignore')?.addEventListener('click', () => { hl.classList.add('hidden-type'); tooltip.classList.remove('visible'); }, { once: true });
       }
     });
-
-    renderDetailedAnalysis(r);
-    renderAnnotatedText(extractedText, r.issues);
-    renderIssuesList(r.issues);
-    renderReaderView(r);
+    container.addEventListener('mouseout', e => { if (e.target.closest('.highlight')) setTimeout(() => { if (!tooltip.matches(':hover')) tooltip.classList.remove('visible'); }, 200); });
+    tooltip.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
   }
 
   // ========================
   // DETAILED ANALYSIS
   // ========================
-  function renderDetailedAnalysis(r) {
-    const container = $('detailed-analysis');
-    container.innerHTML = '';
-    const plotArcLabels = {
-      'classic': 'Classic narrative arc detected (rising action, climax, resolution)',
-      'rising': 'Rising tension detected but resolution could be stronger',
-      'resolution-focused': 'Strong resolution but rising action needs development',
-      'flat': 'Flat tension curve - consider adding more conflict and stakes',
-      'too-short': 'Text too short for full plot analysis'
-    };
+  function renderDetailed(r) {
+    const d = $('detailed-analysis');
+    const plotLabels = { classic:'Classic arc (rising action, climax, resolution)', rising:'Rising tension but resolution needs work', 'resolution-focused':'Strong resolution, rising action needs development', flat:'Flat tension - add more conflict', 'too-short':'Text too short for plot analysis' };
+    d.innerHTML = [
+      sec('Plot Structure', r.scores.plot, [
+        plotLabels[r.plot.arc] || '', row('Rising Action', r.plot.hasRisingAction ? 'Detected' : 'Weak'), row('Climax', r.plot.hasClimax ? 'Detected' : 'Weak'), row('Resolution', r.plot.hasResolution ? 'Detected' : 'Weak'), row('Paragraphs', r.plot.paragraphCount)
+      ]),
+      sec('Transitions', r.scores.transitions, [
+        r.transitions.smoothRate + '% of transitions are smooth', row('Transition Words', r.transitions.transitionsUsed), row('Smooth', r.transitions.smoothTransitions + ' / ' + (r.transitions.totalParagraphs - 1))
+      ]),
+      sec('Copy Editing', r.scores.copy, [
+        r.issues.length + ' issues across ' + r.totalWords.toLocaleString() + ' words',
+        row('Passive Voice', r.issueCounts.passive), row('Adverbs', r.issueCounts.adverb), row('Cliches', r.issueCounts.cliche), row('Weak Verbs', r.issueCounts['weak-verb']), row('Show vs Tell', r.issueCounts['show-tell'])
+      ]),
+      sec('Line Editing', r.scores.line, [
+        row('Readability Grade', r.readability.grade), row('Flesch Ease', r.readability.ease + '/100'), row('Sentence Variety', r.sentenceVariety.score + '/100'), row('Avg Sentence', r.sentenceVariety.avgLength + ' words')
+      ]),
+      sec('Style & Voice', r.scores.style, [
+        row('POV', r.style.pov), row('Lexical Diversity', r.style.lexicalDiversity + '/100'), row('Unique Words', r.style.uniqueWords.toLocaleString())
+      ]),
+      sec('Dialogue', r.scores.dialogue, [
+        r.dialogue.count === 0 ? 'No dialogue detected.' : '', row('Lines', r.dialogue.count), row('Ratio', r.dialogue.ratio + '/100'), row('Said Usage', r.dialogue.saidRatio + '/100')
+      ])
+    ].join('');
 
-    container.innerHTML += '<div class="analysis-section"><h3>Plot Structure (' + r.scores.plot + '/100)</h3><p>' + (plotArcLabels[r.plot.arc] || 'Analysis complete.') + '</p><div style="margin-top:.75rem"><div class="stat-row"><span class="stat-label">Rising Action</span><span class="stat-value">' + (r.plot.hasRisingAction ? 'Detected' : 'Weak/Missing') + '</span></div><div class="stat-row"><span class="stat-label">Climax</span><span class="stat-value">' + (r.plot.hasClimax ? 'Detected' : 'Weak/Missing') + '</span></div><div class="stat-row"><span class="stat-label">Resolution</span><span class="stat-value">' + (r.plot.hasResolution ? 'Detected' : 'Weak/Missing') + '</span></div><div class="stat-row"><span class="stat-label">Paragraphs</span><span class="stat-value">' + r.plot.paragraphCount + '</span></div></div></div>';
-
-    container.innerHTML += '<div class="analysis-section"><h3>Transitions (' + r.scores.transitions + '/100)</h3><p>' + r.transitions.smoothRate + '% of paragraph transitions are smooth.</p><div style="margin-top:.75rem"><div class="stat-row"><span class="stat-label">Transition Words Used</span><span class="stat-value">' + r.transitions.transitionsUsed + '</span></div><div class="stat-row"><span class="stat-label">Smooth Transitions</span><span class="stat-value">' + r.transitions.smoothTransitions + ' / ' + (r.transitions.totalParagraphs - 1) + '</span></div></div></div>';
-
-    container.innerHTML += '<div class="analysis-section"><h3>Copy Editing (' + r.scores.copy + '/100)</h3><p>' + r.issues.length + ' issues found across ' + r.totalWords.toLocaleString() + ' words.</p><div style="margin-top:.75rem"><div class="stat-row"><span class="stat-label">Passive Voice</span><span class="stat-value">' + r.issueCounts.passive + '</span></div><div class="stat-row"><span class="stat-label">Adverbs</span><span class="stat-value">' + r.issueCounts.adverb + '</span></div><div class="stat-row"><span class="stat-label">Clich&eacute;s</span><span class="stat-value">' + r.issueCounts.cliche + '</span></div><div class="stat-row"><span class="stat-label">Weak Verbs</span><span class="stat-value">' + r.issueCounts['weak-verb'] + '</span></div><div class="stat-row"><span class="stat-label">Wordy Phrases</span><span class="stat-value">' + r.issueCounts.wordy + '</span></div><div class="stat-row"><span class="stat-label">Repetitions</span><span class="stat-value">' + r.issueCounts.repetition + '</span></div><div class="stat-row"><span class="stat-label">Long Sentences</span><span class="stat-value">' + r.issueCounts['sentence-length'] + '</span></div><div class="stat-row"><span class="stat-label">Show vs Tell</span><span class="stat-value">' + r.issueCounts['show-tell'] + '</span></div></div></div>';
-
-    container.innerHTML += '<div class="analysis-section"><h3>Line Editing (' + r.scores.line + '/100)</h3><div style="margin-top:.75rem"><div class="stat-row"><span class="stat-label">Readability Grade</span><span class="stat-value">' + r.readability.grade + '</span></div><div class="stat-row"><span class="stat-label">Flesch Ease</span><span class="stat-value">' + r.readability.ease + '</span></div><div class="stat-row"><span class="stat-label">Sentence Variety</span><span class="stat-value">' + r.sentenceVariety.score + '/100</span></div><div class="stat-row"><span class="stat-label">Avg Sentence Length</span><span class="stat-value">' + r.sentenceVariety.avgLength + ' words</span></div><div class="stat-row"><span class="stat-label">Starter Variety</span><span class="stat-value">' + r.sentenceVariety.starterVariety + '%</span></div></div></div>';
-
-    container.innerHTML += '<div class="analysis-section"><h3>Style &amp; Voice (' + r.scores.style + '/100)</h3><div style="margin-top:.75rem"><div class="stat-row"><span class="stat-label">Point of View</span><span class="stat-value">' + r.style.pov + '</span></div><div class="stat-row"><span class="stat-label">Lexical Diversity</span><span class="stat-value">' + r.style.lexicalDiversity + '%</span></div><div class="stat-row"><span class="stat-label">Unique Words</span><span class="stat-value">' + r.style.uniqueWords.toLocaleString() + '</span></div><div class="stat-row"><span class="stat-label">Avg Word Length</span><span class="stat-value">' + r.style.avgWordLength + ' chars</span></div></div></div>';
-
-    container.innerHTML += '<div class="analysis-section"><h3>Dialogue (' + r.scores.dialogue + '/100)</h3>' + (r.dialogue.count === 0 ? '<p>No dialogue detected.</p>' : '<div style="margin-top:.75rem"><div class="stat-row"><span class="stat-label">Lines</span><span class="stat-value">' + r.dialogue.count + '</span></div><div class="stat-row"><span class="stat-label">Ratio</span><span class="stat-value">' + r.dialogue.ratio + '%</span></div><div class="stat-row"><span class="stat-label">"Said" Usage</span><span class="stat-value">' + r.dialogue.saidRatio + '%</span></div></div>') + '</div>';
-
-    // Pacing Heatmap
-    const heatmapEl = $('pacing-heatmap');
-    if (heatmapEl && r.pacing) {
-      const colors = { action:'#e17055', dialogue:'#74b9ff', description:'#00cec9', exposition:'#fdcb6e', reflection:'#a29bfe' };
-      let heatHtml = '<div class="heatmap-container">';
-      r.pacing.segments.forEach((seg, i) => {
-        heatHtml += '<div class="heatmap-block" style="background:' + colors[seg.type] + '" title="Segment ' + (i+1) + ': ' + seg.type + ' (' + seg.wordCount + ' words)"></div>';
-      });
-      heatHtml += '</div>';
-      heatmapEl.innerHTML = heatHtml;
+    // Pacing heatmap
+    const hm = $('pacing-heatmap');
+    if (hm && r.pacing) {
+      const colors = { action:'#c0392b', dialogue:'#2980b9', description:'#27ae60', exposition:'#f39c12', reflection:'#8e44ad' };
+      hm.innerHTML = '<div class="heatmap-container">' + r.pacing.segments.map((s, i) =>
+        '<div class="heatmap-block" style="background:' + colors[s.type] + '" title="Segment ' + (i+1) + ': ' + s.type + ' (' + s.wordCount + ' words)"></div>'
+      ).join('') + '</div>';
     }
-
-    // Character Tracker
-    const charEl = $('character-tracker');
-    if (charEl && r.characters && r.characters.list.length > 0) {
-      const maxMentions = Math.max(...r.characters.list.map(c => c.mentions));
-      let charHtml = '<div class="character-grid">';
-      r.characters.list.forEach(c => {
-        const pct = Math.round(c.mentions / maxMentions * 100);
-        charHtml += '<div class="character-card"><div class="char-name">' + escapeHtml(c.name) + '</div><div class="char-mentions">' + c.mentions + ' mentions' + (c.dialogueCount > 0 ? ' &middot; ' + c.dialogueCount + ' dialogue lines' : '') + '</div><div class="char-bar"><div class="char-bar-fill" style="width:' + pct + '%"></div></div></div>';
-      });
-      charHtml += '</div>';
-      charEl.innerHTML = charHtml;
-    } else if (charEl) {
-      charEl.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">No recurring characters detected.</p>';
-    }
-
-    // Grammar Results
-    const grammarEl = $('grammar-results');
-    if (grammarEl) {
-      if (r.grammarResult && !r.grammarResult.error) {
-        const corrections = r.grammarResult.corrections || r.grammarResult.matches || [];
-        if (corrections.length > 0) {
-          let gHtml = '<p>' + corrections.length + ' grammar/spelling issues found.</p>';
-          corrections.slice(0, 20).forEach(c => {
-            gHtml += '<div class="grammar-issue"><span class="grammar-original">' + escapeHtml(c.original || c.context?.text || '') + '</span> &rarr; <span class="grammar-corrected">' + escapeHtml(c.suggestion || c.replacements?.[0]?.value || '') + '</span><br><small style="color:var(--text-muted)">' + escapeHtml(c.message || c.rule?.description || '') + '</small></div>';
-          });
-          grammarEl.innerHTML = gHtml;
-        } else {
-          grammarEl.innerHTML = '<p style="color:var(--success)">No grammar or spelling issues found!</p>';
-        }
-      } else {
-        grammarEl.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">Enter your RapidAPI key above to enable grammar &amp; spelling checking.</p>';
-      }
-    }
+    // Characters
+    const ch = $('character-tracker');
+    if (ch && r.characters.list.length > 0) {
+      const max = Math.max(...r.characters.list.map(c => c.mentions));
+      ch.innerHTML = '<div class="character-grid">' + r.characters.list.map(c =>
+        '<div class="character-card"><div class="char-name">' + esc(c.name) + '</div><div class="char-mentions">' + c.mentions + ' mentions' + (c.dialogueCount ? ' &middot; ' + c.dialogueCount + ' dialogue' : '') + '</div><div class="char-bar"><div class="char-bar-fill" style="width:' + Math.round(c.mentions/max*100) + '%"></div></div></div>'
+      ).join('') + '</div>';
+    } else if (ch) { ch.innerHTML = '<p style="color:var(--text-muted);font-size:.8rem">No recurring characters detected.</p>'; }
+    // Grammar placeholder
+    const gr = $('grammar-results');
+    if (gr) gr.innerHTML = '<p style="color:var(--text-muted);font-size:.8rem">Grammar API integration available via AI Critique tab.</p>';
   }
-
-  // ========================
-  // ANNOTATED TEXT
-  // ========================
-  function renderAnnotatedText(text, issues) {
-    const container = $('annotated-text');
-    const sorted = [...issues].sort((a, b) => a.index - b.index);
-    const nonOverlapping = [];
-    let lastEnd = -1;
-    for (const issue of sorted) {
-      if (issue.index >= lastEnd) { nonOverlapping.push(issue); lastEnd = issue.index + issue.length; }
-    }
-    let html = '';
-    let pos = 0;
-    for (const issue of nonOverlapping) {
-      if (issue.index > pos) html += escapeHtml(text.substring(pos, issue.index));
-      html += '<span class="highlight" data-type="' + issue.type + '" data-msg="' + escapeAttr(issue.message) + '" data-suggestion="' + escapeAttr(issue.suggestion) + '">' + escapeHtml(text.substring(issue.index, issue.index + issue.length)) + '</span>';
-      pos = issue.index + issue.length;
-    }
-    if (pos < text.length) html += escapeHtml(text.substring(pos));
-    container.innerHTML = html;
-
-    let tooltip = document.querySelector('.tooltip');
-    if (!tooltip) { tooltip = document.createElement('div'); tooltip.className = 'tooltip'; document.body.appendChild(tooltip); }
-    container.addEventListener('mouseover', e => {
-      const hl = e.target.closest('.highlight');
-      if (hl && !hl.classList.contains('hidden-type')) {
-        const typeLabels = { passive:'Passive Voice', adverb:'Adverb', cliche:'Cliche', repetition:'Repetition', 'weak-verb':'Weak Verb', wordy:'Wordy Phrase', 'sentence-length':'Long Sentence', 'show-tell':'Show vs Tell' };
-        tooltip.innerHTML = '<div class="tip-type" style="color:var(--' + hl.dataset.type + ')">' + (typeLabels[hl.dataset.type] || hl.dataset.type) + '</div><div class="tip-suggestion">' + hl.dataset.suggestion + '</div>';
-        tooltip.classList.add('visible');
-        const rect = hl.getBoundingClientRect();
-        tooltip.style.top = (rect.bottom + 8) + 'px';
-        tooltip.style.left = Math.min(rect.left, window.innerWidth - 300) + 'px';
-      }
-    });
-    container.addEventListener('mouseout', e => { if (e.target.closest('.highlight')) tooltip.classList.remove('visible'); });
+  function sec(title, score, items) {
+    return '<div class="analysis-section"><h3>' + title + ' <span style="float:right;color:' + scoreColor(score) + '">' + score + '/100</span></h3>' + items.filter(Boolean).map(i => typeof i === 'string' ? (i ? '<p>' + i + '</p>' : '') : i).join('') + '</div>';
   }
+  function row(label, val) { return '<div class="stat-row"><span class="stat-label">' + label + '</span><span class="stat-value">' + val + '</span></div>'; }
 
   // ========================
-  // ISSUES LIST (REDESIGNED)
-  // ========================
-  function renderIssuesList(issues) {
-    $('issue-count').textContent = issues.length + ' issues found';
-    const typeColors = {
-      passive:'#fd79a8', adverb:'#fdcb6e', cliche:'#e17055',
-      repetition:'#74b9ff', 'weak-verb':'#a29bfe', wordy:'#55efc4',
-      'sentence-length':'#fab1a0', 'show-tell':'#fd79a8'
-    };
-    const typeLabels = {
-      passive:'Passive Voice', adverb:'Adverbs', cliche:'Cliches',
-      'weak-verb':'Weak Verbs', wordy:'Wordy Phrases', repetition:'Repetitions',
-      'sentence-length':'Long Sentences', 'show-tell':'Show vs Tell'
-    };
-
-    // Summary pills
-    const summaryBar = $('issues-summary-bar');
-    if (summaryBar) {
-      let pillsHtml = '';
-      const grouped = {};
-      issues.forEach(i => { grouped[i.type] = (grouped[i.type] || 0) + 1; });
-      Object.entries(grouped).sort((a,b) => b[1] - a[1]).forEach(([type, count]) => {
-        pillsHtml += '<div class="issue-pill"><span class="pill-dot" style="background:' + (typeColors[type]||'#888') + '"></span>' + (typeLabels[type]||type) + ': ' + count + '</div>';
-      });
-      summaryBar.innerHTML = pillsHtml;
-    }
-
-    // Donut chart
-    const donutData = Object.entries(typeColors).map(([type, color]) => ({
-      label: typeLabels[type] || type,
-      value: issues.filter(i => i.type === type).length,
-      color
-    })).filter(d => d.value > 0);
-    drawDonutChart('issues-donut', donutData);
-
-    // Grouped accordion render
-    function renderGrouped() {
-      const container = $('issues-list');
-      const grouped = {};
-      issues.forEach(i => { if (!grouped[i.type]) grouped[i.type] = []; grouped[i.type].push(i); });
-      let html = '';
-      Object.entries(grouped).sort((a,b) => b[1].length - a[1].length).forEach(([type, items]) => {
-        html += '<div class="issue-group"><div class="issue-group-header" onclick="this.classList.toggle(\'collapsed\');this.nextElementSibling.classList.toggle(\'collapsed\')" style="border-left:3px solid ' + (typeColors[type]||'#888') + '"><span>' + (typeLabels[type]||type) + '</span><span><span class="group-count">' + items.length + '</span> <span class="group-arrow">&#9660;</span></span></div><div class="issue-group-body">';
-        items.forEach(issue => {
-          const paraNum = getParagraphNumber(extractedText, issue.index);
-          html += '<div class="issue-item severity-' + issue.severity + '"><div class="issue-meta"><span class="issue-type-badge" style="background:' + (typeColors[issue.type]||'#888') + '20;color:' + (typeColors[issue.type]||'#888') + '">' + issue.severity + '</span></div><div class="issue-text">' + escapeHtml(issue.message) + '</div><div class="issue-suggestion">' + escapeHtml(issue.suggestion) + '</div><div class="issue-location">Paragraph ' + paraNum + '</div></div>';
-        });
-        html += '</div></div>';
-      });
-      container.innerHTML = html;
-    }
-
-    function renderFlat(sortedIssues) {
-      const container = $('issues-list');
-      container.innerHTML = sortedIssues.map(issue => {
-        const paraNum = getParagraphNumber(extractedText, issue.index);
-        return '<div class="issue-item severity-' + issue.severity + '"><div class="issue-meta"><span class="issue-type-badge" style="background:' + (typeColors[issue.type]||'#888') + '20;color:' + (typeColors[issue.type]||'#888') + '">' + issue.type + '</span><span>' + issue.severity + '</span></div><div class="issue-text">' + escapeHtml(issue.message) + '</div><div class="issue-suggestion">' + escapeHtml(issue.suggestion) + '</div><div class="issue-location">Paragraph ' + paraNum + '</div></div>';
-      }).join('');
-    }
-
-    // Default: grouped
-    renderGrouped();
-
-    $('issue-sort').addEventListener('change', e => {
-      const sorted = [...issues];
-      switch (e.target.value) {
-        case 'group': renderGrouped(); return;
-        case 'severity':
-          sorted.sort((a, b) => ({ high:0, medium:1, low:2 })[a.severity] - ({ high:0, medium:1, low:2 })[b.severity]);
-          break;
-        case 'type': sorted.sort((a, b) => a.type.localeCompare(b.type)); break;
-        case 'position': sorted.sort((a, b) => a.index - b.index); break;
-      }
-      renderFlat(sorted);
-    });
-  }
-
-  // ========================
-  // READER'S VIEW
+  // READER VIEW
   // ========================
   function renderReaderView(r) {
-    const container = $('tab-reader');
-    if (!container || !r.readerPerspective) return;
     const rp = r.readerPerspective;
-
-    const meterColor = (score, invert) => {
-      const s = invert ? 100 - score : score;
-      return s >= 70 ? 'var(--success)' : s >= 40 ? 'var(--warning)' : 'var(--danger)';
-    };
-
+    const mc = (s, inv) => { const v = inv ? 100-s : s; return v >= 70 ? 'var(--success)' : v >= 40 ? 'var(--warning)' : 'var(--danger)'; };
     let html = '<div class="reader-grid">';
-    // Engagement
-    html += '<div class="reader-card"><h4>Engagement Score</h4><div class="big-score" style="color:' + meterColor(rp.engagementScore) + '">' + rp.engagementScore + '</div><div class="meter-bar"><div class="meter-fill" style="width:' + rp.engagementScore + '%;background:' + meterColor(rp.engagementScore) + '"></div></div><div class="score-label">How hooked will readers be?</div></div>';
-    // Hook Strength
-    html += '<div class="reader-card"><h4>Hook Strength</h4><div class="big-score" style="color:' + meterColor(rp.hookStrength) + '">' + rp.hookStrength + '</div><div class="meter-bar"><div class="meter-fill" style="width:' + rp.hookStrength + '%;background:' + meterColor(rp.hookStrength) + '"></div></div><div class="score-label">Does the opening grab attention?</div></div>';
-    // DNF Risk
-    html += '<div class="reader-card dnf-meter"><h4>DNF Risk</h4><div class="big-score" style="color:' + meterColor(rp.dnfRisk, true) + '">' + rp.dnfRisk + '%</div><div class="meter-bar"><div class="meter-fill" style="width:' + rp.dnfRisk + '%;background:' + meterColor(rp.dnfRisk, true) + '"></div></div><div class="dnf-label"><span>Safe</span><span>At Risk</span></div></div>';
-    // Clarity
-    html += '<div class="reader-card"><h4>Clarity</h4><div class="big-score" style="color:' + meterColor(rp.clarityScore) + '">' + rp.clarityScore + '</div><div class="meter-bar"><div class="meter-fill" style="width:' + rp.clarityScore + '%;background:' + meterColor(rp.clarityScore) + '"></div></div><div class="score-label">Can readers follow the story?</div></div>';
-    // Pacing
-    html += '<div class="reader-card"><h4>Pacing Feel</h4><p style="font-size:.9rem;margin-top:.5rem">' + escapeHtml(rp.pacingFeel) + '</p></div>';
-    // Verdict
-    html += '<div class="reader-card"><h4>Overall Verdict</h4><p style="font-size:.9rem;margin-top:.5rem">' + escapeHtml(rp.overallVerdict) + '</p></div>';
+    html += rCard('Engagement Score', rp.engagementScore, mc(rp.engagementScore), 'How hooked will readers be?');
+    html += rCard('Hook Strength', rp.hookStrength, mc(rp.hookStrength), 'Does the opening grab attention?');
+    html += '<div class="reader-card"><h4>DNF Risk</h4><div class="big-score" style="color:' + mc(rp.dnfRisk, true) + '">' + rp.dnfRisk + '/100</div><div class="meter-bar"><div class="meter-fill" style="width:' + rp.dnfRisk + '%;background:' + mc(rp.dnfRisk, true) + '"></div></div><div style="display:flex;justify-content:space-between;font-size:.65rem;color:var(--text-muted)"><span>Safe</span><span>At Risk</span></div></div>';
+    html += rCard('Clarity', rp.clarityScore, mc(rp.clarityScore), 'Can readers follow the story?');
+    html += '<div class="reader-card"><h4>Pacing Feel</h4><p style="font-size:.85rem;margin-top:.4rem">' + esc(rp.pacingFeel) + '</p></div>';
+    html += '<div class="reader-card"><h4>Verdict</h4><p style="font-size:.85rem;margin-top:.4rem">' + esc(rp.overallVerdict) + '</p></div>';
     html += '</div>';
-
-    // Emotional Journey
-    html += '<div class="analysis-section" style="margin-top:1rem"><h3>Emotional Journey</h3><div id="emotional-journey">';
-    const emotionColors = { exciting:'#e17055', tense:'#fdcb6e', sad:'#74b9ff', calm:'#00cec9', hopeful:'#a29bfe' };
+    // Emotional journey
+    const emColors = { exciting:'#c0392b', tense:'#f39c12', sad:'#2980b9', calm:'#27ae60', hopeful:'#8e44ad' };
+    html += '<div class="analysis-section"><h3>Emotional Journey</h3>';
     rp.emotionalJourney.forEach(e => {
-      html += '<div class="emotion-bar-row"><span class="emotion-label">' + e.emotion + '</span><div class="emotion-track"><div class="emotion-fill" style="width:' + e.intensity + '%;background:' + (emotionColors[e.emotion]||'#888') + '"></div></div><span style="font-size:.75rem;color:var(--text-muted);width:30px">' + e.intensity + '%</span></div>';
+      html += '<div class="emotion-bar-row"><span class="emotion-label">' + e.emotion + '</span><div class="emotion-track"><div class="emotion-fill" style="width:' + e.intensity + '%;background:' + (emColors[e.emotion]||'#888') + '"></div></div><span style="font-size:.65rem;color:var(--text-muted);width:30px">' + e.intensity + '/100</span></div>';
     });
-    html += '</div></div>';
-
-    // Immersion Breakers
+    html += '</div>';
     if (rp.immersionBreakers.length > 0) {
-      html += '<div class="analysis-section" style="margin-top:1rem"><h3>Immersion Breakers (' + rp.immersionBreakers.length + ')</h3><div id="immersion-breakers">';
-      rp.immersionBreakers.forEach(b => {
-        html += '<div class="immersion-breaker-item"><div>' + escapeHtml(b.reason) + '</div><div class="breaker-location">' + escapeHtml(b.location) + ': "' + escapeHtml(b.text) + '"</div></div>';
-      });
-      html += '</div></div>';
+      html += '<div class="analysis-section"><h3>Immersion Breakers (' + rp.immersionBreakers.length + ')</h3>';
+      rp.immersionBreakers.forEach(b => { html += '<div class="immersion-breaker-item"><div>' + esc(b.reason) + '</div><div class="breaker-location">' + esc(b.location) + '</div></div>'; });
+      html += '</div>';
     }
-
-    container.innerHTML = html;
+    $('reader-view-content').innerHTML = html;
+  }
+  function rCard(title, score, color, desc) {
+    return '<div class="reader-card"><h4>' + title + '</h4><div class="big-score" style="color:' + color + '">' + score + '/100</div><div class="meter-bar"><div class="meter-fill" style="width:' + score + '%;background:' + color + '"></div></div><div class="score-label">' + desc + '</div></div>';
   }
 
   // ========================
   // TABS
   // ========================
-  document.querySelectorAll('.tab').forEach(tab => {
+  document.querySelectorAll('.ed-tab').forEach(tab => {
     tab.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.ed-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.ed-tab-content').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-      const target = document.getElementById('tab-' + tab.dataset.tab);
+      const target = $('ed-tab-' + tab.dataset.tab);
       if (target) target.classList.add('active');
+      // Show/hide filters only on annotated tab
+      $('editor-filters').style.display = tab.dataset.tab === 'annotated' ? 'flex' : 'none';
     });
   });
-
-  // ========================
-  // ANNOTATION FILTERS
-  // ========================
   document.querySelectorAll('.filter-check').forEach(check => {
     check.addEventListener('change', () => {
-      const type = check.value;
-      document.querySelectorAll('.highlight[data-type="' + type + '"]').forEach(el => {
-        el.classList.toggle('hidden-type', !check.checked);
-      });
+      document.querySelectorAll('.highlight[data-type="' + check.value + '"]').forEach(el => el.classList.toggle('hidden-type', !check.checked));
     });
+  });
+  document.querySelectorAll('.fb-tab').forEach(tab => {
+    tab.addEventListener('click', () => { document.querySelectorAll('.fb-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); });
   });
 
   // ========================
-  // EXPORT REPORT
+  // AI CRITIQUE (modal for API key)
   // ========================
-  $('export-btn')?.addEventListener('click', () => {
+  $('run-ai-btn')?.addEventListener('click', () => {
+    // Check if key exists in session
+    const existing = sessionStorage.getItem('ml_claude_key');
+    if (existing) { runAI(existing); return; }
+    // Show modal
+    $('api-modal').classList.remove('hidden');
+  });
+  $('modal-cancel')?.addEventListener('click', () => $('api-modal').classList.add('hidden'));
+  $('modal-save')?.addEventListener('click', () => {
+    const key = $('modal-api-key').value.trim();
+    if (!key) { alert('Please enter your API key.'); return; }
+    sessionStorage.setItem('ml_claude_key', key);
+    $('api-modal').classList.add('hidden');
+    runAI(key);
+  });
+
+  async function runAI(apiKey) {
     if (!analysisResult) return;
-    const r = analysisResult;
-    const lines = [
-      '====================================',
-      'MANUSCRIPTLENS ANALYSIS REPORT',
-      "Author's Best Buddy",
-      '====================================','',
-      'File: ' + uploadedFile.name, 'Genre: ' + r.genre.label,
-      'Word Count: ' + r.totalWords.toLocaleString(),
-      'Overall Grade: ' + Analyzer.getGrade(r.overall) + ' (' + r.overall + '/100)','',
-      '--- SCORES ---',
-      'Plot Structure:    ' + r.scores.plot + '/100', 'Transitions:       ' + r.scores.transitions + '/100',
-      'Copy Editing:      ' + r.scores.copy + '/100', 'Line Editing:      ' + r.scores.line + '/100',
-      'Style & Voice:     ' + r.scores.style + '/100', 'Dialogue:          ' + r.scores.dialogue + '/100',
-      'Show vs Tell:      ' + r.scores.showTell + '/100','',
-      '--- READER PERSPECTIVE ---',
-      'Engagement:        ' + r.readerPerspective.engagementScore + '/100',
-      'Hook Strength:     ' + r.readerPerspective.hookStrength + '/100',
-      'DNF Risk:          ' + r.readerPerspective.dnfRisk + '%',
-      'Clarity:           ' + r.readerPerspective.clarityScore + '/100',
-      'Pacing:            ' + r.readerPerspective.pacingFeel,
-      'Verdict:           ' + r.readerPerspective.overallVerdict,'',
-      '--- CHARACTERS ---'
-    ];
-    if (r.characters.list.length > 0) {
-      r.characters.list.forEach(c => lines.push('  ' + c.name + ': ' + c.mentions + ' mentions'));
-    } else { lines.push('  No recurring characters detected.'); }
-    lines.push('', '--- ISSUES (' + r.issues.length + ') ---');
-    r.issues.slice(0, 30).forEach((issue, i) => {
-      const para = getParagraphNumber(extractedText, issue.index);
-      lines.push((i+1) + '. [' + issue.type.toUpperCase() + ' | Para ' + para + '] ' + issue.message);
-      lines.push('   -> ' + issue.suggestion);
-    });
-    if (r.issues.length > 30) lines.push('   ... and ' + (r.issues.length - 30) + ' more');
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = uploadedFile.name.replace(/\.\w+$/, '') + '-analysis.txt';
-    a.click(); URL.revokeObjectURL(url);
-  });
-
-  // ========================
-  // AI CRITIQUE TAB
-  // ========================
-  $('run-ai-btn')?.addEventListener('click', async () => {
-    const apiKey = $('claude-api-key')?.value?.trim();
-    if (!apiKey) { alert('Please enter your Claude API key in the upload section.'); return; }
-    if (!analysisResult) { alert('Run the basic analysis first.'); return; }
-
     const statusEl = $('ai-status');
     const statusText = $('ai-status-text');
-    const resultsEl = $('ai-results');
-    const noKeyEl = $('ai-no-key');
     statusEl.classList.remove('hidden');
-    noKeyEl.classList.add('hidden');
-
     try {
       const aiResults = await AIEngine.runAllFeatures(apiKey, extractedText, analysisResult, (label, i, total) => {
         statusText.textContent = label + ' (' + (i+1) + '/' + total + ')';
@@ -504,116 +335,44 @@
       analysisResult._aiResults = aiResults;
       renderAIResults(aiResults);
       statusEl.classList.add('hidden');
-      resultsEl.classList.remove('hidden');
-
-      // Save version after AI analysis
+      $('ai-results').classList.remove('hidden');
+      document.querySelector('.ai-intro')?.classList.add('hidden');
       AIEngine.saveVersion(uploadedFile.name, analysisResult, aiResults);
       renderVersionHistory();
-
-      // Show cache savings
+      // Cache info
       let totalCache = 0, totalInput = 0;
-      Object.values(aiResults).forEach(r => {
-        if (r._cacheInfo) {
-          totalCache += r._cacheInfo.cache_read || 0;
-          totalInput += r._cacheInfo.input_tokens || 0;
-        }
-      });
-      if (totalCache > 0) {
-        $('ai-cache-info').innerHTML = '<p style="color:var(--success);font-size:.8rem">Cache saved ' + totalCache.toLocaleString() + ' input tokens across calls (' + Math.round(totalCache/Math.max(totalInput,1)*100) + '% savings)</p>';
-      }
-    } catch (err) {
-      statusEl.classList.add('hidden');
-      noKeyEl.classList.remove('hidden');
-      alert('AI Analysis error: ' + err.message);
-    }
-  });
+      Object.values(aiResults).forEach(r => { if (r._cacheInfo) { totalCache += r._cacheInfo.cache_read || 0; totalInput += r._cacheInfo.input_tokens || 0; } });
+      if (totalCache > 0) $('ai-cache-info').innerHTML = '<p style="color:var(--success);font-size:.75rem">Cached ' + totalCache.toLocaleString() + ' tokens (' + Math.round(totalCache/Math.max(totalInput,1)*100) + '% savings)</p>';
+    } catch (err) { statusEl.classList.add('hidden'); alert('AI error: ' + err.message); }
+  }
 
   function renderAIResults(ai) {
-    // Deep Critique
+    // Reuse existing renderAI logic
     const dc = ai.deepCritique;
     if (dc && !dc.error) {
-      $('ai-deep-critique').innerHTML = '<h3>Deep Narrative Critique</h3>' +
-        '<p style="margin:.75rem 0">' + escapeHtml(dc.overallAssessment || '') + '</p>' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:.75rem 0">' +
-        '<div><h4 style="color:var(--success);font-size:.85rem;margin-bottom:.5rem">Strengths</h4><ul class="ai-list">' + (dc.strengths||[]).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul></div>' +
-        '<div><h4 style="color:var(--danger);font-size:.85rem;margin-bottom:.5rem">Weaknesses</h4><ul class="ai-list">' + (dc.weaknesses||[]).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul></div></div>' +
-        '<div class="stat-row"><span class="stat-label">Character Depth</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(dc.characterDepth || '') + '</span></div>' +
-        '<div class="stat-row"><span class="stat-label">Narrative Voice</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(dc.narrativeVoice || '') + '</span></div>' +
-        '<div class="stat-row"><span class="stat-label">Emotional Impact</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(dc.emotionalImpact || '') + '</span></div>' +
-        '<div style="margin-top:1rem;padding:.75rem;background:var(--surface-2);border-radius:var(--radius-sm)"><strong style="color:var(--warning)">Priority Fix:</strong> ' + escapeHtml(dc.priorityFix || '') + '</div>' +
-        '<h4 style="margin-top:1rem;font-size:.85rem;color:var(--accent-light)">Suggestions</h4><ul class="ai-list">' + (dc.suggestions||[]).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ul>';
-    } else if (dc?.error) {
-      $('ai-deep-critique').innerHTML = '<h3>Deep Critique</h3><p style="color:var(--danger)">' + escapeHtml(dc.error) + '</p>';
+      $('ai-deep-critique').innerHTML = '<h3>Deep Narrative Critique</h3><p>' + esc(dc.overallAssessment||'') + '</p>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin:.75rem 0"><div><h4 style="color:var(--success);font-size:.8rem">Strengths</h4><ul class="ai-list">' + (dc.strengths||[]).map(s => '<li>' + esc(s) + '</li>').join('') + '</ul></div><div><h4 style="color:var(--danger);font-size:.8rem">Weaknesses</h4><ul class="ai-list">' + (dc.weaknesses||[]).map(s => '<li>' + esc(s) + '</li>').join('') + '</ul></div></div>' +
+        '<div style="margin-top:.75rem;padding:.5rem;background:var(--surface-2);border-radius:var(--radius-sm)"><strong style="color:var(--warning)">Priority Fix:</strong> ' + esc(dc.priorityFix||'') + '</div>';
     }
-
-    // Comp Titles
     const ct = ai.compTitles;
     if (ct && !ct.error) {
-      $('ai-comp-titles').innerHTML = '<h3>Comparable Titles</h3>' +
-        '<div style="padding:.75rem;background:var(--surface-2);border-radius:var(--radius-sm);margin:.75rem 0;font-size:1.1rem;font-weight:600;color:var(--accent-light)">' + escapeHtml(ct.pitchLine || '') + '</div>' +
-        '<div class="comp-grid">' + (ct.compTitles||[]).map(c =>
-          '<div class="comp-card"><div class="comp-title">' + escapeHtml(c.title) + '</div><div class="comp-author">by ' + escapeHtml(c.author) + '</div><div class="comp-reason">' + escapeHtml(c.reason) + '</div></div>'
-        ).join('') + '</div>' +
-        '<div class="stat-row" style="margin-top:.75rem"><span class="stat-label">Target Audience</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(ct.targetAudience || '') + '</span></div>' +
-        '<div class="stat-row"><span class="stat-label">Shelf Placement</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(ct.shelfPlacement || '') + '</span></div>';
+      $('ai-comp-titles').innerHTML = '<h3>Comparable Titles</h3><div style="padding:.5rem;background:var(--surface-2);border-radius:var(--radius-sm);font-weight:600;color:var(--accent-light);margin:.5rem 0">' + esc(ct.pitchLine||'') + '</div><div class="comp-grid">' + (ct.compTitles||[]).map(c => '<div class="comp-card"><div class="comp-title">' + esc(c.title) + '</div><div class="comp-author">by ' + esc(c.author) + '</div><div class="comp-reason">' + esc(c.reason) + '</div></div>').join('') + '</div>';
     }
-
-    // Query Letter
     const ql = ai.queryLetter;
     if (ql && !ql.error) {
-      $('ai-query-letter').innerHTML = '<h3>Query Letter</h3>' +
-        '<div style="margin:.75rem 0;padding:.75rem;background:var(--surface-2);border-radius:var(--radius-sm);font-weight:600;color:var(--warning)">' + escapeHtml(ql.hookLine || '') + '</div>' +
-        '<div class="query-letter-text">' + escapeHtml(ql.queryLetter || '').replace(/\n/g, '<br>') + '</div>' +
-        '<div style="margin-top:1rem"><h4 style="font-size:.85rem;color:var(--accent-light);margin-bottom:.5rem">Tips</h4><ul class="ai-list">' + (ql.tips||[]).map(t => '<li>' + escapeHtml(t) + '</li>').join('') + '</ul></div>' +
-        '<button class="btn-secondary" style="margin-top:.75rem" onclick="navigator.clipboard.writeText(' + JSON.stringify(ql.queryLetter||'').replace(/'/g,"\\'") + ');this.textContent=\'Copied!\'">Copy Query Letter</button>';
+      $('ai-query-letter').innerHTML = '<h3>Query Letter</h3><div class="query-letter-text">' + esc(ql.queryLetter||'').replace(/\n/g,'<br>') + '</div><button class="btn-secondary" style="margin-top:.5rem" onclick="navigator.clipboard.writeText(' + JSON.stringify(ql.queryLetter||'') + ');this.textContent=\'Copied!\'">Copy Letter</button>';
     }
-
-    // Beta Readers
     const br = ai.betaReaders;
     if (br && !br.error) {
-      $('ai-beta-readers').innerHTML = '<h3>Beta Reader Simulation</h3>' +
-        '<div class="beta-grid">' + (br.readers||[]).map(r =>
-          '<div class="beta-card"><div class="beta-header"><span class="beta-name">' + escapeHtml(r.name) + ' ' + (r.emoticon||'') + '</span><span class="beta-rating">' + '&#9733;'.repeat(r.rating||0) + '&#9734;'.repeat(5-(r.rating||0)) + '</span></div>' +
-          '<div class="beta-profile">' + escapeHtml(r.profile) + '</div>' +
-          '<div class="beta-reaction">' + escapeHtml(r.reaction) + '</div>' +
-          '<div style="font-size:.8rem;margin-top:.5rem"><span style="color:var(--success)">Loved:</span> ' + escapeHtml(r.favoritepart||'') + '</div>' +
-          '<div style="font-size:.8rem;margin-top:.25rem"><span style="color:var(--danger)">Issue:</span> ' + escapeHtml(r.confusion||'') + '</div>' +
-          '<div style="font-size:.75rem;margin-top:.5rem;color:var(--text-muted)">Would recommend: ' + (r.wouldRecommend ? 'Yes' : 'No') + '</div></div>'
-        ).join('') + '</div>' +
-        '<div style="margin-top:1rem"><div class="stat-row"><span class="stat-label">Consensus Rating</span><span class="stat-value">' + (br.consensusRating||0) + '/5</span></div>' +
-        '<div class="stat-row"><span class="stat-label">Common Praise</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(br.commonPraise||'') + '</span></div>' +
-        '<div class="stat-row"><span class="stat-label">Common Criticism</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(br.commonCriticism||'') + '</span></div></div>';
+      $('ai-beta-readers').innerHTML = '<h3>Beta Reader Simulation</h3><div class="beta-grid">' + (br.readers||[]).map(r => '<div class="beta-card"><div class="beta-header"><span class="beta-name">' + esc(r.name) + ' ' + (r.emoticon||'') + '</span><span class="beta-rating">' + '\u2605'.repeat(r.rating||0) + '\u2606'.repeat(5-(r.rating||0)) + '</span></div><div class="beta-profile">' + esc(r.profile) + '</div><div class="beta-reaction">' + esc(r.reaction) + '</div></div>').join('') + '</div><div style="margin-top:.5rem">' + row('Consensus', (br.consensusRating||0) + '/5') + '</div>';
     }
-
-    // Market Readiness
     const mr = ai.marketReadiness;
     if (mr && !mr.error) {
-      const mrColor = (mr.readinessScore||0) >= 70 ? 'var(--success)' : (mr.readinessScore||0) >= 50 ? 'var(--warning)' : 'var(--danger)';
-      $('ai-market-readiness').innerHTML = '<h3>Market Readiness</h3>' +
-        '<div style="display:flex;align-items:center;gap:1.5rem;margin:.75rem 0"><div style="font-size:2.5rem;font-weight:800;color:' + mrColor + '">' + (mr.readinessScore||0) + '</div><div><div style="font-size:1.2rem;font-weight:600">' + escapeHtml(mr.readinessGrade||'') + '</div><div style="color:var(--text-muted);font-size:.85rem">' + escapeHtml(mr.developmentalStage||'') + '</div></div></div>' +
-        '<div class="stat-row"><span class="stat-label">Publishing Path</span><span class="stat-value">' + escapeHtml(mr.publishingPath||'') + '</span></div>' +
-        '<div class="stat-row"><span class="stat-label">Market Fit</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(mr.marketFit||'') + '</span></div>' +
-        '<div class="stat-row"><span class="stat-label">Est. Revisions</span><span class="stat-value">' + escapeHtml(mr.estimatedRevisions||'') + '</span></div>' +
-        '<div class="stat-row"><span class="stat-label">Trend Alignment</span><span class="stat-value" style="max-width:60%;text-align:right">' + escapeHtml(mr.trendAlignment||'') + '</span></div>' +
-        '<h4 style="margin-top:1rem;font-size:.85rem;color:var(--accent-light)">Next Steps</h4><ol class="ai-list">' + (mr.nextSteps||[]).map(s => '<li>' + escapeHtml(s) + '</li>').join('') + '</ol>';
+      $('ai-market-readiness').innerHTML = '<h3>Market Readiness</h3><div style="font-size:2rem;font-weight:800;color:' + scoreColor(mr.readinessScore||0) + '">' + (mr.readinessScore||0) + '/100</div>' + row('Publishing Path', mr.publishingPath||'') + row('Stage', mr.developmentalStage||'') + row('Trend Alignment', mr.trendAlignment||'') + '<h4 style="margin-top:.5rem;font-size:.8rem;color:var(--accent-light)">Next Steps</h4><ol class="ai-list">' + (mr.nextSteps||[]).map(s => '<li>' + esc(s) + '</li>').join('') + '</ol>';
     }
-
-    // Chapter Breakdown
     const cb = ai.chapterBreakdown;
     if (cb && !cb.error) {
-      $('ai-chapter-breakdown').innerHTML = '<h3>Chapter Breakdown</h3>' +
-        '<p style="margin:.75rem 0;color:var(--text-muted);font-size:.85rem">' + escapeHtml(cb.structureAssessment||'') + '</p>' +
-        '<div class="chapter-grid">' + (cb.chapters||[]).map(c =>
-          '<div class="chapter-card"><div class="chapter-num">Ch. ' + c.number + '</div>' +
-          '<div class="chapter-title">' + escapeHtml(c.title||'') + '</div>' +
-          '<div class="chapter-summary">' + escapeHtml(c.summary||'') + '</div>' +
-          '<div style="display:flex;gap:.5rem;margin-top:.5rem;font-size:.75rem">' +
-          '<span class="chapter-badge" style="background:var(--surface-2)">Pacing: ' + (c.pacingGrade||'?') + '</span>' +
-          '<span class="chapter-badge" style="background:var(--surface-2)">Tension: ' + (c.tensionLevel||'?') + '</span></div>' +
-          (c.issue ? '<div style="font-size:.8rem;color:var(--warning);margin-top:.35rem">' + escapeHtml(c.issue) + '</div>' : '') +
-          '</div>'
-        ).join('') + '</div>' +
-        '<div style="margin-top:1rem;padding:.75rem;background:var(--surface-2);border-radius:var(--radius-sm)"><strong>Recommendation:</strong> ' + escapeHtml(cb.recommendation||'') + '</div>';
+      $('ai-chapter-breakdown').innerHTML = '<h3>Chapter Breakdown</h3><p style="font-size:.8rem;color:var(--text-muted)">' + esc(cb.structureAssessment||'') + '</p><div class="chapter-grid">' + (cb.chapters||[]).map(c => '<div class="chapter-card"><div class="chapter-num">Ch.' + c.number + '</div><div><div class="chapter-title">' + esc(c.title||'') + '</div><div class="chapter-summary">' + esc(c.summary||'') + '</div><div style="display:flex;gap:.3rem;margin-top:.3rem"><span class="chapter-badge">Pacing: ' + (c.pacingGrade||'?') + '</span><span class="chapter-badge">Tension: ' + (c.tensionLevel||'?') + '</span></div></div></div>').join('') + '</div>';
     }
   }
 
@@ -624,75 +383,57 @@
     const versions = AIEngine.getVersionHistory();
     const container = $('version-list');
     if (!container) return;
-    if (versions.length === 0) {
-      container.innerHTML = '<p style="color:var(--text-muted);font-size:.9rem;text-align:center;padding:2rem">No versions yet. Run an analysis to start tracking your progress.</p>';
-      return;
-    }
+    if (versions.length === 0) { container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:1.5rem">No versions yet. Analyze a manuscript to start tracking.</p>'; return; }
     let html = '<div class="version-timeline">';
-    versions.slice().reverse().forEach((v, i) => {
+    versions.slice().reverse().forEach(v => {
       const date = new Date(v.date);
-      const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-      const gradeColor = v.overall >= 80 ? 'var(--success)' : v.overall >= 60 ? 'var(--warning)' : 'var(--danger)';
-      html += '<div class="version-item" data-version-id="' + v.id + '">' +
-        '<div class="version-dot" style="background:' + gradeColor + '"></div>' +
-        '<div class="version-content">' +
-        '<div class="version-top"><span class="version-grade" style="color:' + gradeColor + '">' + v.grade + ' (' + v.overall + ')</span>' +
-        '<span class="version-date">' + dateStr + '</span></div>' +
-        '<div class="version-name">' + escapeHtml(v.fileName) + '</div>' +
-        '<div class="version-stats">' + v.wordCount.toLocaleString() + ' words &middot; ' + v.totalIssues + ' issues &middot; ' + v.genre + '</div>';
-      // Show delta from previous version
-      if (i < versions.length - 1) {
-        const prev = versions[versions.length - 1 - i - 1]; // actually reversed
-        // Compare only if available
-      }
-      html += '</div></div>';
+      const color = scoreColor(v.overall);
+      html += '<div class="version-item"><div class="version-dot" style="background:' + color + '"></div><div class="version-content"><div class="version-top"><span class="version-grade" style="color:' + color + '">' + v.grade + ' (' + v.overall + '/100)</span><span class="version-date">' + date.toLocaleDateString() + '</span></div><div class="version-name">' + esc(v.fileName) + '</div><div class="version-stats">' + v.wordCount.toLocaleString() + ' words &middot; ' + v.totalIssues + ' issues &middot; ' + v.genre + '</div></div></div>';
     });
     html += '</div>';
-
-    // Show improvement summary if 2+ versions
     if (versions.length >= 2) {
-      const first = versions[0], last = versions[versions.length - 1];
-      const delta = last.overall - first.overall;
-      const issueDelta = last.totalIssues - first.totalIssues;
-      html += '<div class="version-summary">' +
-        '<h4>Progress Summary</h4>' +
-        '<div class="stat-row"><span class="stat-label">Overall Score Change</span><span class="stat-value" style="color:' + (delta >= 0 ? 'var(--success)' : 'var(--danger)') + '">' + (delta >= 0 ? '+' : '') + delta + ' points</span></div>' +
-        '<div class="stat-row"><span class="stat-label">Issues Change</span><span class="stat-value" style="color:' + (issueDelta <= 0 ? 'var(--success)' : 'var(--danger)') + '">' + (issueDelta >= 0 ? '+' : '') + issueDelta + '</span></div>' +
-        '<div class="stat-row"><span class="stat-label">Versions Tracked</span><span class="stat-value">' + versions.length + '</span></div>' +
-        '</div>';
+      const f = versions[0], l = versions[versions.length-1], d = l.overall - f.overall;
+      html += '<div class="version-summary"><h4>Progress</h4>' + row('Score Change', (d >= 0 ? '+' : '') + d + ' points') + row('Issues Change', (l.totalIssues - f.totalIssues >= 0 ? '+' : '') + (l.totalIssues - f.totalIssues)) + row('Versions', versions.length) + '</div>';
     }
     container.innerHTML = html;
   }
+  $('clear-versions-btn')?.addEventListener('click', () => { if (confirm('Clear all history?')) { AIEngine.clearVersionHistory(); renderVersionHistory(); } });
 
-  // Auto-save version on basic analysis
-  const origRenderResults = renderResults;
-  renderResults = function() {
-    origRenderResults();
-    // Save basic version (no AI results yet)
-    if (uploadedFile && analysisResult) {
-      AIEngine.saveVersion(uploadedFile.name, analysisResult, null);
-      renderVersionHistory();
-    }
-  };
-
-  $('clear-versions-btn')?.addEventListener('click', () => {
-    if (confirm('Clear all version history?')) {
-      AIEngine.clearVersionHistory();
-      renderVersionHistory();
-    }
+  // ========================
+  // EXPORT
+  // ========================
+  $('export-btn')?.addEventListener('click', () => {
+    if (!analysisResult) return;
+    const r = analysisResult;
+    const lines = ['ManuscriptLens Analysis Report', "Author's Best Buddy", '='.repeat(40), '',
+      'File: ' + uploadedFile.name, 'Genre: ' + r.genre.label, 'Words: ' + r.totalWords.toLocaleString(),
+      'Overall: ' + r.overall + '/100 (' + Analyzer.getGrade(r.overall) + ')', '',
+      'Plot: ' + r.scores.plot + '/100', 'Transitions: ' + r.scores.transitions + '/100',
+      'Copy Editing: ' + r.scores.copy + '/100', 'Line Editing: ' + r.scores.line + '/100',
+      'Style: ' + r.scores.style + '/100', 'Dialogue: ' + r.scores.dialogue + '/100',
+      'Show vs Tell: ' + r.scores.showTell + '/100', '',
+      'Engagement: ' + r.readerPerspective.engagementScore + '/100',
+      'Hook: ' + r.readerPerspective.hookStrength + '/100',
+      'DNF Risk: ' + r.readerPerspective.dnfRisk + '/100',
+      'Clarity: ' + r.readerPerspective.clarityScore + '/100', '',
+      'Issues: ' + r.issues.length
+    ];
+    r.issues.slice(0, 25).forEach((i, n) => { lines.push((n+1) + '. [' + i.type + ' | Para ' + paraNum(extractedText, i.index) + '] ' + i.message); });
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = uploadedFile.name.replace(/\.\w+$/, '') + '-report.txt'; a.click();
   });
-
-  // Initial render of version history
-  renderVersionHistory();
 
   // ========================
   // NEW ANALYSIS
   // ========================
   $('new-analysis-btn')?.addEventListener('click', () => {
-    resultsSection.classList.add('hidden');
-    uploadSection.classList.remove('hidden');
-    uploadedFile = null; extractedText = ''; analysisResult = null;
-    fileInfo.classList.add('hidden'); analyzeBtn.classList.add('hidden'); fileInput.value = '';
+    $('editor-view').classList.add('hidden');
+    $('upload-view').classList.remove('hidden');
+    $('upload-loading').classList.add('hidden');
+    $('analyze-btn').classList.add('hidden');
+    $('file-info').classList.add('hidden');
+    uploadedFile = null; extractedText = ''; analysisResult = null; fileInput.value = '';
   });
 
 })();
