@@ -102,6 +102,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .hl[data-t="wordy"]{background:rgba(93,186,125,.15);border-bottom:2px solid var(--green)}
 .hl[data-t="sentence-length"]{background:rgba(212,168,85,.12);border-bottom:2px solid var(--yellow)}
 .hl.off{background:none!important;border-bottom:none!important}
+.fix-applied{transition:outline .3s}
 
 /* TOOLTIP */
 .tip{display:none;position:fixed;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:.8rem 1rem;max-width:340px;z-index:1000;box-shadow:0 10px 30px rgba(0,0,0,.5)}

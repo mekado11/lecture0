@@ -59,25 +59,83 @@ function renderAll(){
   AIEngine.saveVersion(uploadedFile.name,analysisResult,null);
 }
 
-// REPLACE & FIX: apply suggestion by replacing highlighted text
+// REPLACE & FIX: actually replace the text with a proper fix
 function replaceAndFix(hlElement){
   const page=$('ed-annotated');
+  const type=hlElement.dataset.t;
   const suggestion=hlElement.dataset.s||'';
-  // For weak verbs, extract first alternative
+  const original=hlElement.textContent;
   let replacement='';
-  const tryMatch=suggestion.match(/Try:\s*(.+)/i);
-  if(tryMatch){replacement=tryMatch[1].split(',')[0].trim()}
-  else{const replMatch=suggestion.match(/Replace with:\s*"(.+?)"/i);if(replMatch)replacement=replMatch[1];
-  else replacement=hlElement.textContent} // fallback: keep original
-  // Create text node with replacement
+
+  // Determine real replacement based on issue type
+  if(type==='weak-verb'){
+    // "Try: strode, ambled, trudged" -> pick first
+    const m=suggestion.match(/Try:\s*(.+)/i);
+    replacement=m?m[1].split(',')[0].trim():original;
+  }else if(type==='wordy'){
+    // 'Replace with: "to"' -> extract
+    const m=suggestion.match(/Replace with:\s*"(.+?)"/i);
+    replacement=m?m[1]:'';
+    if(replacement==='(omit)'||replacement==='(omit or rephrase)')replacement='';
+  }else if(type==='passive'){
+    // Passive voice: rewrite "was being followed" -> "someone followed her"
+    // Best we can do without AI: remove "was/were being" wrapper
+    replacement=original.replace(/\b(was|were)\s+(being\s+)?/i,'').trim();
+    if(replacement===original) replacement=original; // can't auto-fix, leave
+  }else if(type==='adverb'){
+    // Remove the adverb entirely (e.g. "walked slowly" -> "walked")
+    replacement='';
+  }else if(type==='cliche'){
+    replacement='[rewrite needed]';
+  }else if(type==='show-tell'){
+    // "felt afraid" -> remove "felt" filter word
+    replacement=original.replace(/\b(felt|feeling|could feel|could sense|could tell|could see|obviously|clearly|evidently|apparently)\s*/i,'').trim();
+    if(!replacement)replacement=original;
+  }else if(type==='repetition'){
+    // Can't auto-fix repetition meaningfully
+    replacement=original;
+  }else if(type==='sentence-length'){
+    // Can't split sentences automatically without AI
+    replacement=original;
+  }
+
+  // Apply the replacement
   const span=document.createElement('span');
-  span.textContent=replacement;
-  span.style.color='var(--green)';span.style.fontWeight='600';
-  span.style.background='rgba(93,186,125,.15)';span.style.borderRadius='2px';span.style.padding='1px 3px';
+  span.className='fix-applied';
+  if(replacement===original||replacement==='[rewrite needed]'){
+    // Can't auto-fix: strikethrough original and show note
+    span.innerHTML='<s style="opacity:.5">'+esc(original)+'</s> <em style="color:var(--gold);font-size:.85em">[needs manual rewrite]</em>';
+  }else if(replacement===''){
+    // Delete the word (adverb removed, wordy phrase omitted)
+    span.innerHTML='<span style="color:var(--green);font-size:.75em;background:rgba(93,186,125,.15);padding:1px 4px;border-radius:3px">removed: "'+esc(original)+'"</span>';
+  }else{
+    // Show the fix: strikethrough old, bold new
+    span.innerHTML='<s style="opacity:.4;font-size:.9em">'+esc(original)+'</s> <strong style="color:var(--green);background:rgba(93,186,125,.12);padding:1px 4px;border-radius:3px">'+esc(replacement)+'</strong>';
+  }
   hlElement.replaceWith(span);
-  // Update extracted text
+  // Update text reference
   extractedText=page.textContent;
   $('tip').classList.remove('on');
+  // Flash confirmation
+  span.style.outline='2px solid var(--green)';span.style.outlineOffset='2px';
+  setTimeout(()=>{span.style.outline=''},1500);
+  addReanalyzeButton();
+}
+
+// RE-ANALYZE: let user re-run analysis on edited text
+function addReanalyzeButton(){
+  const existing=document.querySelector('.reanalyze-btn');
+  if(existing)return;
+  const btn=document.createElement('button');
+  btn.className='btn-gold reanalyze-btn';
+  btn.style.cssText='position:fixed;bottom:70px;right:20px;width:auto;padding:.5rem 1.2rem;z-index:100;font-size:.8rem;border-radius:20px;box-shadow:0 4px 12px rgba(0,0,0,.4)';
+  btn.textContent='\u21BB Re-analyze';
+  btn.onclick=()=>{
+    extractedText=$('ed-annotated').textContent;
+    analysisResult=Analyzer.analyze(extractedText);
+    if(!analysisResult.error){renderAll();btn.remove()}
+  };
+  document.body.appendChild(btn);
 }
 
 // LEFT SIDEBAR
@@ -156,6 +214,7 @@ function renderAnnotated(text,issues){
   const p=$('ed-annotated');p.className='ms-page active parchment';
   p.setAttribute('contenteditable','true');
   p.setAttribute('spellcheck','false');
+  p.addEventListener('input',()=>{addReanalyzeButton()});
   const sorted=[...issues].sort((a,b)=>a.index-b.index);const no=[];let le=-1;
   for(const i of sorted){if(i.index>=le){no.push(i);le=i.index+i.length}}
   let h='',pos=0;
