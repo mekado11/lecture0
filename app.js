@@ -45,6 +45,9 @@ function drawRing(canvas,score,size){
   ctx.beginPath();ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+(score/100)*Math.PI*2);ctx.lineWidth=3;ctx.strokeStyle=scHex(score);ctx.lineCap='round';ctx.stroke();
 }
 
+// Track ignored issues
+let ignoredIssues=new Set();
+
 function renderAll(){
   const r=analysisResult;
   $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
@@ -52,6 +55,29 @@ function renderAll(){
   $('top-status').textContent=r.genre.label;
   drawGauge(r.overall);
   renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderVersions();
+  // Save version
+  AIEngine.saveVersion(uploadedFile.name,analysisResult,null);
+}
+
+// REPLACE & FIX: apply suggestion by replacing highlighted text
+function replaceAndFix(hlElement){
+  const page=$('ed-annotated');
+  const suggestion=hlElement.dataset.s||'';
+  // For weak verbs, extract first alternative
+  let replacement='';
+  const tryMatch=suggestion.match(/Try:\s*(.+)/i);
+  if(tryMatch){replacement=tryMatch[1].split(',')[0].trim()}
+  else{const replMatch=suggestion.match(/Replace with:\s*"(.+?)"/i);if(replMatch)replacement=replMatch[1];
+  else replacement=hlElement.textContent} // fallback: keep original
+  // Create text node with replacement
+  const span=document.createElement('span');
+  span.textContent=replacement;
+  span.style.color='var(--green)';span.style.fontWeight='600';
+  span.style.background='rgba(93,186,125,.15)';span.style.borderRadius='2px';span.style.padding='1px 3px';
+  hlElement.replaceWith(span);
+  // Update extracted text
+  extractedText=page.textContent;
+  $('tip').classList.remove('on');
 }
 
 // LEFT SIDEBAR
@@ -71,6 +97,18 @@ function renderLeft(r){
   }).join('');
   // Draw rings
   cards.forEach((c,i)=>{const cvs=document.querySelectorAll('.lpc-ring canvas')[i];if(cvs)drawRing(cvs,c.inv?100-c.score:c.score,40)});
+  // Improve Opening buttons - scroll to first paragraph and highlight
+  document.querySelectorAll('.lpc-action').forEach(btn=>{btn.addEventListener('click',()=>{
+    // Switch to annotated tab
+    document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
+    document.querySelector('.btab[data-p="annotated"]').classList.add('active');
+    $('ed-annotated').classList.add('active');
+    // Scroll to top and flash first paragraph
+    const page=$('ed-annotated');page.scrollTop=0;
+    const firstHL=page.querySelector('.hl');
+    if(firstHL){firstHL.scrollIntoView({behavior:'smooth',block:'center'});firstHL.style.outline='2px solid var(--gold)';firstHL.style.outlineOffset='2px';setTimeout(()=>{firstHL.style.outline=''},2000)}
+  })});
 }
 
 // RIGHT SIDEBAR
@@ -107,12 +145,17 @@ function showDetail(cat){
   const issues=t?r.issues.filter(i=>i.type===t).slice(0,5):r.issues.slice(0,5);
   d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+titles[cat]+'</span><span>&#9660;</span></div>'+
     (issues.length===0?'<p style="color:var(--muted);font-size:.78rem">No issues in this category.</p>':
-    issues.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+(typeLabels[i.type]||i.type)+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div><div class="rpd-quote">\u2018'+esc(i.text.substring(0,60))+'\u2019</div><div class="rpd-btns"><button class="tip-fix">Replace &amp; Fix</button><button class="tip-ign" onclick="this.closest(\'.rpd-issue\').remove()">Ignore</button></div></div>').join(''));
+    issues.map((iss,idx)=>'<div class="rpd-issue" data-issue-text="'+escA(iss.text)+'" data-issue-sug="'+escA(iss.suggestion)+'"><div class="rpd-issue-head">'+(typeLabels[iss.type]||iss.type)+'</div><div class="rpd-desc">'+esc(iss.suggestion)+'</div><div class="rpd-quote">\u2018'+esc(iss.text.substring(0,60))+'\u2019</div><div class="rpd-btns"><button class="tip-fix rpd-fix-btn">Replace &amp; Fix</button><button class="tip-ign rpd-ign-btn">Ignore</button></div></div>').join(''));
+  // Bind right-sidebar Replace & Fix
+  d.querySelectorAll('.rpd-fix-btn').forEach(btn=>{btn.addEventListener('click',()=>{const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;const page=$('ed-annotated');const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');if(hl){replaceAndFix(hl)}card.style.opacity='.3';card.style.pointerEvents='none'})});
+  d.querySelectorAll('.rpd-ign-btn').forEach(btn=>{btn.addEventListener('click',()=>{const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;const page=$('ed-annotated');const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');if(hl)hl.classList.add('off');card.remove()})});
 }
 
 // ANNOTATED TEXT
 function renderAnnotated(text,issues){
   const p=$('ed-annotated');p.className='ms-page active parchment';
+  p.setAttribute('contenteditable','true');
+  p.setAttribute('spellcheck','false');
   const sorted=[...issues].sort((a,b)=>a.index-b.index);const no=[];let le=-1;
   for(const i of sorted){if(i.index>=le){no.push(i);le=i.index+i.length}}
   let h='',pos=0;
@@ -120,9 +163,9 @@ function renderAnnotated(text,issues){
   if(pos<text.length)h+=esc(text.substring(pos));
   p.innerHTML=h;
   const tip=$('tip');
-  p.addEventListener('mouseover',e=>{const hl=e.target.closest('.hl');if(hl&&!hl.classList.contains('off')){const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};tip.innerHTML='<div class="tip-cat">'+(labels[hl.dataset.t]||hl.dataset.t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+hl.dataset.s+'\u201D</div><div class="tip-btns"><button class="tip-fix">Replace &amp; Fix</button><button class="tip-ign">Ignore</button></div>';tip.classList.add('on');const rect=hl.getBoundingClientRect();tip.style.top=(rect.bottom+8)+'px';tip.style.left=Math.min(rect.left,window.innerWidth-360)+'px';tip.querySelector('.tip-ign').onclick=()=>{hl.classList.add('off');tip.classList.remove('on')}}});
-  p.addEventListener('mouseout',e=>{if(e.target.closest('.hl'))setTimeout(()=>{if(!tip.matches(':hover'))tip.classList.remove('on')},200)});
-  tip.addEventListener('mouseleave',()=>tip.classList.remove('on'));
+  let activeHL=null;
+  p.addEventListener('click',e=>{const hl=e.target.closest('.hl');if(hl&&!hl.classList.contains('off')){activeHL=hl;const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};tip.innerHTML='<div class="tip-cat">'+(labels[hl.dataset.t]||hl.dataset.t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+hl.dataset.s+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">Replace &amp; Fix</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';tip.classList.add('on');const rect=hl.getBoundingClientRect();tip.style.top=(rect.bottom+8)+'px';tip.style.left=Math.min(rect.left,window.innerWidth-360)+'px';$('tip-fix-btn').onclick=()=>{replaceAndFix(activeHL)};$('tip-ign-btn').onclick=()=>{activeHL.classList.add('off');tip.classList.remove('on')}}else if(!e.target.closest('.tip')){tip.classList.remove('on')}});
+  document.addEventListener('click',e=>{if(!e.target.closest('.hl')&&!e.target.closest('.tip'))tip.classList.remove('on')});
 }
 
 // DETAILED
@@ -168,11 +211,49 @@ function renderReader(r){
 function rc(t,s,c,desc){return '<div class="rdr-card"><h4>'+t+'</h4><div class="rdr-big" style="color:'+c+'">'+s+'/100</div><div class="rdr-bar"><div class="rdr-fill" style="width:'+s+'%;background:'+c+'"></div></div><div class="rdr-lbl">'+desc+'</div></div>'}
 
 // TABS (bottom)
-document.querySelectorAll('.btab').forEach(t=>{t.addEventListener('click',()=>{document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(!target.classList.contains('parchment')&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}})});
-document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{document.querySelectorAll('.rtab').forEach(b=>b.classList.remove('active'));t.classList.add('active')})});
+document.querySelectorAll('.btab').forEach(t=>{t.addEventListener('click',()=>{
+  document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.ms-page').forEach(p=>{p.classList.remove('active')});
+  t.classList.add('active');
+  const target=$('ed-'+t.dataset.p);
+  if(target){
+    target.classList.add('active');
+    // Ensure non-parchment tabs have dark-page class
+    if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page')){target.classList.add('dark-page')}
+  }
+})});
+document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{
+  document.querySelectorAll('.rtab').forEach(b=>b.classList.remove('active'));t.classList.add('active');
+  const mode=t.textContent.trim().toLowerCase();
+  if(!analysisResult)return;
+  const d=$('rp-detail');const r=analysisResult;
+  if(mode==='suggestions'){renderRight(r);return}
+  if(mode==='rewrite'){
+    const samples=r.issues.filter(i=>['passive','weak-verb','wordy'].includes(i.type)).slice(0,5);
+    d.innerHTML='<div class="rpd-title">Rewrite Suggestions</div>'+(samples.length===0?'<p style="color:var(--muted);font-size:.78rem">No rewrite targets found.</p>':samples.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">Rewrite: "'+esc(i.text.substring(0,40))+'"</div><div class="rpd-desc">'+esc(i.suggestion)+'</div><div class="rpd-quote">Original: \u201C'+esc(i.text)+'\u201D</div></div>').join(''));
+  }
+  if(mode==='tone shift'){
+    d.innerHTML='<div class="rpd-title">Tone Analysis</div><div class="rpd-issue"><div class="rpd-issue-head">Current Tone</div><div class="rpd-desc">POV: '+esc(r.style.pov)+'<br>Lexical Diversity: '+r.style.lexicalDiversity+'/100<br>Avg Word Length: '+r.style.avgWordLength+' chars</div></div><div class="rpd-issue"><div class="rpd-issue-head">Emotional Tone</div><div class="rpd-desc">'+r.readerPerspective.emotionalJourney.map(e=>e.emotion+': '+e.intensity+'%').join(' &middot; ')+'</div></div><div class="rpd-issue"><div class="rpd-issue-head">Suggestion</div><div class="rpd-desc">'+(r.style.lexicalDiversity<40?'Consider using more varied vocabulary to enrich the tone.':r.style.lexicalDiversity>70?'Strong vocabulary variety. Consider if some words are too obscure for your audience.':'Good tonal balance. The vocabulary suits the genre well.')+'</div></div>';
+  }
+  if(mode.startsWith('dial')){
+    d.innerHTML='<div class="rpd-title">Dialogue Analysis</div><div class="rpd-issue"><div class="rpd-issue-head">Dialogue Stats</div><div class="rpd-desc">Lines: '+r.dialogue.count+'<br>Ratio: '+r.dialogue.ratio+'% of text<br>"Said" usage: '+r.dialogue.saidRatio+'%<br>Tag variety: '+Object.keys(r.dialogue.tags).length+' unique tags</div></div>'+(r.dialogue.count===0?'<div class="rpd-issue"><div class="rpd-desc">No dialogue detected. If this is fiction, adding dialogue can improve pacing and character development.</div></div>':'<div class="rpd-issue"><div class="rpd-issue-head">Tags Used</div><div class="rpd-desc">'+Object.entries(r.dialogue.tags).map(([k,v])=>k+' ('+v+')').join(', ')+'</div></div>');
+  }
+})});
 
 // AI
-$('run-ai-btn')?.addEventListener('click',()=>{const k=sessionStorage.getItem('ml_claude_key');if(k){runAI(k);return}$('api-modal').classList.remove('hidden')});
+$('run-ai-btn')?.addEventListener('click',async()=>{
+  if(!analysisResult)return;
+  // Try server proxy first (no API key needed - your server handles it)
+  // If server proxy not available, show modal for dev/testing mode
+  try{
+    const test=await fetch(AIEngine.API_ENDPOINT,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({test:true})});
+    if(test.ok||test.status===400){runAI(null);return}
+  }catch(e){}
+  // Server proxy not available - fall back to dev mode modal
+  const k=sessionStorage.getItem('ml_claude_key');
+  if(k){runAI(k);return}
+  $('api-modal').classList.remove('hidden');
+});
 $('modal-x')?.addEventListener('click',()=>$('api-modal').classList.add('hidden'));
 $('modal-go')?.addEventListener('click',()=>{const k=$('modal-key').value.trim();if(!k){alert('Enter API key');return}sessionStorage.setItem('ml_claude_key',k);$('api-modal').classList.add('hidden');runAI(k)});
 async function runAI(key){if(!analysisResult)return;const st=$('ai-status'),stxt=$('ai-status-text');st.classList.remove('hidden');try{const ai=await AIEngine.runAllFeatures(key,extractedText,analysisResult,(l,i,n)=>{stxt.textContent=l+' ('+(i+1)+'/'+n+')'});analysisResult._aiResults=ai;renderAI(ai);st.classList.add('hidden');$('ai-results').classList.remove('hidden');document.querySelector('.ai-intro')?.classList.add('hidden');AIEngine.saveVersion(uploadedFile.name,analysisResult,ai);renderVersions()}catch(e){st.classList.add('hidden');alert('AI error: '+e.message)}}

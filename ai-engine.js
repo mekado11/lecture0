@@ -49,22 +49,30 @@ const AIEngine = {
   // ========================
   // CORE API CALL (with caching headers)
   // ========================
+  // Server proxy endpoint for production (API key lives on your server)
+  // Set this to your backend route, e.g. '/api/claude'
+  API_ENDPOINT: '/api/claude',
+
   async _callClaude(apiKey, systemPrompt, userPrompt, manuscriptText, feature) {
     // Check cache first
     const cached = this._getCached(manuscriptText, feature);
     if (cached) return cached;
 
-    // Build messages - manuscript goes in system with cache_control
-    // so it's cached and reused across multiple feature calls
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    // In production: calls your server proxy (no API key in browser)
+    // In dev mode: if apiKey passed, calls Anthropic directly
+    const isDirect = !!apiKey;
+    const endpoint = isDirect ? 'https://api.anthropic.com/v1/messages' : this.API_ENDPOINT;
+    const headers = { 'content-type': 'application/json' };
+    if (isDirect) {
+      headers['x-api-key'] = apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+      headers['anthropic-beta'] = 'prompt-caching-2024-07-31';
+      headers['anthropic-dangerous-direct-browser-access'] = 'true';
+    }
+
+    const response = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'prompt-caching-2024-07-31',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
+      headers,
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 2048,
