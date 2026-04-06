@@ -226,14 +226,17 @@ function addReanalyzeButton(){
   if(existing)return;
   const btn=document.createElement('button');
   btn.className='btn-gold reanalyze-btn';
-  btn.style.cssText='position:fixed;bottom:70px;right:20px;width:auto;padding:.5rem 1.2rem;z-index:100;font-size:.8rem;border-radius:20px;box-shadow:0 4px 12px rgba(0,0,0,.4)';
+  btn.style.cssText='width:auto;padding:.4rem 1rem;font-size:.78rem;border-radius:var(--rs)';
   btn.textContent='\u21BB Re-analyze';
   btn.onclick=()=>{
     extractedText=$('ed-annotated').textContent;
     analysisResult=Analyzer.analyze(extractedText);
     if(!analysisResult.error){renderAll();btn.remove()}
   };
-  document.body.appendChild(btn);
+  // Dock in the bottom bar next to tabs
+  const bottomBar=document.querySelector('.bottom-icons');
+  if(bottomBar)bottomBar.prepend(btn);
+  else document.querySelector('.center-bottom')?.appendChild(btn);
 }
 
 // LEFT SIDEBAR
@@ -293,7 +296,22 @@ function showDetail(cat){
   const issues=t?r.issues.filter(i=>i.type===t).slice(0,5):r.issues.slice(0,5);
   d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+titles[cat]+'</span><span>&#9660;</span></div>'+
     (issues.length===0?'<p style="color:var(--muted);font-size:.78rem">No issues in this category.</p>':
-    issues.map((iss,idx)=>'<div class="rpd-issue" data-issue-text="'+escA(iss.text)+'" data-issue-sug="'+escA(iss.suggestion)+'"><div class="rpd-issue-head">'+(typeLabels[iss.type]||iss.type)+'</div><div class="rpd-desc">'+esc(iss.suggestion)+'</div><div class="rpd-quote">\u2018'+esc(iss.text.substring(0,60))+'\u2019</div><div class="rpd-btns"><button class="tip-fix rpd-fix-btn">Replace &amp; Fix</button><button class="tip-ign rpd-ign-btn">Ignore</button></div></div>').join(''));
+    issues.map((iss,idx)=>'<div class="rpd-issue" data-issue-text="'+escA(iss.text)+'" data-issue-sug="'+escA(iss.suggestion)+'"><div class="rpd-issue-head">'+(typeLabels[iss.type]||iss.type)+'</div><div class="rpd-desc">'+esc(iss.suggestion)+'</div><div class="rpd-quote rpd-navigate" style="cursor:pointer" title="Click to jump to this text">\u2018'+esc(iss.text.substring(0,60))+'\u2019</div><div class="rpd-btns"><button class="tip-fix rpd-fix-btn">Replace &amp; Fix</button><button class="tip-ign rpd-ign-btn">Ignore</button></div></div>').join(''));
+  // Click quote to navigate to text in manuscript
+  d.querySelectorAll('.rpd-navigate').forEach(q=>{q.addEventListener('click',()=>{
+    const card=q.closest('.rpd-issue');const issueText=card.dataset.issueText;
+    // Switch to annotated tab
+    document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
+    const annotatedBtn=document.querySelector('.btab[data-p="annotated"]');
+    if(annotatedBtn)annotatedBtn.classList.add('active');
+    $('ed-annotated')?.classList.add('active');
+    // Find and scroll to the highlight
+    const page=$('ed-annotated');
+    const searchQ=issueText.substring(0,60).replace(/"/g,'&quot;');
+    const hl=page.querySelector('.hl[data-q="'+searchQ+'"]');
+    if(hl){hl.scrollIntoView({behavior:'smooth',block:'center'});hl.style.outline='3px solid var(--gold)';hl.style.outlineOffset='3px';setTimeout(()=>{hl.style.outline=''},3000)}
+  })});
   // Bind right-sidebar Replace & Fix
   d.querySelectorAll('.rpd-fix-btn').forEach(btn=>{btn.addEventListener('click',()=>{const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;const page=$('ed-annotated');const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');if(hl){replaceAndFix(hl)}card.style.opacity='.3';card.style.pointerEvents='none'})});
   d.querySelectorAll('.rpd-ign-btn').forEach(btn=>{btn.addEventListener('click',()=>{const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;const page=$('ed-annotated');const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');if(hl)hl.classList.add('off');card.remove()})});
@@ -702,6 +720,62 @@ c.innerHTML=h;c.querySelector('#clr-v')?.addEventListener('click',()=>{if(confir
 // EXPORT
 $('export-btn')?.addEventListener('click',()=>{if(!analysisResult)return;const r=analysisResult;const l=['ManuscriptLens Report','='.repeat(30),'','File: '+uploadedFile.name,'Genre: '+r.genre.label,'Words: '+r.totalWords,'Overall: '+r.overall+'/100','','Plot: '+r.scores.plot+'/100','Copy: '+r.scores.copy+'/100','Style: '+r.scores.style+'/100','Dialogue: '+r.scores.dialogue+'/100','Show/Tell: '+r.scores.showTell+'/100','','Engagement: '+r.readerPerspective.engagementScore+'/100','Hook: '+r.readerPerspective.hookStrength+'/100','DNF Risk: '+r.readerPerspective.dnfRisk+'/100','Clarity: '+r.readerPerspective.clarityScore+'/100','','Issues: '+r.issues.length];r.issues.slice(0,20).forEach((i,n)=>{l.push((n+1)+'. ['+i.type+'] '+i.message)});const b=new Blob([l.join('\n')],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=uploadedFile.name.replace(/\.\w+$/,'')+'-report.txt';a.click()});
 
+// SAVE / LOAD
+function saveAnalysis(){
+  if(!analysisResult||!uploadedFile)return;
+  const saveData={
+    fileName:uploadedFile.name,
+    text:extractedText,
+    result:analysisResult,
+    savedAt:new Date().toISOString()
+  };
+  const saves=JSON.parse(localStorage.getItem('ml_saves')||'[]');
+  // Keep last 10 saves
+  saves.push(saveData);
+  if(saves.length>10)saves.splice(0,saves.length-10);
+  localStorage.setItem('ml_saves',JSON.stringify(saves));
+  alert('Analysis saved! You can reload it from the home screen.');
+}
+
+function loadSavedAnalyses(){
+  const saves=JSON.parse(localStorage.getItem('ml_saves')||'[]');
+  if(saves.length===0)return;
+  // Show saved analyses on upload page
+  const container=document.querySelector('.upload-card');
+  if(!container)return;
+  let existing=container.querySelector('.saved-list');
+  if(existing)existing.remove();
+  const div=document.createElement('div');
+  div.className='saved-list';
+  div.style.cssText='margin-top:1rem;border-top:1px solid var(--border);padding-top:.75rem';
+  div.innerHTML='<div style="font-size:.8rem;font-weight:600;margin-bottom:.5rem;color:var(--gold-l)">Saved Analyses</div>'+
+    saves.slice().reverse().map((s,i)=>{
+      const idx=saves.length-1-i;
+      const date=new Date(s.savedAt);
+      const grade=Analyzer.getGrade(s.result.overall);
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem .5rem;background:var(--surface2);border-radius:var(--rs);margin-bottom:.3rem;cursor:pointer;font-size:.78rem" data-save-idx="'+idx+'"><div><strong>'+esc(s.fileName)+'</strong><br><span style="color:var(--muted);font-size:.65rem">'+date.toLocaleDateString()+' '+date.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' &middot; '+grade+' ('+s.result.overall+'/100)</span></div><span style="color:var(--gold)">\u2192</span></div>';
+    }).join('');
+  container.appendChild(div);
+  // Click to load
+  div.querySelectorAll('[data-save-idx]').forEach(el=>{el.addEventListener('click',()=>{
+    const idx=parseInt(el.dataset.saveIdx);
+    const save=saves[idx];
+    if(!save)return;
+    extractedText=save.text;
+    analysisResult=save.result;
+    uploadedFile={name:save.fileName,size:0};
+    $('upload-view').classList.add('hidden');
+    $('editor-view').classList.remove('hidden');
+    renderAll();
+  })});
+}
+
+// Add save button to top bar
+$('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="save-btn">&#128190; Save</button>');
+$('save-btn')?.addEventListener('click',saveAnalysis);
+// Load saved analyses on startup
+loadSavedAnalyses();
+
 // NEW
-$('new-btn')?.addEventListener('click',()=>{$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.add('hidden');$('file-info').classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value=''});
+$('new-btn')?.addEventListener('click',()=>{$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.add('hidden');$('file-info').classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value='';loadSavedAnalyses()});
 })();

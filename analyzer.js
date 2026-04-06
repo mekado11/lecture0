@@ -632,9 +632,9 @@ const Analyzer = {
     const findings = [];
 
     if (dialogueCount === 0) return {
-      score: 50, count: 0, ratio: 0, tags: {}, saidRatio: 0, avgLength: 0,
-      tagDiscipline: 50, conciseness: 50, showNotTell: 50, purposefulness: 50, naturalness: 50,
-      findings: [{ type: 'dialogue', severity: 'medium', message: 'No dialogue detected. If this is fiction, dialogue is one of the fastest ways to pull readers into a moment.' }]
+      score: 0, count: 0, ratio: 0, tags: {}, saidRatio: 0, avgLength: 0,
+      tagDiscipline: 0, conciseness: 0, showNotTell: 0, purposefulness: 0, naturalness: 0,
+      findings: [{ type: 'dialogue', severity: 'high', message: 'No dialogue detected. If this is fiction, dialogue is one of the fastest ways to pull readers into a moment. Even literary fiction benefits from dialogue to break up narration and reveal character.' }]
     };
 
     const dialogueWords = dialogueMatches.reduce((sum, d) => sum + d.split(/\s+/).length, 0);
@@ -793,11 +793,20 @@ const Analyzer = {
     const firstPerson = (text.match(/\bI\b/g) || []).length;
     const thirdPerson = (text.match(/\b(he|she|they)\b/gi) || []).length;
     const povConsistency = Math.abs(firstPerson - thirdPerson) / Math.max(firstPerson + thirdPerson, 1);
-    let score = 60;
-    if (lexicalDiversity > 0.4) score += 10;
-    if (lexicalDiversity > 0.55) score += 5;
-    if (avgWordLen > 4 && avgWordLen < 6) score += 5;
-    if (povConsistency > 0.5) score += 10;
+    let score = 50; // start neutral, earn or lose points
+    // Lexical diversity scoring (biggest factor)
+    if (lexicalDiversity > 0.55) score += 20;
+    else if (lexicalDiversity > 0.45) score += 15;
+    else if (lexicalDiversity > 0.35) score += 8;
+    else if (lexicalDiversity > 0.25) score += 0; // neutral
+    else score -= 15; // very low diversity = repetitive vocabulary
+    // Word length (sophistication)
+    if (avgWordLen > 4.5 && avgWordLen < 6) score += 8;
+    else if (avgWordLen > 4) score += 4;
+    // POV consistency
+    if (povConsistency > 0.7) score += 12;
+    else if (povConsistency > 0.4) score += 6;
+    else score -= 5; // mixed POV without clear intention
     const pov = firstPerson > thirdPerson * 2 ? 'First Person' : thirdPerson > firstPerson * 2 ? 'Third Person' : 'Mixed';
     return { score: Math.min(100, Math.max(0, score)), totalWords, uniqueWords: uniqueWords.size, lexicalDiversity: Math.round(lexicalDiversity * 100), avgWordLength: Math.round(avgWordLen * 10) / 10, avgParagraphLength: Math.round(avgParaLen), pov, paragraphCount: paragraphs.length };
   },
