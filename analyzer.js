@@ -944,6 +944,192 @@ const Analyzer = {
   },
 
   // ========================
+  // TRUE LINE EDITING ENGINE
+  // Evaluates: tone consistency, sentence flow, word precision,
+  // pacing rhythm, POV discipline, extraneous language, paragraph
+  // transitions at the sentence level
+  // ========================
+  analyzeLineEditing(text) {
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+    const words = text.match(/\b\w+\b/g) || [];
+    const totalWords = words.length;
+    const lower = text.toLowerCase();
+    if (sentences.length < 3) return { score: 50, tone: {}, flow: {}, precision: {}, pacing: {}, pov: {}, findings: [] };
+    const findings = [];
+
+    // === 1. TONE CONSISTENCY ===
+    // Are the word choices serving a consistent emotional register?
+    let toneScore = 100;
+    // Detect tonal clashes: formal words near casual words
+    const formalWords = (lower.match(/\b(nevertheless|furthermore|notwithstanding|henceforth|whereby|therein|aforementioned|commenced|endeavored|subsequently|utilized|ascertained|pursuant|heretofore)\b/g) || []).length;
+    const casualWords = (lower.match(/\b(gonna|wanna|gotta|kinda|sorta|stuff|things|cool|awesome|totally|basically|literally|super|pretty much|you know|like)\b/g) || []).length;
+    if (formalWords > 0 && casualWords > 0) {
+      toneScore -= Math.min(20, (formalWords + casualWords) * 4);
+      findings.push({ type: 'tone', severity: 'medium', message: 'Tonal clash: ' + formalWords + ' formal words mixed with ' + casualWords + ' casual words. Pick a register and stay consistent.' });
+    }
+    // Detect emotional whiplash (rapid mood shifts without transition)
+    const moodWords = { dark: /\b(dark|death|blood|fear|terror|grief|mourn|scream|agony)\b/gi, light: /\b(laugh|smile|joy|delight|warm|bright|hope|cheer|happy)\b/gi };
+    let prevMood = null;
+    let moodShifts = 0;
+    sentences.forEach(s => {
+      const sl = s.toLowerCase();
+      const darkCount = (sl.match(moodWords.dark) || []).length;
+      const lightCount = (sl.match(moodWords.light) || []).length;
+      const mood = darkCount > lightCount ? 'dark' : lightCount > darkCount ? 'light' : null;
+      if (mood && prevMood && mood !== prevMood) moodShifts++;
+      if (mood) prevMood = mood;
+    });
+    if (moodShifts > sentences.length * 0.15) {
+      toneScore -= 10;
+      findings.push({ type: 'tone', severity: 'low', message: 'Frequent mood shifts (' + moodShifts + ') without transition. Readers may feel disoriented.' });
+    }
+
+    // === 2. SENTENCE FLOW (do sentences connect naturally?) ===
+    let flowScore = 100;
+    // Check for abrupt topic shifts between consecutive sentences
+    let abruptShifts = 0;
+    for (let i = 1; i < sentences.length; i++) {
+      const prev = sentences[i - 1].toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+      const curr = sentences[i].toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+      const prevSet = new Set(prev);
+      const shared = curr.filter(w => prevSet.has(w)).length;
+      // If zero overlap and no transition word, it's abrupt
+      if (shared === 0 && !/^(but|and|so|then|yet|still|however|meanwhile|instead|also|furthermore|besides|next|after|before|later|now|finally)\b/i.test(sentences[i].trim())) {
+        abruptShifts++;
+      }
+    }
+    const abruptRate = abruptShifts / Math.max(sentences.length - 1, 1);
+    if (abruptRate > 0.3) {
+      flowScore -= Math.round(abruptRate * 30);
+      findings.push({ type: 'flow', severity: 'medium', message: Math.round(abruptRate * 100) + '% of sentence transitions are abrupt — no shared context or transition word. Sentences feel disconnected.' });
+    }
+    // Check sentence rhythm variety (consecutive same-length sentences)
+    const lengths = sentences.map(s => s.trim().split(/\s+/).length);
+    let monotoneRuns = 0;
+    for (let i = 2; i < lengths.length; i++) {
+      const diff1 = Math.abs(lengths[i] - lengths[i - 1]);
+      const diff2 = Math.abs(lengths[i - 1] - lengths[i - 2]);
+      if (diff1 < 3 && diff2 < 3) monotoneRuns++;
+    }
+    if (monotoneRuns > sentences.length * 0.3) {
+      flowScore -= 10;
+      findings.push({ type: 'flow', severity: 'low', message: 'Sentence lengths are too uniform — creates a monotone rhythm. Vary between short punches and longer flowing sentences.' });
+    }
+
+    // === 3. WORD PRECISION (are words earning their place?) ===
+    let precisionScore = 100;
+    // Vague/imprecise words
+    const vagueWords = (lower.match(/\b(thing|things|stuff|something|somehow|somewhat|somewhere|nice|good|bad|big|small|very|really|quite|rather|pretty|a lot|a bit|kind of|sort of|got|get|went|came|made|did)\b/g) || []).length;
+    const vagueRate = vagueWords / Math.max(totalWords, 1) * 100;
+    if (vagueRate > 3) {
+      precisionScore -= Math.min(25, Math.round(vagueRate * 4));
+      findings.push({ type: 'precision', severity: 'medium', message: vagueWords + ' vague/imprecise words (' + vagueRate.toFixed(1) + '%). Replace "thing", "stuff", "nice", "got" with specific language.' });
+    }
+    // Redundant modifiers (e.g. "completely destroyed", "very unique")
+    const redundantMods = (lower.match(/\b(completely destroyed|totally ruined|very unique|absolutely perfect|completely finished|totally dead|very essential|extremely crucial|quite obvious|rather interesting|pretty good|really nice|very important|absolutely necessary)\b/g) || []).length;
+    if (redundantMods > 0) {
+      precisionScore -= redundantMods * 4;
+      findings.push({ type: 'precision', severity: 'low', message: redundantMods + ' redundant modifier(s) found ("very unique", "completely destroyed"). The modifier adds nothing.' });
+    }
+
+    // === 4. PACING RHYTHM (at sentence level) ===
+    let pacingScore = 100;
+    // Action scenes should have shorter sentences
+    // Description scenes can be longer
+    // But overall, variety is key
+    const avgLen = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+    const stdDev = Math.sqrt(lengths.reduce((s, l) => s + Math.pow(l - avgLen, 2), 0) / lengths.length);
+    if (stdDev < 3) {
+      pacingScore -= 15;
+      findings.push({ type: 'pacing', severity: 'medium', message: 'Very low sentence length variation (stddev: ' + stdDev.toFixed(1) + '). Writing feels mechanical. Mix short and long.' });
+    } else if (stdDev > 4 && stdDev < 12) {
+      pacingScore += 5; // good variety
+    }
+    // Check for dialogue pacing: dialogue paragraphs should be snappy
+    const dialogueParagraphs = paragraphs.filter(p => /[""\u201C]/.test(p));
+    const longDialogueParagraphs = dialogueParagraphs.filter(p => p.split(/\s+/).length > 80);
+    if (longDialogueParagraphs.length > 0) {
+      pacingScore -= longDialogueParagraphs.length * 5;
+      findings.push({ type: 'pacing', severity: 'low', message: longDialogueParagraphs.length + ' dialogue paragraph(s) over 80 words. Dialogue should feel snappy — break into shorter exchanges.' });
+    }
+
+    // === 5. POV DISCIPLINE ===
+    let povScore = 100;
+    const firstPerson = (text.match(/\bI\b/g) || []).length;
+    const thirdHeShe = (text.match(/\b(he|she)\b/gi) || []).length;
+    const secondYou = (text.match(/\byou\b/gi) || []).length;
+    const dominant = firstPerson > thirdHeShe ? 'first' : thirdHeShe > firstPerson ? 'third' : 'mixed';
+    // Check for POV slips
+    if (dominant === 'third' && firstPerson > 2) {
+      const slipRate = firstPerson / (firstPerson + thirdHeShe);
+      if (slipRate > 0.05) {
+        povScore -= 15;
+        findings.push({ type: 'pov', severity: 'high', message: 'POV slip: ' + firstPerson + ' first-person ("I") occurrences in third-person narrative. Unless intentional, stay consistent.' });
+      }
+    }
+    if (dominant === 'first' && thirdHeShe > 5) {
+      povScore -= 10;
+      findings.push({ type: 'pov', severity: 'medium', message: 'POV inconsistency: heavy third-person pronouns in first-person narrative.' });
+    }
+    // Head-hopping: in third person limited, check if we see multiple characters\' thoughts
+    if (dominant === 'third') {
+      const thoughtVerbs = text.match(/\b(he thought|she thought|he wondered|she wondered|he knew|she knew|he felt|she felt|he realized|she realized)\b/gi) || [];
+      const heThoughts = thoughtVerbs.filter(t => /^he/i.test(t)).length;
+      const sheThoughts = thoughtVerbs.filter(t => /^she/i.test(t)).length;
+      if (heThoughts > 0 && sheThoughts > 0) {
+        povScore -= 10;
+        findings.push({ type: 'pov', severity: 'medium', message: 'Possible head-hopping: both "he thought/felt/knew" (' + heThoughts + ') and "she thought/felt/knew" (' + sheThoughts + '). In limited third person, only one character\'s thoughts should be accessible per scene.' });
+      }
+    }
+
+    // === 6. EXTRANEOUS LANGUAGE ===
+    let extraneousScore = 100;
+    // "began to", "started to" — just do the action
+    const beganTo = (lower.match(/\b(began to|started to|proceeded to|continued to|attempted to|happened to|managed to)\b/g) || []).length;
+    if (beganTo > 0) {
+      extraneousScore -= beganTo * 3;
+      findings.push({ type: 'extraneous', severity: 'low', message: beganTo + ' filter phrase(s): "began to", "started to", etc. Cut the filter — just do the action. "She began to run" → "She ran."' });
+    }
+    // "that" overuse
+    const thatCount = (lower.match(/\bthat\b/g) || []).length;
+    const thatRate = thatCount / Math.max(totalWords, 1) * 100;
+    if (thatRate > 2.5) {
+      extraneousScore -= 8;
+      findings.push({ type: 'extraneous', severity: 'low', message: '"That" appears ' + thatCount + ' times (' + thatRate.toFixed(1) + '%). Many can be removed: "She knew that he was" → "She knew he was."' });
+    }
+    // "in order to" / "the fact that" already caught by wordy, but reinforce
+    // Dialogue attribution overload
+    const attributions = (text.match(/[""\u201D]\s*(he|she|they|I)\s+(said|asked|replied|answered|whispered|shouted|muttered|exclaimed|declared|responded|cried|yelled|stated|remarked|noted)\b/gi) || []).length;
+    const dialogueLines = (text.match(/[""\u201C][^""\u201D]*[""\u201D]/g) || []).length;
+    if (dialogueLines > 0 && attributions / dialogueLines > 0.8) {
+      extraneousScore -= 8;
+      findings.push({ type: 'extraneous', severity: 'low', message: 'Dialogue is over-attributed (' + attributions + '/' + dialogueLines + ' lines tagged). In two-person dialogue, you can drop most tags after establishing who\'s speaking.' });
+    }
+
+    // Clamp scores
+    toneScore = Math.min(100, Math.max(0, toneScore));
+    flowScore = Math.min(100, Math.max(0, flowScore));
+    precisionScore = Math.min(100, Math.max(0, precisionScore));
+    pacingScore = Math.min(100, Math.max(0, pacingScore));
+    povScore = Math.min(100, Math.max(0, povScore));
+    extraneousScore = Math.min(100, Math.max(0, extraneousScore));
+
+    const score = Math.round(toneScore * 0.15 + flowScore * 0.2 + precisionScore * 0.2 + pacingScore * 0.15 + povScore * 0.15 + extraneousScore * 0.15);
+
+    return {
+      score,
+      tone: { score: toneScore, formalWords, casualWords, moodShifts },
+      flow: { score: flowScore, abruptShifts, abruptRate: Math.round(abruptRate * 100), monotoneRuns },
+      precision: { score: precisionScore, vagueWords, vagueRate: Math.round(vagueRate * 10) / 10, redundantMods },
+      pacing: { score: pacingScore, avgSentenceLength: Math.round(avgLen), stdDev: Math.round(stdDev * 10) / 10, longDialogueParagraphs: longDialogueParagraphs.length },
+      pov: { score: povScore, dominant, firstPerson, thirdPerson: thirdHeShe, slips: findings.filter(f => f.type === 'pov').length },
+      extraneous: { score: extraneousScore, beganTo, thatCount, thatRate: Math.round(thatRate * 10) / 10, overAttributed: dialogueLines > 0 && attributions / dialogueLines > 0.8 },
+      findings
+    };
+  },
+
+  // ========================
   // COPY EDITING SCORE
   // ========================
   scoreCopyEditing(issues, totalWords) {
@@ -998,7 +1184,8 @@ const Analyzer = {
 
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const copyScore = this.scoreCopyEditing(allIssues, totalWords);
-    const lineScore = Math.round((sentenceVariety.score + Math.min(100, Math.max(0, readability.ease))) / 2);
+    const lineEditing = this.analyzeLineEditing(text);
+    const lineScore = lineEditing.score; // true line editing, not just readability
     const showTellScore = Math.max(0, 100 - showTellIssues.length * 5);
 
     // Deep writing quality engine
@@ -1030,7 +1217,7 @@ const Analyzer = {
         line: lineScore, style: style.score, dialogue: dialogue.score,
         showTell: showTellScore, grammar: 0
       },
-      writingQuality,
+      writingQuality, lineEditing,
       plot, transitions, dialogue, style, sentenceVariety, readability,
       readerPerspective, pacing, characters,
       showTell: { score: showTellScore, issues: showTellIssues },

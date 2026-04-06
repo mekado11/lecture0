@@ -347,7 +347,27 @@ function renderDetailed(r){
   h+=sec(plotLabel,r.scores.plot,plotRows);
   h+=sec('Transitions',r.scores.transitions,[r.transitions.smoothRate+'% smooth',sr('Transition Words',r.transitions.transitionsUsed),sr('Smooth',r.transitions.smoothTransitions+'/'+(r.transitions.totalParagraphs-1))]);
   h+=sec('Copy Editing',r.scores.copy,[r.issues.length+' issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell'])]);
-  h+=sec('Line Editing',r.scores.line,[sr('Readability Grade',r.readability.grade),sr('Flesch Ease',r.readability.ease+'/100'),sr('Sentence Variety',r.sentenceVariety.score+'/100')]);
+  // Line Editing (true stylistic editing, not just readability)
+  const le=r.lineEditing;
+  const lineRows=['Stylistic editing: tone, flow, precision, pacing, POV, extraneous language'];
+  lineRows.push(sr('Tone Consistency',le.tone.score+'/100'));
+  lineRows.push(sr('Sentence Flow',le.flow.score+'/100'));
+  lineRows.push(sr('Word Precision',le.precision.score+'/100'));
+  lineRows.push(sr('Pacing Rhythm',le.pacing.score+'/100'));
+  lineRows.push(sr('POV Discipline',le.pov.score+'/100'));
+  lineRows.push(sr('Extraneous Language',le.extraneous.score+'/100'));
+  // Show findings
+  if(le.findings.length>0){
+    lineRows.push('<div style="margin-top:.4rem;border-top:1px solid var(--border);padding-top:.4rem">');
+    le.findings.forEach(f=>{
+      const col=f.severity==='high'?'var(--red)':f.severity==='medium'?'var(--yellow)':'var(--muted)';
+      lineRows.push('<div style="font-size:.72rem;color:'+col+';padding:.2rem 0;border-bottom:1px solid var(--border)">'+esc(f.message)+'</div>');
+    });
+    lineRows.push('</div>');
+  }
+  lineRows.push(sr('Readability Grade',r.readability.grade));
+  lineRows.push(sr('Flesch Ease',r.readability.ease+'/100'));
+  h+=sec('Line Editing',r.scores.line,lineRows);
   h+=sec('Style & Voice',r.scores.style,[sr('POV',r.style.pov),sr('Lexical Diversity',r.style.lexicalDiversity+'/100'),sr('Unique Words',r.style.uniqueWords.toLocaleString())]);
   h+=sec('Dialogue',r.scores.dialogue,[r.dialogue.count===0?'No dialogue detected.':'',sr('Lines',r.dialogue.count),sr('Ratio',r.dialogue.ratio+'/100')]);
   // Pacing heatmap
