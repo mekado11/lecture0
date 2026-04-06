@@ -1,439 +1,198 @@
-// ManuscriptLens - 3-Panel Editor App v3
-(function() {
-  let uploadedFile = null, extractedText = '', analysisResult = null;
-  const $ = id => document.getElementById(id);
+(function(){
+let uploadedFile=null,extractedText='',analysisResult=null;
+const $=id=>document.getElementById(id);
 
-  // ========================
-  // FILE UPLOAD
-  // ========================
-  const dropZone = $('drop-zone'), fileInput = $('file-input');
-  dropZone.addEventListener('click', () => fileInput.click());
-  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-  dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
-  fileInput.addEventListener('change', e => { if (e.target.files.length) handleFile(e.target.files[0]); });
-  $('clear-file').addEventListener('click', () => { uploadedFile = null; $('file-info').classList.add('hidden'); $('analyze-btn').classList.add('hidden'); fileInput.value = ''; });
+// UPLOAD
+const dz=$('drop-zone'),fi=$('file-input');
+dz.addEventListener('click',()=>fi.click());
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-over')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files.length)hf(e.dataTransfer.files[0])});
+fi.addEventListener('change',e=>{if(e.target.files.length)hf(e.target.files[0])});
+$('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('analyze-btn').classList.add('hidden');fi.value=''});
+function hf(f){const x=f.name.split('.').pop().toLowerCase();if(!['docx','pdf','txt'].includes(x)){alert('Upload .docx, .pdf, or .txt');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');$('analyze-btn').classList.remove('hidden')}
+async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const c=await(await p.getPage(i)).getTextContent();t+=c.items.map(x=>x.str).join(' ')+'\n\n'}return t}}
+$('analyze-btn').addEventListener('click',async()=>{if(!uploadedFile)return;$('analyze-btn').classList.add('hidden');$('upload-loading').classList.remove('hidden');try{$('loader-text').textContent='Extracting...';extractedText=await ext(uploadedFile);$('loader-text').textContent='Analyzing...';await new Promise(r=>setTimeout(r,80));analysisResult=Analyzer.analyze(extractedText);if(analysisResult.error){alert(analysisResult.error);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}$('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');renderAll()}catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden')}});
 
-  function handleFile(file) {
-    const ext = file.name.split('.').pop().toLowerCase();
-    if (!['docx','pdf','txt'].includes(ext)) { alert('Please upload a .docx, .pdf, or .txt file.'); return; }
-    uploadedFile = file;
-    $('file-name').textContent = file.name + ' (' + (file.size/1024).toFixed(1) + ' KB)';
-    $('file-info').classList.remove('hidden');
-    $('analyze-btn').classList.remove('hidden');
-  }
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function escA(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function pn(t,i){return(t.substring(0,i).match(/\n\s*\n/g)||[]).length+1}
+function sc(v){return v>=70?'var(--green)':v>=45?'var(--yellow)':'var(--red)'}
+function scHex(v){return v>=70?'#5dba7d':v>=45?'#d4a855':'#c45c4a'}
 
-  async function extractText(file) {
-    const ext = file.name.split('.').pop().toLowerCase();
-    if (ext === 'txt') return await file.text();
-    if (ext === 'docx') { $('loader-text').textContent = 'Extracting from Word...'; return (await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value; }
-    if (ext === 'pdf') {
-      $('loader-text').textContent = 'Extracting from PDF...';
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
-      let t = ''; for (let i = 1; i <= pdf.numPages; i++) { const c = await (await pdf.getPage(i)).getTextContent(); t += c.items.map(x => x.str).join(' ') + '\n\n'; } return t;
-    }
-  }
+// SEMI-CIRCLE GAUGE
+function drawGauge(score){
+  const c=$('gauge-canvas'),ctx=c.getContext('2d');
+  const w=c.width,h=c.height,cx=w/2,cy=h-10,r=90;
+  ctx.clearRect(0,0,w,h);
+  // Background arc
+  ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,0);ctx.lineWidth=14;ctx.strokeStyle='#252220';ctx.lineCap='round';ctx.stroke();
+  // Gradient arc
+  const grad=ctx.createLinearGradient(cx-r,cy,cx+r,cy);
+  grad.addColorStop(0,'#c45c4a');grad.addColorStop(.3,'#d4a855');grad.addColorStop(.6,'#5dba7d');grad.addColorStop(1,'#3bb8a0');
+  ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,Math.PI+(score/100)*Math.PI);ctx.lineWidth=14;ctx.strokeStyle=grad;ctx.lineCap='round';ctx.stroke();
+  // Notches
+  for(let i=0;i<=10;i++){const a=Math.PI+i/10*Math.PI;const x1=cx+Math.cos(a)*(r+10),y1=cy+Math.sin(a)*(r+10);const x2=cx+Math.cos(a)*(r+16),y2=cy+Math.sin(a)*(r+16);ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.lineWidth=1.5;ctx.strokeStyle='#3a3330';ctx.stroke()}
+  $('gauge-num').textContent=score;
+}
 
-  $('analyze-btn').addEventListener('click', async () => {
-    if (!uploadedFile) return;
-    $('analyze-btn').classList.add('hidden');
-    $('upload-loading').classList.remove('hidden');
-    try {
-      $('loader-text').textContent = 'Extracting text...';
-      extractedText = await extractText(uploadedFile);
-      $('loader-text').textContent = 'Analyzing manuscript...';
-      await new Promise(r => setTimeout(r, 100));
-      analysisResult = Analyzer.analyze(extractedText);
-      if (analysisResult.error) { alert(analysisResult.error); $('upload-loading').classList.add('hidden'); $('analyze-btn').classList.remove('hidden'); return; }
-      $('upload-view').classList.add('hidden');
-      $('editor-view').classList.remove('hidden');
-      renderAll();
-    } catch (err) { alert('Error: ' + err.message); $('upload-loading').classList.add('hidden'); $('analyze-btn').classList.remove('hidden'); }
-  });
+// RING helper
+function drawRing(canvas,score,size){
+  const ctx=canvas.getContext('2d');const s=size||canvas.width;
+  canvas.width=s*2;canvas.height=s*2;canvas.style.width=s+'px';canvas.style.height=s+'px';
+  ctx.scale(2,2);const cx=s/2,cy=s/2,r=s/2-3;
+  ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.lineWidth=3;ctx.strokeStyle='#252220';ctx.stroke();
+  ctx.beginPath();ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+(score/100)*Math.PI*2);ctx.lineWidth=3;ctx.strokeStyle=scHex(score);ctx.lineCap='round';ctx.stroke();
+}
 
-  // ========================
-  // HELPERS
-  // ========================
-  function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  function escA(s) { return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  function paraNum(text, idx) { return (text.substring(0, idx).match(/\n\s*\n/g) || []).length + 1; }
-  function scoreColor(s) { return s >= 70 ? 'var(--success)' : s >= 45 ? 'var(--warning)' : 'var(--danger)'; }
+function renderAll(){
+  const r=analysisResult;
+  $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
+  $('top-wc').textContent=r.totalWords.toLocaleString();
+  $('top-status').textContent=r.genre.label;
+  drawGauge(r.overall);
+  renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderVersions();
+}
 
-  // ========================
-  // RENDER ALL
-  // ========================
-  function renderAll() {
-    const r = analysisResult;
-    $('top-filename').textContent = uploadedFile.name.replace(/\.\w+$/, '');
-    $('top-wordcount').textContent = r.totalWords.toLocaleString();
-    $('top-status').textContent = r.genre.label;
+// LEFT SIDEBAR
+function renderLeft(r){
+  const rp=r.readerPerspective;
+  const cards=[
+    {name:'Engagement Score',score:rp.engagementScore,sub:'How hooked will readers be?',action:'+ Improve Opening',bar:true},
+    {name:'Hook Strength',score:rp.hookStrength,sub:(r.issueCounts.passive+r.issueCounts.adverb)+' Issues',action:'+ Improve Opening',bar:false},
+    {name:'Clarity',score:rp.clarityScore,sub:'Weak transitions',bar:true},
+    {name:'Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),sub:rp.pacingFeel.split(' - ')[0],badge:rp.pacingFeel.includes('Rushed')?'Rushed':rp.pacingFeel.includes('Slow')?'Slow':'Good'},
+    {name:'DNF Risk',score:rp.dnfRisk,sub:rp.dnfRisk>60?'At Risk':rp.dnfRisk>30?'Moderate':'Safe',inv:true}
+  ];
+  $('lp-cards').innerHTML=cards.map(c=>{
+    const col=c.inv?scHex(100-c.score):scHex(c.score);
+    const id='lpc-'+Math.random().toString(36).substr(2,5);
+    return '<div class="lp-card"><div class="lp-card-head"><div class="lpc-ring"><canvas id="'+id+'" width="40" height="40"></canvas><span class="lpc-num" style="color:'+col+'">'+c.score+'</span></div><div class="lpc-info"><div class="lpc-name">'+c.name+'</div><div class="lpc-sub">'+esc(c.sub)+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="lpc-score" style="color:'+col+'">'+c.score+'</span>')+'</div>'+(c.bar?'<div class="lpc-bar"><div class="lpc-bar-fill" style="width:'+c.score+'%;background:'+col+'"></div></div>':'')+(c.action?'<span class="lpc-action">'+c.action+'</span>':'')+'</div>';
+  }).join('');
+  // Draw rings
+  cards.forEach((c,i)=>{const cvs=document.querySelectorAll('.lpc-ring canvas')[i];if(cvs)drawRing(cvs,c.inv?100-c.score:c.score,40)});
+}
 
-    // Overall gauge
-    $('overall-score').textContent = r.overall;
-    const circumference = 2 * Math.PI * 52; // r=52
-    const fill = $('gauge-fill-overall');
-    fill.style.strokeDasharray = (r.overall / 100 * circumference) + ' ' + circumference;
-    fill.style.stroke = scoreColor(r.overall);
+// RIGHT SIDEBAR
+function renderRight(r){
+  const cats=[
+    {k:'plot',name:'Plot Structure',score:r.scores.plot,issues:0},
+    {k:'clarity',name:'Clarity',score:r.readerPerspective.clarityScore,issues:r.issueCounts.passive},
+    {k:'pacing',name:'Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),issues:r.issueCounts['sentence-length'],badge:r.readerPerspective.pacingFeel.includes('Rushed')?'Rushed':null},
+    {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:r.issueCounts.adverb},
+    {k:'style',name:'Style & Voice',score:r.scores.style,issues:r.issueCounts['weak-verb']},
+    {k:'dialogue',name:'Dialogue',score:r.scores.dialogue,issues:0},
+    {k:'showTell',name:'Show vs Tell',score:r.scores.showTell,issues:r.issueCounts['show-tell']},
+    {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:r.issues.length}
+  ];
+  const container=$('rp-scores');
+  container.innerHTML=cats.map(c=>{
+    const col=scHex(c.score);const id='rsc-'+Math.random().toString(36).substr(2,5);
+    return '<div class="rsc" data-cat="'+c.k+'"><div class="rsc-ring"><canvas id="'+id+'" width="34" height="34"></canvas><span class="rsc-n" style="color:'+col+'">'+c.score+'</span></div><div class="rsc-info"><div class="rsc-name">'+c.name+'</div><div class="rsc-sub">'+c.issues+' Issues</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="rsc-val" style="color:'+col+'">'+c.score+'</span>')+'</div>';
+  }).join('');
+  // Draw rings
+  cats.forEach((c,i)=>{const cvs=container.querySelectorAll('.rsc-ring canvas')[i];if(cvs)drawRing(cvs,c.score,34)});
+  // Click handlers
+  container.querySelectorAll('.rsc').forEach(el=>{el.addEventListener('click',()=>{container.querySelectorAll('.rsc').forEach(e=>e.classList.remove('active'));el.classList.add('active');showDetail(el.dataset.cat)})});
+  // Show first by default
+  if(cats.length)showDetail(cats[0].k);
+}
 
-    renderLeftSidebar(r);
-    renderRightSidebar(r);
-    renderAnnotatedText(extractedText, r.issues);
-    renderDetailed(r);
-    renderReaderView(r);
-    renderVersionHistory();
-  }
+function showDetail(cat){
+  const r=analysisResult;const d=$('rp-detail');
+  const typeMap={plot:null,clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:null,showTell:'show-tell',copy:null};
+  const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing'};
+  const typeLabels={passive:'Passive Voice Detected',adverb:'Adverb Overuse',cliche:'Cliche Detected','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence'};
+  const t=typeMap[cat];
+  const issues=t?r.issues.filter(i=>i.type===t).slice(0,5):r.issues.slice(0,5);
+  d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+titles[cat]+'</span><span>&#9660;</span></div>'+
+    (issues.length===0?'<p style="color:var(--muted);font-size:.78rem">No issues in this category.</p>':
+    issues.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+(typeLabels[i.type]||i.type)+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div><div class="rpd-quote">\u2018'+esc(i.text.substring(0,60))+'\u2019</div><div class="rpd-btns"><button class="tip-fix">Replace &amp; Fix</button><button class="tip-ign" onclick="this.closest(\'.rpd-issue\').remove()">Ignore</button></div></div>').join(''));
+}
 
-  // ========================
-  // LEFT SIDEBAR
-  // ========================
-  function renderLeftSidebar(r) {
-    const rp = r.readerPerspective;
-    const cards = [
-      { name: 'Engagement Score', score: rp.engagementScore, sub: 'How hooked will readers be?', action: '+ Improve Opening' },
-      { name: 'Hook Strength', score: rp.hookStrength, sub: (r.issueCounts.passive + r.issueCounts.adverb) + ' Issues', action: '+ Improve Opening' },
-      { name: 'Clarity', score: rp.clarityScore, sub: 'Weak transitions', action: null },
-      { name: 'Pacing', score: Math.round((r.scores.plot + r.scores.transitions) / 2), sub: rp.pacingFeel.split(' - ')[0] || rp.pacingFeel, action: null, badge: rp.pacingFeel.includes('Rushed') ? 'Rushed' : rp.pacingFeel.includes('Slow') ? 'Slow' : 'Good' },
-      { name: 'DNF Risk', score: rp.dnfRisk, sub: rp.dnfRisk > 60 ? 'At Risk' : rp.dnfRisk > 30 ? 'Moderate' : 'Safe', invert: true }
-    ];
-    const container = $('health-cards');
-    container.innerHTML = cards.map(c => {
-      const displayScore = c.score;
-      const color = c.invert ? scoreColor(100 - displayScore) : scoreColor(displayScore);
-      const ringPct = displayScore;
-      return '<div class="health-card">' +
-        '<div class="hc-ring"><svg viewBox="0 0 36 36"><circle class="hc-bg" cx="18" cy="18" r="15.9155"/><circle class="hc-fill" cx="18" cy="18" r="15.9155" style="stroke-dasharray:' + ringPct + ' ' + (100-ringPct) + ';stroke:' + color + '"/></svg><span class="hc-num" style="color:' + color + '">' + displayScore + '</span></div>' +
-        '<div class="hc-info"><div class="hc-name">' + c.name + '</div><div class="hc-sub">' + esc(c.sub) + '</div>' +
-        (c.action ? '<span class="hc-action">' + c.action + '</span>' : '') + '</div>' +
-        (c.badge ? '<span class="rc-badge" style="background:var(--surface-2);color:' + color + '">' + c.badge + '</span>' : '<span class="hc-score" style="color:' + color + '">' + displayScore + '</span>') +
-        '</div>';
-    }).join('');
-  }
+// ANNOTATED TEXT
+function renderAnnotated(text,issues){
+  const p=$('ed-annotated');p.className='ms-page active parchment';
+  const sorted=[...issues].sort((a,b)=>a.index-b.index);const no=[];let le=-1;
+  for(const i of sorted){if(i.index>=le){no.push(i);le=i.index+i.length}}
+  let h='',pos=0;
+  for(const i of no){if(i.index>pos)h+=esc(text.substring(pos,i.index));h+='<span class="hl" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'">'+esc(text.substring(i.index,i.index+i.length))+'</span>';pos=i.index+i.length}
+  if(pos<text.length)h+=esc(text.substring(pos));
+  p.innerHTML=h;
+  const tip=$('tip');
+  p.addEventListener('mouseover',e=>{const hl=e.target.closest('.hl');if(hl&&!hl.classList.contains('off')){const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};tip.innerHTML='<div class="tip-cat">'+(labels[hl.dataset.t]||hl.dataset.t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+hl.dataset.s+'\u201D</div><div class="tip-btns"><button class="tip-fix">Replace &amp; Fix</button><button class="tip-ign">Ignore</button></div>';tip.classList.add('on');const rect=hl.getBoundingClientRect();tip.style.top=(rect.bottom+8)+'px';tip.style.left=Math.min(rect.left,window.innerWidth-360)+'px';tip.querySelector('.tip-ign').onclick=()=>{hl.classList.add('off');tip.classList.remove('on')}}});
+  p.addEventListener('mouseout',e=>{if(e.target.closest('.hl'))setTimeout(()=>{if(!tip.matches(':hover'))tip.classList.remove('on')},200)});
+  tip.addEventListener('mouseleave',()=>tip.classList.remove('on'));
+}
 
-  // ========================
-  // RIGHT SIDEBAR
-  // ========================
-  function renderRightSidebar(r) {
-    const categories = [
-      { key: 'plot', name: 'Plot Structure', score: r.scores.plot, issues: 0 },
-      { key: 'copy', name: 'Copy Editing', score: r.scores.copy, issues: r.issues.length },
-      { key: 'clarity', name: 'Clarity', score: r.readerPerspective.clarityScore, issues: r.issueCounts.passive },
-      { key: 'pacing', name: 'Pacing', score: Math.round((r.scores.plot + r.scores.transitions) / 2), issues: r.issueCounts['sentence-length'] },
-      { key: 'hookStrength', name: 'Hook Strength', score: r.readerPerspective.hookStrength, issues: r.issueCounts.adverb },
-      { key: 'style', name: 'Style & Voice', score: r.scores.style, issues: r.issueCounts['weak-verb'] },
-      { key: 'dialogue', name: 'Dialogue', score: r.scores.dialogue, issues: 0 },
-      { key: 'showTell', name: 'Show vs Tell', score: r.scores.showTell, issues: r.issueCounts['show-tell'] }
-    ];
-    const container = $('right-score-cards');
-    container.innerHTML = categories.map(c => {
-      const color = scoreColor(c.score);
-      return '<div class="right-card" data-cat="' + c.key + '">' +
-        '<div class="rc-ring"><svg viewBox="0 0 36 36"><circle class="rc-bg" cx="18" cy="18" r="15.9155"/><circle class="rc-fill" cx="18" cy="18" r="15.9155" style="stroke-dasharray:' + c.score + ' ' + (100-c.score) + ';stroke:' + color + '"/></svg><span class="rc-num" style="color:' + color + '">' + c.score + '</span></div>' +
-        '<div class="rc-info"><div class="rc-name">' + c.name + '</div><div class="rc-sub">' + c.issues + ' Issues</div></div>' +
-        '<span class="rc-score" style="color:' + color + '">' + c.score + '</span></div>';
-    }).join('');
+// DETAILED
+function renderDetailed(r){
+  const d=$('ed-detailed');d.className='ms-page dark-page';
+  const pl={classic:'Classic arc (rising action, climax, resolution)',rising:'Rising tension, resolution needs work','resolution-focused':'Strong resolution, rising action weak',flat:'Flat tension curve',  'too-short':'Too short for plot analysis'};
+  let h='';
+  h+=sec('Plot Structure',r.scores.plot,[pl[r.plot.arc]||'',sr('Rising Action',r.plot.hasRisingAction?'Yes':'Weak'),sr('Climax',r.plot.hasClimax?'Yes':'Weak'),sr('Resolution',r.plot.hasResolution?'Yes':'Weak')]);
+  h+=sec('Transitions',r.scores.transitions,[r.transitions.smoothRate+'% smooth',sr('Transition Words',r.transitions.transitionsUsed),sr('Smooth',r.transitions.smoothTransitions+'/'+(r.transitions.totalParagraphs-1))]);
+  h+=sec('Copy Editing',r.scores.copy,[r.issues.length+' issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell'])]);
+  h+=sec('Line Editing',r.scores.line,[sr('Readability Grade',r.readability.grade),sr('Flesch Ease',r.readability.ease+'/100'),sr('Sentence Variety',r.sentenceVariety.score+'/100')]);
+  h+=sec('Style & Voice',r.scores.style,[sr('POV',r.style.pov),sr('Lexical Diversity',r.style.lexicalDiversity+'/100'),sr('Unique Words',r.style.uniqueWords.toLocaleString())]);
+  h+=sec('Dialogue',r.scores.dialogue,[r.dialogue.count===0?'No dialogue detected.':'',sr('Lines',r.dialogue.count),sr('Ratio',r.dialogue.ratio+'/100')]);
+  // Pacing heatmap
+  if(r.pacing){const cols={action:'#c0392b',dialogue:'#2980b9',description:'#27ae60',exposition:'#f39c12',reflection:'#8e44ad'};
+  h+='<div class="a-sec"><h3>Pacing Heatmap</h3><div class="hm-wrap">'+r.pacing.segments.map((s,i)=>'<div class="hm-blk" style="background:'+cols[s.type]+'" title="Seg '+(i+1)+': '+s.type+'"></div>').join('')+'</div><div class="hm-leg"><span><span class="hm-dot" style="background:#c0392b"></span>Action</span><span><span class="hm-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="hm-dot" style="background:#27ae60"></span>Description</span><span><span class="hm-dot" style="background:#f39c12"></span>Exposition</span><span><span class="hm-dot" style="background:#8e44ad"></span>Reflection</span></div></div>'}
+  // Characters
+  if(r.characters.list.length>0){const mx=Math.max(...r.characters.list.map(c=>c.mentions));h+='<div class="a-sec"><h3>Characters</h3><div class="ch-grid">'+r.characters.list.map(c=>'<div class="ch-card"><div class="ch-name">'+esc(c.name)+'</div><div class="ch-cnt">'+c.mentions+' mentions</div><div class="ch-bar"><div class="ch-fill" style="width:'+Math.round(c.mentions/mx*100)+'%"></div></div></div>').join('')+'</div></div>'}
+  d.innerHTML=h;
+}
+function sec(t,s,items){return '<div class="a-sec"><h3>'+t+' <span style="color:'+sc(s)+'">'+s+'/100</span></h3>'+items.filter(Boolean).map(i=>typeof i==='string'?(i?'<p>'+i+'</p>':''):i).join('')+'</div>'}
+function sr(l,v){return '<div class="sr"><span class="sr-l">'+l+'</span><span class="sr-v">'+v+'</span></div>'}
 
-    // Click to expand issues
-    container.querySelectorAll('.right-card').forEach(card => {
-      card.addEventListener('click', () => {
-        const cat = card.dataset.cat;
-        showCategoryDetail(cat);
-        container.querySelectorAll('.right-card').forEach(c => c.classList.remove('active'));
-        card.classList.add('active');
-      });
-    });
-  }
+// READER VIEW
+function renderReader(r){
+  const d=$('ed-reader');d.className='ms-page dark-page';const rp=r.readerPerspective;
+  const mc=(s,inv)=>{const v=inv?100-s:s;return v>=70?'var(--green)':v>=40?'var(--yellow)':'var(--red)'};
+  let h='<div class="rdr-grid">';
+  h+=rc('Engagement',rp.engagementScore,mc(rp.engagementScore),'How hooked?');
+  h+=rc('Hook Strength',rp.hookStrength,mc(rp.hookStrength),'Opening grab?');
+  h+='<div class="rdr-card"><h4>DNF Risk</h4><div class="rdr-big" style="color:'+mc(rp.dnfRisk,true)+'">'+rp.dnfRisk+'/100</div><div class="rdr-bar"><div class="rdr-fill" style="width:'+rp.dnfRisk+'%;background:'+mc(rp.dnfRisk,true)+'"></div></div><div style="display:flex;justify-content:space-between"><span class="rdr-lbl">Safe</span><span class="rdr-lbl">At Risk</span></div></div>';
+  h+=rc('Clarity',rp.clarityScore,mc(rp.clarityScore),'Follow the story?');
+  h+='<div class="rdr-card"><h4>Pacing</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.pacingFeel)+'</p></div>';
+  h+='<div class="rdr-card"><h4>Verdict</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.overallVerdict)+'</p></div>';
+  h+='</div>';
+  const ec={exciting:'#c0392b',tense:'#f39c12',sad:'#2980b9',calm:'#27ae60',hopeful:'#8e44ad'};
+  h+='<div class="a-sec"><h3>Emotional Journey</h3>';
+  rp.emotionalJourney.forEach(e=>{h+='<div class="emo-row"><span class="emo-name">'+e.emotion+'</span><div class="emo-track"><div class="emo-fill" style="width:'+e.intensity+'%;background:'+(ec[e.emotion]||'#888')+'"></div></div><span style="font-size:.62rem;color:var(--muted);width:35px">'+e.intensity+'%</span></div>'});
+  h+='</div>';
+  if(rp.immersionBreakers.length>0){h+='<div class="a-sec"><h3>Immersion Breakers ('+rp.immersionBreakers.length+')</h3>';rp.immersionBreakers.forEach(b=>{h+='<div style="padding:.35rem .5rem;border-left:3px solid var(--yellow);margin-bottom:.3rem;font-size:.78rem;background:var(--surface2);border-radius:0 var(--rs) var(--rs) 0"><div>'+esc(b.reason)+'</div><div style="font-size:.65rem;color:var(--muted)">'+esc(b.location)+'</div></div>'});h+='</div>'}
+  d.innerHTML=h;
+}
+function rc(t,s,c,desc){return '<div class="rdr-card"><h4>'+t+'</h4><div class="rdr-big" style="color:'+c+'">'+s+'/100</div><div class="rdr-bar"><div class="rdr-fill" style="width:'+s+'%;background:'+c+'"></div></div><div class="rdr-lbl">'+desc+'</div></div>'}
 
-  function showCategoryDetail(cat) {
-    const r = analysisResult;
-    const detail = $('right-issue-detail');
-    detail.classList.remove('hidden');
-    const typeMap = { plot: null, copy: null, clarity: 'passive', pacing: 'sentence-length', hookStrength: 'adverb', style: 'weak-verb', dialogue: null, showTell: 'show-tell' };
-    const issueType = typeMap[cat];
-    const typeLabels = { passive:'Passive Voice Detected', adverb:'Adverb Overuse', cliche:'Cliche Detected', 'weak-verb':'Weak Verb', wordy:'Wordy Phrase', repetition:'Word Repetition', 'sentence-length':'Long Sentence', 'show-tell':'Show vs Tell' };
-    const title = { plot:'Plot Structure', copy:'Copy Editing', clarity:'Clarity', pacing:'Pacing', hookStrength:'Hook Strength', style:'Style & Voice', dialogue:'Dialogue', showTell:'Show vs Tell' };
-    $('detail-category-title').textContent = title[cat] || cat;
-    const issues = issueType ? r.issues.filter(i => i.type === issueType).slice(0, 8) : r.issues.slice(0, 5);
-    $('detail-issues-list').innerHTML = issues.length === 0 ? '<p style="color:var(--text-muted);font-size:.8rem">No specific issues in this category.</p>' :
-      issues.map(i => '<div class="detail-issue"><div class="detail-issue-title">' + (typeLabels[i.type] || i.type) + '</div><div class="detail-issue-desc">' + esc(i.suggestion) + '</div><div class="detail-issue-quote">\u201C' + esc(i.text.substring(0, 60)) + '\u201D</div><div class="detail-issue-actions"><button class="tip-btn tip-btn-fix" onclick="alert(\'Replace & Fix coming soon\')">Replace &amp; Fix</button><button class="tip-btn tip-btn-ignore" onclick="this.closest(\'.detail-issue\').remove()">Ignore</button></div></div>').join('');
-  }
+// TABS (bottom)
+document.querySelectorAll('.btab').forEach(t=>{t.addEventListener('click',()=>{document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(!target.classList.contains('parchment')&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}})});
+document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{document.querySelectorAll('.rtab').forEach(b=>b.classList.remove('active'));t.classList.add('active')})});
 
-  // ========================
-  // ANNOTATED TEXT (parchment)
-  // ========================
-  function renderAnnotatedText(text, issues) {
-    const container = $('annotated-text');
-    const sorted = [...issues].sort((a, b) => a.index - b.index);
-    const noOverlap = []; let lastEnd = -1;
-    for (const i of sorted) { if (i.index >= lastEnd) { noOverlap.push(i); lastEnd = i.index + i.length; } }
-    let html = '', pos = 0;
-    for (const i of noOverlap) {
-      if (i.index > pos) html += esc(text.substring(pos, i.index));
-      html += '<span class="highlight" data-type="' + i.type + '" data-msg="' + escA(i.message) + '" data-suggestion="' + escA(i.suggestion) + '">' + esc(text.substring(i.index, i.index + i.length)) + '</span>';
-      pos = i.index + i.length;
-    }
-    if (pos < text.length) html += esc(text.substring(pos));
-    container.innerHTML = html;
+// AI
+$('run-ai-btn')?.addEventListener('click',()=>{const k=sessionStorage.getItem('ml_claude_key');if(k){runAI(k);return}$('api-modal').classList.remove('hidden')});
+$('modal-x')?.addEventListener('click',()=>$('api-modal').classList.add('hidden'));
+$('modal-go')?.addEventListener('click',()=>{const k=$('modal-key').value.trim();if(!k){alert('Enter API key');return}sessionStorage.setItem('ml_claude_key',k);$('api-modal').classList.add('hidden');runAI(k)});
+async function runAI(key){if(!analysisResult)return;const st=$('ai-status'),stxt=$('ai-status-text');st.classList.remove('hidden');try{const ai=await AIEngine.runAllFeatures(key,extractedText,analysisResult,(l,i,n)=>{stxt.textContent=l+' ('+(i+1)+'/'+n+')'});analysisResult._aiResults=ai;renderAI(ai);st.classList.add('hidden');$('ai-results').classList.remove('hidden');document.querySelector('.ai-intro')?.classList.add('hidden');AIEngine.saveVersion(uploadedFile.name,analysisResult,ai);renderVersions()}catch(e){st.classList.add('hidden');alert('AI error: '+e.message)}}
+function renderAI(ai){
+  const dc=ai.deepCritique;if(dc&&!dc.error)$('ai-deep-critique').innerHTML='<h3>Deep Critique</h3><p>'+esc(dc.overallAssessment||'')+'</p><div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin:.5rem 0"><div><h4 style="color:var(--green);font-size:.75rem">Strengths</h4><ul class="ai-list">'+(dc.strengths||[]).map(s=>'<li>'+esc(s)+'</li>').join('')+'</ul></div><div><h4 style="color:var(--red);font-size:.75rem">Weaknesses</h4><ul class="ai-list">'+(dc.weaknesses||[]).map(s=>'<li>'+esc(s)+'</li>').join('')+'</ul></div></div><div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);margin-top:.4rem"><strong style="color:var(--yellow)">Priority Fix:</strong> '+esc(dc.priorityFix||'')+'</div>';
+  const ct=ai.compTitles;if(ct&&!ct.error)$('ai-comp-titles').innerHTML='<h3>Comp Titles</h3><div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);font-weight:600;color:var(--gold-l);margin:.4rem 0">'+esc(ct.pitchLine||'')+'</div><div class="comp-grid">'+(ct.compTitles||[]).map(c=>'<div class="comp-card"><div class="comp-title">'+esc(c.title)+'</div><div class="comp-author">'+esc(c.author)+'</div><div class="comp-reason">'+esc(c.reason)+'</div></div>').join('')+'</div>';
+  const ql=ai.queryLetter;if(ql&&!ql.error)$('ai-query-letter').innerHTML='<h3>Query Letter</h3><div class="ql-text">'+esc(ql.queryLetter||'').replace(/\n/g,'<br>')+'</div><button class="btn-dark" style="margin-top:.4rem" onclick="navigator.clipboard.writeText('+JSON.stringify(ql.queryLetter||'')+');this.textContent=\'Copied!\'">Copy</button>';
+  const br=ai.betaReaders;if(br&&!br.error)$('ai-beta-readers').innerHTML='<h3>Beta Readers</h3><div class="beta-grid">'+(br.readers||[]).map(r=>'<div class="beta-card"><div class="beta-hdr"><span class="beta-nm">'+esc(r.name)+' '+(r.emoticon||'')+'</span><span class="beta-rt">'+'\u2605'.repeat(r.rating||0)+'</span></div><div class="beta-pro">'+esc(r.profile)+'</div><div class="beta-rx">'+esc(r.reaction)+'</div></div>').join('')+'</div>';
+  const mr=ai.marketReadiness;if(mr&&!mr.error)$('ai-market-readiness').innerHTML='<h3>Market Readiness</h3><div style="font-size:1.8rem;font-weight:800;color:'+sc(mr.readinessScore||0)+'">'+(mr.readinessScore||0)+'/100</div>'+sr('Path',mr.publishingPath||'')+sr('Stage',mr.developmentalStage||'')+sr('Trends',mr.trendAlignment||'');
+  const cb=ai.chapterBreakdown;if(cb&&!cb.error)$('ai-chapter-breakdown').innerHTML='<h3>Chapters</h3><p style="font-size:.75rem;color:var(--muted)">'+esc(cb.structureAssessment||'')+'</p><div class="ch-grid2">'+(cb.chapters||[]).map(c=>'<div class="ch-card2"><div class="ch-num">'+c.number+'</div><div><div class="ch-ttl">'+esc(c.title||'')+'</div><div class="ch-sum">'+esc(c.summary||'')+'</div><div style="display:flex;gap:.2rem;margin-top:.2rem"><span class="ch-bdg">'+c.pacingGrade+'</span><span class="ch-bdg">'+c.tensionLevel+'</span></div></div></div>').join('')+'</div>';
+}
 
-    // Tooltip with Replace & Fix / Ignore
-    const tooltip = $('tooltip');
-    const typeLabels = { passive:'Passive Voice', adverb:'Adverb', cliche:'Cliche', repetition:'Repetition', 'weak-verb':'Weak Verb', wordy:'Wordy Phrase', 'sentence-length':'Long Sentence', 'show-tell':'Show vs Tell' };
-    container.addEventListener('mouseover', e => {
-      const hl = e.target.closest('.highlight');
-      if (hl && !hl.classList.contains('hidden-type')) {
-        tooltip.innerHTML = '<div class="tip-type" style="color:var(--' + hl.dataset.type + ')">' + (typeLabels[hl.dataset.type] || hl.dataset.type) + '</div>' +
-          '<div class="tip-suggestion">\u2192 Suggestion:<br>' + hl.dataset.suggestion + '</div>' +
-          '<div class="tip-actions"><button class="tip-btn tip-btn-fix">Replace &amp; Fix</button><button class="tip-btn tip-btn-ignore">Ignore</button></div>';
-        tooltip.classList.add('visible');
-        const rect = hl.getBoundingClientRect();
-        tooltip.style.top = (rect.bottom + 8) + 'px';
-        tooltip.style.left = Math.min(rect.left, window.innerWidth - 340) + 'px';
-        // Ignore button
-        tooltip.querySelector('.tip-btn-ignore')?.addEventListener('click', () => { hl.classList.add('hidden-type'); tooltip.classList.remove('visible'); }, { once: true });
-      }
-    });
-    container.addEventListener('mouseout', e => { if (e.target.closest('.highlight')) setTimeout(() => { if (!tooltip.matches(':hover')) tooltip.classList.remove('visible'); }, 200); });
-    tooltip.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
-  }
+// VERSIONS
+function renderVersions(){const c=$('ed-versions');if(!c)return;c.className='ms-page dark-page';const vs=AIEngine.getVersionHistory();if(!vs.length){c.innerHTML='<p style="color:var(--muted);text-align:center;padding:2rem;font-size:.85rem">No versions yet.</p>';return}let h='<div class="v-head"><h3>Revision History</h3><button class="btn-dark" id="clr-v" style="font-size:.65rem;padding:.2rem .5rem">Clear</button></div><div class="v-tl">';vs.slice().reverse().forEach(v=>{const d=new Date(v.date);const col=scHex(v.overall);h+='<div class="v-item"><div class="v-dot" style="background:'+col+'"></div><div class="v-box"><div class="v-top"><span class="v-grade" style="color:'+col+'">'+v.grade+' ('+v.overall+'/100)</span><span class="v-date">'+d.toLocaleDateString()+'</span></div><div class="v-name">'+esc(v.fileName)+'</div><div class="v-stats">'+v.wordCount.toLocaleString()+' words &middot; '+v.totalIssues+' issues</div></div></div>'});h+='</div>';
+if(vs.length>=2){const f=vs[0],l=vs[vs.length-1],d=l.overall-f.overall;h+='<div class="v-sum"><h4>Progress</h4>'+sr('Score',(d>=0?'+':'')+d)+sr('Issues',(l.totalIssues-f.totalIssues>=0?'+':'')+(l.totalIssues-f.totalIssues))+sr('Versions',vs.length)+'</div>'}
+c.innerHTML=h;c.querySelector('#clr-v')?.addEventListener('click',()=>{if(confirm('Clear?')){AIEngine.clearVersionHistory();renderVersions()}})}
 
-  // ========================
-  // DETAILED ANALYSIS
-  // ========================
-  function renderDetailed(r) {
-    const d = $('detailed-analysis');
-    const plotLabels = { classic:'Classic arc (rising action, climax, resolution)', rising:'Rising tension but resolution needs work', 'resolution-focused':'Strong resolution, rising action needs development', flat:'Flat tension - add more conflict', 'too-short':'Text too short for plot analysis' };
-    d.innerHTML = [
-      sec('Plot Structure', r.scores.plot, [
-        plotLabels[r.plot.arc] || '', row('Rising Action', r.plot.hasRisingAction ? 'Detected' : 'Weak'), row('Climax', r.plot.hasClimax ? 'Detected' : 'Weak'), row('Resolution', r.plot.hasResolution ? 'Detected' : 'Weak'), row('Paragraphs', r.plot.paragraphCount)
-      ]),
-      sec('Transitions', r.scores.transitions, [
-        r.transitions.smoothRate + '% of transitions are smooth', row('Transition Words', r.transitions.transitionsUsed), row('Smooth', r.transitions.smoothTransitions + ' / ' + (r.transitions.totalParagraphs - 1))
-      ]),
-      sec('Copy Editing', r.scores.copy, [
-        r.issues.length + ' issues across ' + r.totalWords.toLocaleString() + ' words',
-        row('Passive Voice', r.issueCounts.passive), row('Adverbs', r.issueCounts.adverb), row('Cliches', r.issueCounts.cliche), row('Weak Verbs', r.issueCounts['weak-verb']), row('Show vs Tell', r.issueCounts['show-tell'])
-      ]),
-      sec('Line Editing', r.scores.line, [
-        row('Readability Grade', r.readability.grade), row('Flesch Ease', r.readability.ease + '/100'), row('Sentence Variety', r.sentenceVariety.score + '/100'), row('Avg Sentence', r.sentenceVariety.avgLength + ' words')
-      ]),
-      sec('Style & Voice', r.scores.style, [
-        row('POV', r.style.pov), row('Lexical Diversity', r.style.lexicalDiversity + '/100'), row('Unique Words', r.style.uniqueWords.toLocaleString())
-      ]),
-      sec('Dialogue', r.scores.dialogue, [
-        r.dialogue.count === 0 ? 'No dialogue detected.' : '', row('Lines', r.dialogue.count), row('Ratio', r.dialogue.ratio + '/100'), row('Said Usage', r.dialogue.saidRatio + '/100')
-      ])
-    ].join('');
+// EXPORT
+$('export-btn')?.addEventListener('click',()=>{if(!analysisResult)return;const r=analysisResult;const l=['ManuscriptLens Report','='.repeat(30),'','File: '+uploadedFile.name,'Genre: '+r.genre.label,'Words: '+r.totalWords,'Overall: '+r.overall+'/100','','Plot: '+r.scores.plot+'/100','Copy: '+r.scores.copy+'/100','Style: '+r.scores.style+'/100','Dialogue: '+r.scores.dialogue+'/100','Show/Tell: '+r.scores.showTell+'/100','','Engagement: '+r.readerPerspective.engagementScore+'/100','Hook: '+r.readerPerspective.hookStrength+'/100','DNF Risk: '+r.readerPerspective.dnfRisk+'/100','Clarity: '+r.readerPerspective.clarityScore+'/100','','Issues: '+r.issues.length];r.issues.slice(0,20).forEach((i,n)=>{l.push((n+1)+'. ['+i.type+'] '+i.message)});const b=new Blob([l.join('\n')],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=uploadedFile.name.replace(/\.\w+$/,'')+'-report.txt';a.click()});
 
-    // Pacing heatmap
-    const hm = $('pacing-heatmap');
-    if (hm && r.pacing) {
-      const colors = { action:'#c0392b', dialogue:'#2980b9', description:'#27ae60', exposition:'#f39c12', reflection:'#8e44ad' };
-      hm.innerHTML = '<div class="heatmap-container">' + r.pacing.segments.map((s, i) =>
-        '<div class="heatmap-block" style="background:' + colors[s.type] + '" title="Segment ' + (i+1) + ': ' + s.type + ' (' + s.wordCount + ' words)"></div>'
-      ).join('') + '</div>';
-    }
-    // Characters
-    const ch = $('character-tracker');
-    if (ch && r.characters.list.length > 0) {
-      const max = Math.max(...r.characters.list.map(c => c.mentions));
-      ch.innerHTML = '<div class="character-grid">' + r.characters.list.map(c =>
-        '<div class="character-card"><div class="char-name">' + esc(c.name) + '</div><div class="char-mentions">' + c.mentions + ' mentions' + (c.dialogueCount ? ' &middot; ' + c.dialogueCount + ' dialogue' : '') + '</div><div class="char-bar"><div class="char-bar-fill" style="width:' + Math.round(c.mentions/max*100) + '%"></div></div></div>'
-      ).join('') + '</div>';
-    } else if (ch) { ch.innerHTML = '<p style="color:var(--text-muted);font-size:.8rem">No recurring characters detected.</p>'; }
-    // Grammar placeholder
-    const gr = $('grammar-results');
-    if (gr) gr.innerHTML = '<p style="color:var(--text-muted);font-size:.8rem">Grammar API integration available via AI Critique tab.</p>';
-  }
-  function sec(title, score, items) {
-    return '<div class="analysis-section"><h3>' + title + ' <span style="float:right;color:' + scoreColor(score) + '">' + score + '/100</span></h3>' + items.filter(Boolean).map(i => typeof i === 'string' ? (i ? '<p>' + i + '</p>' : '') : i).join('') + '</div>';
-  }
-  function row(label, val) { return '<div class="stat-row"><span class="stat-label">' + label + '</span><span class="stat-value">' + val + '</span></div>'; }
-
-  // ========================
-  // READER VIEW
-  // ========================
-  function renderReaderView(r) {
-    const rp = r.readerPerspective;
-    const mc = (s, inv) => { const v = inv ? 100-s : s; return v >= 70 ? 'var(--success)' : v >= 40 ? 'var(--warning)' : 'var(--danger)'; };
-    let html = '<div class="reader-grid">';
-    html += rCard('Engagement Score', rp.engagementScore, mc(rp.engagementScore), 'How hooked will readers be?');
-    html += rCard('Hook Strength', rp.hookStrength, mc(rp.hookStrength), 'Does the opening grab attention?');
-    html += '<div class="reader-card"><h4>DNF Risk</h4><div class="big-score" style="color:' + mc(rp.dnfRisk, true) + '">' + rp.dnfRisk + '/100</div><div class="meter-bar"><div class="meter-fill" style="width:' + rp.dnfRisk + '%;background:' + mc(rp.dnfRisk, true) + '"></div></div><div style="display:flex;justify-content:space-between;font-size:.65rem;color:var(--text-muted)"><span>Safe</span><span>At Risk</span></div></div>';
-    html += rCard('Clarity', rp.clarityScore, mc(rp.clarityScore), 'Can readers follow the story?');
-    html += '<div class="reader-card"><h4>Pacing Feel</h4><p style="font-size:.85rem;margin-top:.4rem">' + esc(rp.pacingFeel) + '</p></div>';
-    html += '<div class="reader-card"><h4>Verdict</h4><p style="font-size:.85rem;margin-top:.4rem">' + esc(rp.overallVerdict) + '</p></div>';
-    html += '</div>';
-    // Emotional journey
-    const emColors = { exciting:'#c0392b', tense:'#f39c12', sad:'#2980b9', calm:'#27ae60', hopeful:'#8e44ad' };
-    html += '<div class="analysis-section"><h3>Emotional Journey</h3>';
-    rp.emotionalJourney.forEach(e => {
-      html += '<div class="emotion-bar-row"><span class="emotion-label">' + e.emotion + '</span><div class="emotion-track"><div class="emotion-fill" style="width:' + e.intensity + '%;background:' + (emColors[e.emotion]||'#888') + '"></div></div><span style="font-size:.65rem;color:var(--text-muted);width:30px">' + e.intensity + '/100</span></div>';
-    });
-    html += '</div>';
-    if (rp.immersionBreakers.length > 0) {
-      html += '<div class="analysis-section"><h3>Immersion Breakers (' + rp.immersionBreakers.length + ')</h3>';
-      rp.immersionBreakers.forEach(b => { html += '<div class="immersion-breaker-item"><div>' + esc(b.reason) + '</div><div class="breaker-location">' + esc(b.location) + '</div></div>'; });
-      html += '</div>';
-    }
-    $('reader-view-content').innerHTML = html;
-  }
-  function rCard(title, score, color, desc) {
-    return '<div class="reader-card"><h4>' + title + '</h4><div class="big-score" style="color:' + color + '">' + score + '/100</div><div class="meter-bar"><div class="meter-fill" style="width:' + score + '%;background:' + color + '"></div></div><div class="score-label">' + desc + '</div></div>';
-  }
-
-  // ========================
-  // TABS
-  // ========================
-  document.querySelectorAll('.ed-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.ed-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.ed-tab-content').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      const target = $('ed-tab-' + tab.dataset.tab);
-      if (target) target.classList.add('active');
-      // Show/hide filters only on annotated tab
-      $('editor-filters').style.display = tab.dataset.tab === 'annotated' ? 'flex' : 'none';
-    });
-  });
-  document.querySelectorAll('.filter-check').forEach(check => {
-    check.addEventListener('change', () => {
-      document.querySelectorAll('.highlight[data-type="' + check.value + '"]').forEach(el => el.classList.toggle('hidden-type', !check.checked));
-    });
-  });
-  document.querySelectorAll('.fb-tab').forEach(tab => {
-    tab.addEventListener('click', () => { document.querySelectorAll('.fb-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); });
-  });
-
-  // ========================
-  // AI CRITIQUE (modal for API key)
-  // ========================
-  $('run-ai-btn')?.addEventListener('click', () => {
-    // Check if key exists in session
-    const existing = sessionStorage.getItem('ml_claude_key');
-    if (existing) { runAI(existing); return; }
-    // Show modal
-    $('api-modal').classList.remove('hidden');
-  });
-  $('modal-cancel')?.addEventListener('click', () => $('api-modal').classList.add('hidden'));
-  $('modal-save')?.addEventListener('click', () => {
-    const key = $('modal-api-key').value.trim();
-    if (!key) { alert('Please enter your API key.'); return; }
-    sessionStorage.setItem('ml_claude_key', key);
-    $('api-modal').classList.add('hidden');
-    runAI(key);
-  });
-
-  async function runAI(apiKey) {
-    if (!analysisResult) return;
-    const statusEl = $('ai-status');
-    const statusText = $('ai-status-text');
-    statusEl.classList.remove('hidden');
-    try {
-      const aiResults = await AIEngine.runAllFeatures(apiKey, extractedText, analysisResult, (label, i, total) => {
-        statusText.textContent = label + ' (' + (i+1) + '/' + total + ')';
-      });
-      analysisResult._aiResults = aiResults;
-      renderAIResults(aiResults);
-      statusEl.classList.add('hidden');
-      $('ai-results').classList.remove('hidden');
-      document.querySelector('.ai-intro')?.classList.add('hidden');
-      AIEngine.saveVersion(uploadedFile.name, analysisResult, aiResults);
-      renderVersionHistory();
-      // Cache info
-      let totalCache = 0, totalInput = 0;
-      Object.values(aiResults).forEach(r => { if (r._cacheInfo) { totalCache += r._cacheInfo.cache_read || 0; totalInput += r._cacheInfo.input_tokens || 0; } });
-      if (totalCache > 0) $('ai-cache-info').innerHTML = '<p style="color:var(--success);font-size:.75rem">Cached ' + totalCache.toLocaleString() + ' tokens (' + Math.round(totalCache/Math.max(totalInput,1)*100) + '% savings)</p>';
-    } catch (err) { statusEl.classList.add('hidden'); alert('AI error: ' + err.message); }
-  }
-
-  function renderAIResults(ai) {
-    // Reuse existing renderAI logic
-    const dc = ai.deepCritique;
-    if (dc && !dc.error) {
-      $('ai-deep-critique').innerHTML = '<h3>Deep Narrative Critique</h3><p>' + esc(dc.overallAssessment||'') + '</p>' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin:.75rem 0"><div><h4 style="color:var(--success);font-size:.8rem">Strengths</h4><ul class="ai-list">' + (dc.strengths||[]).map(s => '<li>' + esc(s) + '</li>').join('') + '</ul></div><div><h4 style="color:var(--danger);font-size:.8rem">Weaknesses</h4><ul class="ai-list">' + (dc.weaknesses||[]).map(s => '<li>' + esc(s) + '</li>').join('') + '</ul></div></div>' +
-        '<div style="margin-top:.75rem;padding:.5rem;background:var(--surface-2);border-radius:var(--radius-sm)"><strong style="color:var(--warning)">Priority Fix:</strong> ' + esc(dc.priorityFix||'') + '</div>';
-    }
-    const ct = ai.compTitles;
-    if (ct && !ct.error) {
-      $('ai-comp-titles').innerHTML = '<h3>Comparable Titles</h3><div style="padding:.5rem;background:var(--surface-2);border-radius:var(--radius-sm);font-weight:600;color:var(--accent-light);margin:.5rem 0">' + esc(ct.pitchLine||'') + '</div><div class="comp-grid">' + (ct.compTitles||[]).map(c => '<div class="comp-card"><div class="comp-title">' + esc(c.title) + '</div><div class="comp-author">by ' + esc(c.author) + '</div><div class="comp-reason">' + esc(c.reason) + '</div></div>').join('') + '</div>';
-    }
-    const ql = ai.queryLetter;
-    if (ql && !ql.error) {
-      $('ai-query-letter').innerHTML = '<h3>Query Letter</h3><div class="query-letter-text">' + esc(ql.queryLetter||'').replace(/\n/g,'<br>') + '</div><button class="btn-secondary" style="margin-top:.5rem" onclick="navigator.clipboard.writeText(' + JSON.stringify(ql.queryLetter||'') + ');this.textContent=\'Copied!\'">Copy Letter</button>';
-    }
-    const br = ai.betaReaders;
-    if (br && !br.error) {
-      $('ai-beta-readers').innerHTML = '<h3>Beta Reader Simulation</h3><div class="beta-grid">' + (br.readers||[]).map(r => '<div class="beta-card"><div class="beta-header"><span class="beta-name">' + esc(r.name) + ' ' + (r.emoticon||'') + '</span><span class="beta-rating">' + '\u2605'.repeat(r.rating||0) + '\u2606'.repeat(5-(r.rating||0)) + '</span></div><div class="beta-profile">' + esc(r.profile) + '</div><div class="beta-reaction">' + esc(r.reaction) + '</div></div>').join('') + '</div><div style="margin-top:.5rem">' + row('Consensus', (br.consensusRating||0) + '/5') + '</div>';
-    }
-    const mr = ai.marketReadiness;
-    if (mr && !mr.error) {
-      $('ai-market-readiness').innerHTML = '<h3>Market Readiness</h3><div style="font-size:2rem;font-weight:800;color:' + scoreColor(mr.readinessScore||0) + '">' + (mr.readinessScore||0) + '/100</div>' + row('Publishing Path', mr.publishingPath||'') + row('Stage', mr.developmentalStage||'') + row('Trend Alignment', mr.trendAlignment||'') + '<h4 style="margin-top:.5rem;font-size:.8rem;color:var(--accent-light)">Next Steps</h4><ol class="ai-list">' + (mr.nextSteps||[]).map(s => '<li>' + esc(s) + '</li>').join('') + '</ol>';
-    }
-    const cb = ai.chapterBreakdown;
-    if (cb && !cb.error) {
-      $('ai-chapter-breakdown').innerHTML = '<h3>Chapter Breakdown</h3><p style="font-size:.8rem;color:var(--text-muted)">' + esc(cb.structureAssessment||'') + '</p><div class="chapter-grid">' + (cb.chapters||[]).map(c => '<div class="chapter-card"><div class="chapter-num">Ch.' + c.number + '</div><div><div class="chapter-title">' + esc(c.title||'') + '</div><div class="chapter-summary">' + esc(c.summary||'') + '</div><div style="display:flex;gap:.3rem;margin-top:.3rem"><span class="chapter-badge">Pacing: ' + (c.pacingGrade||'?') + '</span><span class="chapter-badge">Tension: ' + (c.tensionLevel||'?') + '</span></div></div></div>').join('') + '</div>';
-    }
-  }
-
-  // ========================
-  // VERSION HISTORY
-  // ========================
-  function renderVersionHistory() {
-    const versions = AIEngine.getVersionHistory();
-    const container = $('version-list');
-    if (!container) return;
-    if (versions.length === 0) { container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;text-align:center;padding:1.5rem">No versions yet. Analyze a manuscript to start tracking.</p>'; return; }
-    let html = '<div class="version-timeline">';
-    versions.slice().reverse().forEach(v => {
-      const date = new Date(v.date);
-      const color = scoreColor(v.overall);
-      html += '<div class="version-item"><div class="version-dot" style="background:' + color + '"></div><div class="version-content"><div class="version-top"><span class="version-grade" style="color:' + color + '">' + v.grade + ' (' + v.overall + '/100)</span><span class="version-date">' + date.toLocaleDateString() + '</span></div><div class="version-name">' + esc(v.fileName) + '</div><div class="version-stats">' + v.wordCount.toLocaleString() + ' words &middot; ' + v.totalIssues + ' issues &middot; ' + v.genre + '</div></div></div>';
-    });
-    html += '</div>';
-    if (versions.length >= 2) {
-      const f = versions[0], l = versions[versions.length-1], d = l.overall - f.overall;
-      html += '<div class="version-summary"><h4>Progress</h4>' + row('Score Change', (d >= 0 ? '+' : '') + d + ' points') + row('Issues Change', (l.totalIssues - f.totalIssues >= 0 ? '+' : '') + (l.totalIssues - f.totalIssues)) + row('Versions', versions.length) + '</div>';
-    }
-    container.innerHTML = html;
-  }
-  $('clear-versions-btn')?.addEventListener('click', () => { if (confirm('Clear all history?')) { AIEngine.clearVersionHistory(); renderVersionHistory(); } });
-
-  // ========================
-  // EXPORT
-  // ========================
-  $('export-btn')?.addEventListener('click', () => {
-    if (!analysisResult) return;
-    const r = analysisResult;
-    const lines = ['ManuscriptLens Analysis Report', "Author's Best Buddy", '='.repeat(40), '',
-      'File: ' + uploadedFile.name, 'Genre: ' + r.genre.label, 'Words: ' + r.totalWords.toLocaleString(),
-      'Overall: ' + r.overall + '/100 (' + Analyzer.getGrade(r.overall) + ')', '',
-      'Plot: ' + r.scores.plot + '/100', 'Transitions: ' + r.scores.transitions + '/100',
-      'Copy Editing: ' + r.scores.copy + '/100', 'Line Editing: ' + r.scores.line + '/100',
-      'Style: ' + r.scores.style + '/100', 'Dialogue: ' + r.scores.dialogue + '/100',
-      'Show vs Tell: ' + r.scores.showTell + '/100', '',
-      'Engagement: ' + r.readerPerspective.engagementScore + '/100',
-      'Hook: ' + r.readerPerspective.hookStrength + '/100',
-      'DNF Risk: ' + r.readerPerspective.dnfRisk + '/100',
-      'Clarity: ' + r.readerPerspective.clarityScore + '/100', '',
-      'Issues: ' + r.issues.length
-    ];
-    r.issues.slice(0, 25).forEach((i, n) => { lines.push((n+1) + '. [' + i.type + ' | Para ' + paraNum(extractedText, i.index) + '] ' + i.message); });
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = uploadedFile.name.replace(/\.\w+$/, '') + '-report.txt'; a.click();
-  });
-
-  // ========================
-  // NEW ANALYSIS
-  // ========================
-  $('new-analysis-btn')?.addEventListener('click', () => {
-    $('editor-view').classList.add('hidden');
-    $('upload-view').classList.remove('hidden');
-    $('upload-loading').classList.add('hidden');
-    $('analyze-btn').classList.add('hidden');
-    $('file-info').classList.add('hidden');
-    uploadedFile = null; extractedText = ''; analysisResult = null; fileInput.value = '';
-  });
-
+// NEW
+$('new-btn')?.addEventListener('click',()=>{$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.add('hidden');$('file-info').classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value=''});
 })();

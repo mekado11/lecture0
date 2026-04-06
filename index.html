@@ -5,207 +5,90 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ManuscriptLens - Author's Best Buddy</title>
   <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 
-  <!-- ====== UPLOAD VIEW ====== -->
+  <!-- UPLOAD -->
   <div id="upload-view" class="upload-view">
     <div class="upload-card">
-      <div class="upload-logo">
-        <span class="logo-icon">&#9998;</span>
-        <h1>ManuscriptLens</h1>
-        <p class="tagline">Author's Best Buddy</p>
-      </div>
+      <div class="upload-logo"><span class="leaf">&#127807;</span><h1>ManuscriptLens</h1><p class="tagline">Author's Best Buddy</p></div>
       <div id="drop-zone" class="drop-zone">
-        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-          <polyline points="17 8 12 3 7 8"/>
-          <line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
+        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         <p class="drop-text">Drop your manuscript here</p>
-        <p class="drop-subtext">or click to browse &middot; .docx, .pdf, .txt</p>
+        <p class="drop-sub">or click to browse &middot; .docx .pdf .txt</p>
         <input type="file" id="file-input" accept=".docx,.pdf,.txt" hidden>
       </div>
-      <div id="file-info" class="file-info hidden">
-        <span id="file-name"></span>
-        <button id="clear-file" class="btn-clear">&times;</button>
-      </div>
-      <button id="analyze-btn" class="btn-primary hidden">Analyze Manuscript</button>
-      <div id="upload-loading" class="upload-loading hidden">
-        <div class="loader"></div>
-        <p id="loader-text">Extracting text...</p>
-      </div>
+      <div id="file-info" class="file-info hidden"><span id="file-name"></span><button id="clear-file" class="x-btn">&times;</button></div>
+      <button id="analyze-btn" class="btn-gold hidden">Analyze Manuscript</button>
+      <div id="upload-loading" class="loading hidden"><div class="spinner"></div><p id="loader-text">Extracting text...</p></div>
     </div>
   </div>
 
-  <!-- ====== EDITOR VIEW (3-panel) ====== -->
+  <!-- EDITOR -->
   <div id="editor-view" class="editor-view hidden">
-
-    <!-- Top Bar -->
-    <header class="top-bar">
-      <div class="top-left">
-        <span class="logo-icon-sm">&#9998;</span>
-        <span class="top-brand">ManuscriptLens</span>
-        <span class="top-status" id="top-status">Ready</span>
-      </div>
-      <div class="top-center">
-        <span id="top-filename">Untitled</span>
-      </div>
-      <div class="top-right">
-        <span class="top-wordcount">Words: <strong id="top-wordcount">0</strong></span>
-        <button id="export-btn" class="top-btn" title="Export Report">&#8681; Export</button>
-        <button id="new-analysis-btn" class="top-btn" title="New Analysis">&#8634; New</button>
-      </div>
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <div class="topbar-l"><span class="leaf-sm">&#127807;</span><strong class="brand">ManuscriptLens</strong><span class="status-pill" id="top-status">Analyzing...</span></div>
+      <div class="topbar-c"><span id="top-filename">Untitled</span></div>
+      <div class="topbar-r"><span class="wc">Words: <b id="top-wc">0</b></span><button class="tb-btn" id="export-btn">&#8681; Export</button><button class="tb-btn" id="new-btn">&#8634; New</button></div>
     </header>
 
     <div class="panels">
-
-      <!-- ====== LEFT SIDEBAR: Document Health ====== -->
-      <aside class="sidebar-left" id="sidebar-left">
-        <div class="sidebar-header">
-          <h3>Document Health</h3>
+      <!-- LEFT: Document Health -->
+      <aside class="left-panel" id="left-panel">
+        <div class="lp-head"><span class="lp-title">Document Health</span><span class="lp-dots">&bull;&bull;&bull;</span></div>
+        <!-- Semi-circle gauge -->
+        <div class="gauge-wrap">
+          <canvas id="gauge-canvas" width="220" height="130"></canvas>
+          <div class="gauge-value"><span id="gauge-num">0</span><span class="gauge-lbl">Overall Score</span></div>
         </div>
-
-        <!-- Overall Score Gauge -->
-        <div class="health-overall">
-          <div class="gauge-ring" id="gauge-overall">
-            <svg viewBox="0 0 120 120">
-              <circle class="gauge-bg" cx="60" cy="60" r="52"/>
-              <circle class="gauge-fill" id="gauge-fill-overall" cx="60" cy="60" r="52"/>
-            </svg>
-            <div class="gauge-center">
-              <span class="gauge-number" id="overall-score">0</span>
-              <span class="gauge-label">Overall Score</span>
-            </div>
-          </div>
-          <div class="health-subcategories" id="health-subcategories">
-            Plot &middot; Clarity &middot; Pacing &middot; Dialogue
-          </div>
-        </div>
-
-        <!-- Score Cards (left sidebar) -->
-        <div class="health-cards" id="health-cards">
-          <!-- Dynamically rendered -->
-        </div>
+        <div class="gauge-cats" id="gauge-cats">Plot &middot; Clarity &middot; Pacing &middot; Dialogue</div>
+        <div class="lp-cards" id="lp-cards"></div>
       </aside>
 
-      <!-- ====== CENTER: Manuscript Editor ====== -->
-      <main class="editor-main">
-        <div class="editor-toolbar">
-          <div class="editor-tabs">
-            <button class="ed-tab active" data-tab="annotated">Annotated</button>
-            <button class="ed-tab" data-tab="detailed">Detailed</button>
-            <button class="ed-tab" data-tab="reader">Reader View</button>
-            <button class="ed-tab" data-tab="ai">AI Critique</button>
-            <button class="ed-tab" data-tab="versions">Versions</button>
+      <!-- CENTER: Manuscript -->
+      <main class="center-panel">
+        <div class="center-toolbar">
+          <div class="fmt-icons"><span>I</span><span>&#9776;</span><span>&#9633;</span><span>|</span><span>T</span><span>&#8635;</span></div>
+          <div class="fmt-right"><span>&#8592;</span><span>&#8635;</span><span>&#8230;</span></div>
+        </div>
+        <div class="manuscript-scroll" id="manuscript-scroll">
+          <div id="ed-annotated" class="ms-page active"></div>
+          <div id="ed-detailed" class="ms-page"></div>
+          <div id="ed-reader" class="ms-page"></div>
+          <div id="ed-ai" class="ms-page"></div>
+          <div id="ed-versions" class="ms-page"></div>
+        </div>
+        <div class="center-bottom">
+          <div class="bottom-tabs">
+            <button class="btab active" data-p="annotated">&#9675; Detailed</button>
+            <button class="btab" data-p="detailed">Annotated</button>
+            <button class="btab" data-p="reader">Reader View</button>
+            <button class="btab" data-p="ai">AI Critique</button>
+            <button class="btab" data-p="versions">Versions</button>
           </div>
-          <div class="editor-filters" id="editor-filters">
-            <label><input type="checkbox" class="filter-check" value="passive" checked> Passive</label>
-            <label><input type="checkbox" class="filter-check" value="adverb" checked> Adverbs</label>
-            <label><input type="checkbox" class="filter-check" value="cliche" checked> Clich&eacute;s</label>
-            <label><input type="checkbox" class="filter-check" value="weak-verb" checked> Weak Verbs</label>
-            <label><input type="checkbox" class="filter-check" value="show-tell" checked> Show/Tell</label>
-            <label><input type="checkbox" class="filter-check" value="repetition" checked> Repetition</label>
-            <label><input type="checkbox" class="filter-check" value="wordy" checked> Wordy</label>
-            <label><input type="checkbox" class="filter-check" value="sentence-length" checked> Long Sent.</label>
-          </div>
-        </div>
-
-        <!-- Tab Contents -->
-        <div id="ed-tab-annotated" class="ed-tab-content active">
-          <div id="annotated-text" class="manuscript-text"></div>
-        </div>
-        <div id="ed-tab-detailed" class="ed-tab-content">
-          <div id="detailed-analysis" class="detailed-content"></div>
-          <div class="analysis-section"><h3>Pacing Heatmap</h3><div id="pacing-heatmap"></div>
-            <div class="heatmap-legend"><span><span class="legend-dot" style="background:#c0392b"></span>Action</span><span><span class="legend-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="legend-dot" style="background:#27ae60"></span>Description</span><span><span class="legend-dot" style="background:#f39c12"></span>Exposition</span><span><span class="legend-dot" style="background:#8e44ad"></span>Reflection</span></div>
-          </div>
-          <div class="analysis-section"><h3>Character Tracker</h3><div id="character-tracker"></div></div>
-          <div class="analysis-section"><h3>Grammar Check</h3><div id="grammar-results"></div></div>
-        </div>
-        <div id="ed-tab-reader" class="ed-tab-content">
-          <div id="reader-view-content"></div>
-        </div>
-        <div id="ed-tab-ai" class="ed-tab-content">
-          <div id="ai-panel-content">
-            <div class="ai-intro">
-              <p>AI-powered deep analysis features:</p>
-              <ul>
-                <li>Deep Narrative Critique</li>
-                <li>Comparable Titles</li>
-                <li>Query Letter Generator</li>
-                <li>Beta Reader Simulation</li>
-                <li>Market Readiness Score</li>
-                <li>Chapter Breakdown</li>
-              </ul>
-              <button id="run-ai-btn" class="btn-primary" style="margin-top:1rem">Run AI Analysis</button>
-              <div id="ai-status" class="hidden" style="margin-top:1rem"><div class="loader" style="width:20px;height:20px;border-width:2px;display:inline-block;vertical-align:middle"></div> <span id="ai-status-text"></span></div>
-            </div>
-            <div id="ai-results" class="hidden">
-              <div id="ai-cache-info"></div>
-              <div id="ai-deep-critique" class="analysis-section"></div>
-              <div id="ai-comp-titles" class="analysis-section"></div>
-              <div id="ai-query-letter" class="analysis-section"></div>
-              <div id="ai-beta-readers" class="analysis-section"></div>
-              <div id="ai-market-readiness" class="analysis-section"></div>
-              <div id="ai-chapter-breakdown" class="analysis-section"></div>
-            </div>
-          </div>
-        </div>
-        <div id="ed-tab-versions" class="ed-tab-content">
-          <div class="version-header"><h3>Revision History</h3><button id="clear-versions-btn" class="btn-secondary" style="font-size:.7rem;padding:.3rem .6rem">Clear</button></div>
-          <div id="version-list"></div>
+          <div class="bottom-icons"><span>&#8592;</span><span>&#8594;</span><span>&#8599;</span><span>&#43;</span><span>&#9633;</span></div>
         </div>
       </main>
 
-      <!-- ====== RIGHT SIDEBAR: AI Feedback ====== -->
-      <aside class="sidebar-right" id="sidebar-right">
-        <div class="sidebar-header">
-          <h3>AI Feedback</h3>
-          <select id="feedback-mode">
-            <option value="suggestions">Suggestions</option>
-            <option value="rewrite">Rewrite</option>
-            <option value="tone">Tone Shift</option>
-          </select>
-        </div>
-        <div class="feedback-tabs">
-          <button class="fb-tab active" data-fb="suggestions">Suggestions</button>
-          <button class="fb-tab" data-fb="rewrite">Rewrite</button>
-          <button class="fb-tab" data-fb="tone">Tone Shift</button>
-          <button class="fb-tab" data-fb="dialogue">Dialogue</button>
-        </div>
-
-        <!-- Issue score cards on right -->
-        <div id="right-score-cards" class="right-score-cards">
-          <!-- Dynamically rendered -->
-        </div>
-
-        <!-- Active issue detail -->
-        <div id="right-issue-detail" class="right-issue-detail hidden">
-          <h4 id="detail-category-title"></h4>
-          <div id="detail-issues-list" class="detail-issues-list"></div>
-        </div>
+      <!-- RIGHT: AI Feedback -->
+      <aside class="right-panel" id="right-panel">
+        <div class="rp-head"><span class="rp-title">AI Feedback</span><select id="fb-mode" class="rp-select"><option>Suggestions</option><option>Rewrite</option><option>Tone Shift</option></select></div>
+        <div class="rp-tabs"><button class="rtab active">Suggestions</button><button class="rtab">Rewrite</button><button class="rtab">Tone Shift</button><button class="rtab">Dial.</button></div>
+        <div class="rp-scores" id="rp-scores"></div>
+        <div class="rp-detail" id="rp-detail"></div>
       </aside>
-
-    </div><!-- /panels -->
-  </div><!-- /editor-view -->
-
-  <!-- Tooltip -->
-  <div class="tooltip" id="tooltip"></div>
-
-  <!-- API Key Modal -->
-  <div id="api-modal" class="modal hidden">
-    <div class="modal-content">
-      <h3>API Configuration</h3>
-      <p>Enter your API key to enable AI features. Your key is stored only in your browser's session and is never sent to our servers.</p>
-      <input type="password" id="modal-api-key" class="modal-input" placeholder="Claude API Key (sk-ant-...)">
-      <div class="modal-actions">
-        <button id="modal-save" class="btn-primary">Save & Run</button>
-        <button id="modal-cancel" class="btn-secondary">Cancel</button>
-      </div>
     </div>
+  </div>
+
+  <!-- TOOLTIP -->
+  <div class="tip" id="tip"></div>
+  <!-- API MODAL -->
+  <div id="api-modal" class="modal hidden">
+    <div class="modal-box"><h3>API Configuration</h3><p>Your key is stored in this browser session only and never sent to any server besides Anthropic's API.</p><input type="password" id="modal-key" class="modal-input" placeholder="Claude API Key (sk-ant-...)"><div class="modal-btns"><button id="modal-go" class="btn-gold" style="width:auto;padding:.5rem 1.5rem">Save & Run</button><button id="modal-x" class="btn-dark">Cancel</button></div></div>
   </div>
 
   <script src="analyzer.js"></script>
