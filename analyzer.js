@@ -1347,6 +1347,55 @@ const Analyzer = {
   // then assembles 5 blurb variations. Only runs in book mode.
   // ========================
   // ========================
+  // SCENE EMOTION DETECTOR
+  // Tags segments with emotion emojis for fun visual feedback
+  // ========================
+  detectSceneEmotions(text) {
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+    const scenes = [];
+    const lower = text.toLowerCase();
+
+    const emotionPatterns = {
+      spicy: { emoji: '🌶️', label: 'Spicy', color: '#e74c3c', words: ['kiss','kissed','kissing','lips','caress','caressed','desire','passion','passionate','embrace','embraced','intimate','naked','undressed','skin against','breath quickened','moaned','whispered against','pulled closer','bodies','bedroom','between the sheets','made love','lovemaking','aroused','seduced','seductive','heat between','trembled under'] },
+      fight: { emoji: '⚔️', label: 'Battle', color: '#e67e22', words: ['fight','fought','punch','punched','kicked','sword','blade','weapon','attack','attacked','battle','war','blood','wound','wounded','struck','slammed','crashed','dodged','blocked','parried','swung','charged','shield','arrow','gunshot','explosion','combat','wrestle','strangled','choked'] },
+      sad: { emoji: '💔', label: 'Heartbreak', color: '#3498db', words: ['cried','sobbed','tears','weeping','grief','mourned','loss','died','death','funeral','grave','buried','heartbroken','devastated','empty','hollow','ache','ached','lonely','abandoned','goodbye','farewell','never see','lost forever','held back tears'] },
+      scary: { emoji: '😱', label: 'Terror', color: '#8e44ad', words: ['scream','screamed','terror','terrified','horror','blood','dark','shadow','creature','monster','ghost','haunted','nightmare','dread','feared','lurking','stalking','chased','trapped','escape','panic','frozen with fear','heart pounding','couldn\'t breathe','eyes wide'] },
+      funny: { emoji: '😂', label: 'Comedy', color: '#f1c40f', words: ['laughed','laughing','hilarious','ridiculous','absurd','joke','grinned','chuckled','snorted','giggled','funny','comedy','prank','stumbled','tripped','embarrassed','awkward','blurted','oops','clumsy','face turned red'] },
+      mystery: { emoji: '🔍', label: 'Mystery', color: '#1abc9c', words: ['clue','discovered','secret','hidden','mysterious','strange','puzzle','evidence','investigate','suspicious','disappear','vanished','unknown','cryptic','riddle','suspect','alibi','detective','trail','traced'] },
+      triumph: { emoji: '🏆', label: 'Triumph', color: '#f39c12', words: ['victory','won','triumph','conquered','overcame','succeeded','achieved','celebrated','cheered','finally','at last','made it','proud','glory','champion','hero','saved','rescued','breakthrough'] },
+      tender: { emoji: '🤗', label: 'Tender', color: '#e91e63', words: ['held','hugged','gentle','softly','whispered','comforted','safe','warm','smiled','together','hand in hand','leaned against','stroked','forehead','protected','cradled','loved','i love you','you matter','not alone'] },
+      danger: { emoji: '⚡', label: 'Danger', color: '#e74c3c', words: ['danger','dangerous','threat','bomb','explosion','deadline','countdown','ticking','chase','chased','running','escape','life or death','survive','trap','ambush','cornered','no way out','hurry'] },
+      revelation: { emoji: '💡', label: 'Revelation', color: '#9b59b6', words: ['realized','revelation','truth','discovered','suddenly understood','everything clicked','the answer','it all made sense','couldn\'t believe','secret revealed','unmasked','exposed','the real','all along','never knew'] }
+    };
+
+    paragraphs.forEach((para, idx) => {
+      const pl = para.toLowerCase();
+      let bestEmotion = null;
+      let bestCount = 0;
+
+      for (const [emotion, data] of Object.entries(emotionPatterns)) {
+        const hits = data.words.filter(w => pl.includes(w)).length;
+        if (hits > bestCount) { bestCount = hits; bestEmotion = emotion; }
+      }
+
+      if (bestEmotion && bestCount >= 2) {
+        const data = emotionPatterns[bestEmotion];
+        scenes.push({
+          paragraph: idx + 1,
+          emotion: bestEmotion,
+          emoji: data.emoji,
+          label: data.label,
+          color: data.color,
+          intensity: Math.min(3, bestCount), // 1-3 scale
+          preview: para.substring(0, 80) + (para.length > 80 ? '...' : '')
+        });
+      }
+    });
+
+    return { scenes, total: scenes.length };
+  },
+
+  // ========================
   // OPENING DIAGNOSIS ENGINE
   // Analyzes the first ~500 words for specific weakness patterns
   // and provides genre-aware improvement strategies
@@ -2033,6 +2082,7 @@ const Analyzer = {
     const scifiWorld = this.analyzeSciFiWorldbuilding(text, genre);
     const genreElements = this.analyzeGenreElements(text, genre);
     const openingDiagnosis = this.diagnoseOpening(text, genre);
+    const sceneEmotions = this.detectSceneEmotions(text);
 
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const copyScore = this.scoreCopyEditing(allIssues, totalWords);
@@ -2069,7 +2119,7 @@ const Analyzer = {
         line: lineScore, style: style.score, dialogue: dialogue.score,
         showTell: showTellScore, grammar: 0
       },
-      writingQuality, lineEditing, blurbs, scifiWorld, genreElements, openingDiagnosis,
+      writingQuality, lineEditing, blurbs, scifiWorld, genreElements, openingDiagnosis, sceneEmotions,
       plot, transitions, dialogue, style, sentenceVariety, readability,
       readerPerspective, pacing, characters,
       showTell: { score: showTellScore, issues: showTellIssues },

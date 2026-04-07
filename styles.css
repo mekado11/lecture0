@@ -213,6 +213,26 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .blurb-text{background:var(--surface2);border-radius:var(--rs);padding:.75rem 1rem;font-size:.88rem;line-height:1.7;font-family:'Lora',serif;color:var(--text);white-space:pre-wrap;min-height:60px}
 .blurb-text[contenteditable="true"]{background:var(--surface3)}
 
+/* GENRE SELECT */
+.genre-select-wrap{margin-top:.5rem}
+.genre-dropdown{width:100%;padding:.45rem .6rem;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:.8rem;font-family:inherit;margin-top:.25rem}
+.genre-dropdown optgroup{color:var(--gold-l);font-weight:600}
+
+/* BOOK PREVIEW */
+.preview-panel{width:30%;min-width:250px;background:var(--bg2);border-left:1px solid var(--border);overflow-y:auto;flex-shrink:0;transition:width .3s}
+.preview-panel.collapsed{width:32px;min-width:32px;overflow:hidden}
+.pv-head{display:flex;justify-content:space-between;align-items:center;padding:.5rem .7rem;border-bottom:1px solid var(--border);font-size:.8rem;font-weight:600}
+.pv-toggle{background:none;border:none;color:var(--muted);font-size:1rem;cursor:pointer}
+.pv-content{padding:.5rem}
+.pv-emotions{display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.6rem}
+.pv-emo-tag{display:flex;align-items:center;gap:.2rem;padding:.2rem .45rem;border-radius:12px;font-size:.65rem;font-weight:600;cursor:pointer;border:1px solid var(--border)}
+.pv-emo-tag:hover{opacity:.8}
+.pv-text{font-family:'Lora',serif;font-size:.82rem;line-height:1.7;color:var(--text);max-height:calc(100vh - 200px);overflow-y:auto}
+.pv-para{padding:.4rem .5rem;border-radius:var(--rs);margin-bottom:.3rem;cursor:pointer;transition:.15s;border-left:3px solid transparent}
+.pv-para:hover{background:var(--surface)}
+.pv-para.emo-tagged{border-left-color:var(--gold)}
+.pv-emo-inline{font-size:.9rem;margin-right:.2rem}
+
 /* LIVE SCORE */
 .live-score{font-size:.82rem;color:var(--muted);margin-right:.5rem}
 .live-score b{color:var(--gold-l);font-size:1rem}

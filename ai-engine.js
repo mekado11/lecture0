@@ -1,4 +1,4 @@
-// ManuscriptLens AI Engine - Claude API with Caching
+// AuthorScrolls AI Engine - Claude API with Caching
 // Uses prompt caching to minimize API costs: the manuscript text is cached
 // and reused across all 7 AI features in a single session.
 
@@ -81,7 +81,7 @@ const AIEngine = {
         system: [
           {
             type: 'text',
-            text: 'You are ManuscriptLens, a professional manuscript analysis tool for authors. Respond ONLY with valid JSON. No markdown, no explanation, just the JSON object.',
+            text: 'You are AuthorScrolls, a professional manuscript analysis tool for authors. Respond ONLY with valid JSON. No markdown, no explanation, just the JSON object.',
             cache_control: { type: 'ephemeral' }
           },
           {

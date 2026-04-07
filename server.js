@@ -1,4 +1,4 @@
-// ManuscriptLens API Proxy Server
+// AuthorScrolls API Proxy Server
 // Keeps your Claude API key on the server, never exposed to the browser.
 // Usage: CLAUDE_API_KEY=sk-ant-xxx node server.js
 
@@ -92,7 +92,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log('');
-  console.log('  ManuscriptLens Server running on http://localhost:' + PORT);
+  console.log('  AuthorScrolls Server running on http://localhost:' + PORT);
   console.log('  API Key: ' + API_KEY.substring(0, 10) + '...' + API_KEY.substring(API_KEY.length - 4));
   console.log('  AI Critique features: ENABLED');
   console.log('');

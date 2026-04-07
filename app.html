@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ManuscriptLens - Author's Best Buddy</title>
+  <title>AuthorScrolls - Author's Best Buddy</title>
   <link rel="stylesheet" href="styles.css">
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
@@ -14,7 +14,7 @@
   <!-- UPLOAD -->
   <div id="upload-view" class="upload-view">
     <div class="upload-card">
-      <div class="upload-logo"><span class="leaf">&#127807;</span><h1>ManuscriptLens</h1><p class="tagline">Author's Best Buddy</p></div>
+      <div class="upload-logo"><span class="leaf">&#127807;</span><h1>AuthorScrolls</h1><p class="tagline">Author's Best Buddy</p></div>
       <div id="drop-zone" class="drop-zone">
         <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         <p class="drop-text">Drop your manuscript here</p>
@@ -22,6 +22,36 @@
         <input type="file" id="file-input" accept=".docx,.pdf,.txt" hidden>
       </div>
       <div id="file-info" class="file-info hidden"><span id="file-name"></span><button id="clear-file" class="x-btn">&times;</button></div>
+      <div id="genre-select-wrap" class="genre-select-wrap hidden">
+        <label style="font-size:.75rem;color:var(--muted)">Genre (optional — auto-detected if blank):</label>
+        <select id="genre-select" class="genre-dropdown">
+          <option value="">Auto-detect</option>
+          <optgroup label="Fiction">
+            <option value="scifi">Science Fiction</option>
+            <option value="fantasy">Fantasy</option>
+            <option value="romance">Romance</option>
+            <option value="thriller">Thriller / Suspense</option>
+            <option value="mystery">Mystery / Crime</option>
+            <option value="horror">Horror / Paranormal</option>
+            <option value="historical">Historical Fiction</option>
+            <option value="dystopian">Dystopian</option>
+            <option value="ya">Young Adult</option>
+            <option value="literary">Literary Fiction</option>
+            <option value="romantasy">Romantasy</option>
+            <option value="cozyMystery">Cozy Mystery</option>
+            <option value="adventure">Adventure</option>
+            <option value="western">Western</option>
+          </optgroup>
+          <optgroup label="Non-Fiction">
+            <option value="memoir">Memoir / Autobiography</option>
+            <option value="selfHelp">Self-Help</option>
+            <option value="biography">Biography</option>
+            <option value="historyNF">History</option>
+            <option value="trueCrime">True Crime</option>
+            <option value="philosophy">Philosophy / Religion</option>
+          </optgroup>
+        </select>
+      </div>
       <button id="analyze-btn" class="btn-gold hidden">Analyze Manuscript</button>
       <div id="upload-loading" class="loading hidden"><div class="spinner"></div><p id="loader-text">Extracting text...</p></div>
     </div>
@@ -31,7 +61,7 @@
   <div id="editor-view" class="editor-view hidden">
     <!-- TOP BAR -->
     <header class="topbar">
-      <div class="topbar-l"><span class="leaf-sm">&#127807;</span><strong class="brand">ManuscriptLens</strong><span class="status-pill" id="top-status">Analyzing...</span></div>
+      <div class="topbar-l"><span class="leaf-sm">&#127807;</span><strong class="brand">AuthorScrolls</strong><span class="status-pill" id="top-status">Analyzing...</span></div>
       <div class="topbar-c"><span id="top-filename">Untitled</span></div>
       <div class="topbar-r"><span class="live-score">LIVE SCORE: <b id="top-score">0</b> <span id="top-delta" class="delta"></span></span><span class="wc">Words: <b id="top-wc">0</b></span><button class="tb-btn" id="export-btn">&#8681; Export</button><button class="tb-btn" id="new-btn">&#8634; New</button></div>
     </header>
@@ -80,6 +110,15 @@
         </div>
       </main>
 
+      <!-- BOOK PREVIEW (30%, collapsible) -->
+      <aside class="preview-panel" id="preview-panel">
+        <div class="pv-head"><span class="pv-title">Book Preview</span><button class="pv-toggle" id="pv-toggle">&laquo;</button></div>
+        <div class="pv-content" id="pv-content">
+          <div id="pv-emotions" class="pv-emotions"></div>
+          <div id="pv-text" class="pv-text"></div>
+        </div>
+      </aside>
+
       <!-- RIGHT: AI Feedback -->
       <aside class="right-panel" id="right-panel">
         <div class="rp-head"><span class="rp-title">AI Feedback</span><select id="fb-mode" class="rp-select"><option>Suggestions</option><option>Rewrite</option><option>Tone Shift</option></select></div>
@@ -116,7 +155,7 @@
       if (!user) { window.location.href = 'index.html'; return; }
       // Show user name in top bar
       const brand = document.querySelector('.brand');
-      if (brand) brand.textContent = 'ManuscriptLens';
+      if (brand) brand.textContent = 'AuthorScrolls';
       // Add sign out button
       const topRight = document.querySelector('.topbar-r');
       if (topRight && !document.getElementById('signout-btn')) {

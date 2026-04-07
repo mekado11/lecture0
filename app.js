@@ -10,7 +10,7 @@ dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files.length)hf(e.dataTransfer.files[0])});
 fi.addEventListener('change',e=>{if(e.target.files.length)hf(e.target.files[0])});
 $('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('analyze-btn').classList.add('hidden');fi.value=''});
-function hf(f){const x=f.name.split('.').pop().toLowerCase();if(!['docx','pdf','txt'].includes(x)){alert('Upload .docx, .pdf, or .txt');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');$('analyze-btn').classList.remove('hidden')}
+function hf(f){const x=f.name.split('.').pop().toLowerCase();if(!['docx','pdf','txt'].includes(x)){alert('Upload .docx, .pdf, or .txt');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');$('analyze-btn').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden')}
 async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const c=await(await p.getPage(i)).getTextContent();t+=c.items.map(x=>x.str).join(' ')+'\n\n'}return t}}
 $('analyze-btn').addEventListener('click',async()=>{if(!uploadedFile)return;$('analyze-btn').classList.add('hidden');$('upload-loading').classList.remove('hidden');try{$('loader-text').textContent='Extracting...';extractedText=await ext(uploadedFile);$('loader-text').textContent='Analyzing...';await new Promise(r=>setTimeout(r,80));analysisResult=Analyzer.analyze(extractedText);if(analysisResult.error){alert(analysisResult.error);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}$('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');renderAll()}catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden')}});
 
@@ -68,8 +68,17 @@ function renderAll(){
   }else{deltaEl.textContent='';deltaEl.className='delta'}
   previousScore=r.overall;
 
+  // Apply manual genre override if selected
+  const genreSelect=$('genre-select');
+  if(genreSelect&&genreSelect.value){
+    const genreLabels={scifi:'Science Fiction',fantasy:'Fantasy',romance:'Romance',thriller:'Thriller/Suspense',mystery:'Mystery/Crime',horror:'Horror/Paranormal',historical:'Historical Fiction',dystopian:'Dystopian',ya:'Young Adult',literary:'Literary Fiction',romantasy:'Romantasy',cozyMystery:'Cozy Mystery',adventure:'Adventure',western:'Western',memoir:'Memoir/Autobiography',selfHelp:'Self-Help',biography:'Biography',historyNF:'History',trueCrime:'True Crime',philosophy:'Philosophy/Religion'};
+    r.genre.primary=genreSelect.value;
+    r.genre.label=genreLabels[genreSelect.value]||genreSelect.value;
+  }
+
   renderGoalBar(r);
   renderSceneIntel(r);
+  renderBookPreview(r);
   renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderBlurbs(r);renderVersions();
   // Auto-save
   autoSave();
@@ -639,6 +648,62 @@ function renderReader(r){
 }
 function rc(t,s,c,desc){return '<div class="rdr-card"><h4>'+t+'</h4><div class="rdr-big" style="color:'+c+'">'+s+'/100</div><div class="rdr-bar"><div class="rdr-fill" style="width:'+s+'%;background:'+c+'"></div></div><div class="rdr-lbl">'+desc+'</div></div>'}
 
+// BOOK PREVIEW + SCENE EMOTIONS
+function renderBookPreview(r){
+  const pvContent=$('pv-content');const pvEmotions=$('pv-emotions');const pvText=$('pv-text');
+  if(!pvContent||!pvEmotions||!pvText)return;
+  const paragraphs=extractedText.split(/\n\s*\n/).filter(p=>p.trim().length>0);
+  const emotions=r.sceneEmotions||{scenes:[],total:0};
+
+  // Emotion tags at top
+  const emotionMap={};
+  emotions.scenes.forEach(s=>{if(!emotionMap[s.emotion])emotionMap[s.emotion]={...s,count:0};emotionMap[s.emotion].count++});
+  pvEmotions.innerHTML=Object.values(emotionMap).map(e=>
+    '<span class="pv-emo-tag" style="background:'+e.color+'20;color:'+e.color+';border-color:'+e.color+'40">'+e.emoji+' '+e.label+' ('+e.count+')</span>'
+  ).join('')||'<span style="font-size:.7rem;color:var(--muted)">No strong scene emotions detected</span>';
+
+  // Paragraphs with emotion markers
+  const emotionByPara={};
+  emotions.scenes.forEach(s=>{emotionByPara[s.paragraph]=s});
+
+  pvText.innerHTML=paragraphs.map((p,i)=>{
+    const emo=emotionByPara[i+1];
+    const preview=p.substring(0,120)+(p.length>120?'...':'');
+    return '<div class="pv-para'+(emo?' emo-tagged':'')+'" data-para="'+(i+1)+'" style="'+(emo?'border-left-color:'+emo.color:'')+'">'+
+      (emo?'<span class="pv-emo-inline" title="'+emo.label+'">'+emo.emoji+'</span>':'')+
+      esc(preview)+'</div>';
+  }).join('');
+
+  // Click to navigate
+  pvText.querySelectorAll('.pv-para').forEach(el=>{el.addEventListener('click',()=>{
+    // Switch to annotated and scroll
+    document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
+    document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
+    $('ed-annotated')?.classList.add('active');
+    // Scroll to paragraph
+    const paraIdx=parseInt(el.dataset.para)-1;
+    const page=$('ed-annotated');
+    const textNodes=page.childNodes;
+    let charCount=0;
+    for(const node of textNodes){
+      if(node.textContent&&node.textContent.includes(extractedText.split(/\n\s*\n/)[paraIdx]?.substring(0,30))){
+        node.scrollIntoView?.({behavior:'smooth',block:'center'});
+        if(node.style)node.style.outline='2px solid var(--gold)';
+        setTimeout(()=>{if(node.style)node.style.outline=''},2000);
+        break;
+      }
+    }
+  })});
+
+  // Toggle collapse
+  $('pv-toggle')?.addEventListener('click',()=>{
+    const panel=$('preview-panel');
+    panel.classList.toggle('collapsed');
+    $('pv-toggle').textContent=panel.classList.contains('collapsed')?'\u00BB':'\u00AB';
+  });
+}
+
 // OPENING COACH
 function showOpeningCoach(){
   if(!analysisResult)return;
@@ -845,7 +910,7 @@ if(vs.length>=2){const f=vs[0],l=vs[vs.length-1],d=l.overall-f.overall;h+='<div 
 c.innerHTML=h;c.querySelector('#clr-v')?.addEventListener('click',()=>{if(confirm('Clear?')){AIEngine.clearVersionHistory();renderVersions()}})}
 
 // EXPORT
-$('export-btn')?.addEventListener('click',()=>{if(!analysisResult)return;const r=analysisResult;const l=['ManuscriptLens Report','='.repeat(30),'','File: '+uploadedFile.name,'Genre: '+r.genre.label,'Words: '+r.totalWords,'Overall: '+r.overall+'/100','','Plot: '+r.scores.plot+'/100','Copy: '+r.scores.copy+'/100','Style: '+r.scores.style+'/100','Dialogue: '+r.scores.dialogue+'/100','Show/Tell: '+r.scores.showTell+'/100','','Engagement: '+r.readerPerspective.engagementScore+'/100','Hook: '+r.readerPerspective.hookStrength+'/100','DNF Risk: '+r.readerPerspective.dnfRisk+'/100','Clarity: '+r.readerPerspective.clarityScore+'/100','','Issues: '+r.issues.length];r.issues.slice(0,20).forEach((i,n)=>{l.push((n+1)+'. ['+i.type+'] '+i.message)});const b=new Blob([l.join('\n')],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=uploadedFile.name.replace(/\.\w+$/,'')+'-report.txt';a.click()});
+$('export-btn')?.addEventListener('click',()=>{if(!analysisResult)return;const r=analysisResult;const l=['AuthorScrolls Report','='.repeat(30),'','File: '+uploadedFile.name,'Genre: '+r.genre.label,'Words: '+r.totalWords,'Overall: '+r.overall+'/100','','Plot: '+r.scores.plot+'/100','Copy: '+r.scores.copy+'/100','Style: '+r.scores.style+'/100','Dialogue: '+r.scores.dialogue+'/100','Show/Tell: '+r.scores.showTell+'/100','','Engagement: '+r.readerPerspective.engagementScore+'/100','Hook: '+r.readerPerspective.hookStrength+'/100','DNF Risk: '+r.readerPerspective.dnfRisk+'/100','Clarity: '+r.readerPerspective.clarityScore+'/100','','Issues: '+r.issues.length];r.issues.slice(0,20).forEach((i,n)=>{l.push((n+1)+'. ['+i.type+'] '+i.message)});const b=new Blob([l.join('\n')],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=uploadedFile.name.replace(/\.\w+$/,'')+'-report.txt';a.click()});
 
 // SAVE / LOAD
 function saveAnalysis(){
