@@ -149,3 +149,8 @@ const Storage = {
     }, 5000); // 5 second debounce
   }
 };
+
+// Auto-initialize when loaded (Firebase must be initialized first)
+if (typeof firebase !== 'undefined') {
+  Storage.init();
+}
