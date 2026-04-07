@@ -372,6 +372,7 @@ function replaceAndFix(hlElement){
   span.style.outline='2px solid var(--green)';span.style.outlineOffset='2px';
   setTimeout(()=>{span.style.outline=''},1500);
   addReanalyzeButton();
+  syncPreview();
 }
 
 // RE-ANALYZE: let user re-run analysis on edited text
@@ -476,7 +477,7 @@ function renderAnnotated(text,issues){
   const p=$('ed-annotated');p.className='ms-page active parchment';
   p.setAttribute('contenteditable','true');
   p.setAttribute('spellcheck','false');
-  p.addEventListener('input',()=>{addReanalyzeButton()});
+  p.addEventListener('input',()=>{addReanalyzeButton();syncPreview()});
   const sorted=[...issues].sort((a,b)=>a.index-b.index);const no=[];let le=-1;
   for(const i of sorted){if(i.index>=le){no.push(i);le=i.index+i.length}}
   let h='',pos=0;
@@ -665,6 +666,31 @@ function renderReader(r){
   d.innerHTML=h;
 }
 function rc(t,s,c,desc){return '<div class="rdr-card"><h4>'+t+'</h4><div class="rdr-big" style="color:'+c+'">'+s+'/100</div><div class="rdr-bar"><div class="rdr-fill" style="width:'+s+'%;background:'+c+'"></div></div><div class="rdr-lbl">'+desc+'</div></div>'}
+
+// SYNC: editor → book preview (real-time)
+let syncTimer=null;
+function syncPreview(){
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(()=>{
+    const page=$('ed-annotated');
+    const pvText=$('pv-text');
+    if(!page||!pvText)return;
+    // Get current text from editor
+    const currentText=page.textContent;
+    const paragraphs=currentText.split(/\n\n|\r\n\r\n/).filter(p=>p.trim().length>0);
+    // If no paragraph splits found, try splitting by double newlines in innerText
+    const rawParas=page.innerText.split(/\n{2,}/).filter(p=>p.trim().length>0);
+    const paras=rawParas.length>paragraphs.length?rawParas:paragraphs;
+    // Update book preview text
+    pvText.innerHTML=paras.map((p,i)=>{
+      const isChapter=/^(chapter|part)\s+/i.test(p.trim());
+      if(isChapter)return '<div class="pv-para" data-para="'+(i+1)+'" style="text-indent:0;text-align:center;font-weight:600;margin:1.5em 0 .5em;font-size:1.1em">'+esc(p.trim())+'</div>';
+      return '<div class="pv-para" data-para="'+(i+1)+'">'+esc(p.trim())+'</div>';
+    }).join('');
+    // Auto-save
+    autoSave();
+  },500); // 500ms debounce for smooth typing
+}
 
 // BOOK PREVIEW + DEVICE SIMULATOR
 function renderBookPreview(r){
@@ -889,20 +915,39 @@ document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{
 // AI
 $('run-ai-btn')?.addEventListener('click',async()=>{
   if(!analysisResult)return;
-  // Try server proxy first
-  try{
-    const test=await fetch(AIEngine.API_ENDPOINT,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({test:true})});
-    if(test.ok){runAI(null);return}
-  }catch(e){console.log('Server proxy not available:',e.message)}
-  // Fallback: check session key
-  const k=sessionStorage.getItem('ml_claude_key');
-  if(k){runAI(k);return}
-  // Last resort: show modal
-  $('api-modal').classList.remove('hidden');
+  // Just try the proxy directly — no test ping needed
+  runAI(null);
 });
 $('modal-x')?.addEventListener('click',()=>$('api-modal').classList.add('hidden'));
 $('modal-go')?.addEventListener('click',()=>{const k=$('modal-key').value.trim();if(!k){alert('Enter API key');return}sessionStorage.setItem('ml_claude_key',k);$('api-modal').classList.add('hidden');runAI(k)});
-async function runAI(key){if(!analysisResult)return;const st=$('ai-status'),stxt=$('ai-status-text');st.classList.remove('hidden');try{const ai=await AIEngine.runAllFeatures(key,extractedText,analysisResult,(l,i,n)=>{stxt.textContent=l+' ('+(i+1)+'/'+n+')'});analysisResult._aiResults=ai;renderAI(ai);st.classList.add('hidden');$('ai-results').classList.remove('hidden');document.querySelector('.ai-intro')?.classList.add('hidden');AIEngine.saveVersion(uploadedFile.name,analysisResult,ai);renderVersions()}catch(e){st.classList.add('hidden');alert('AI error: '+e.message)}}
+async function runAI(key){
+  if(!analysisResult)return;
+  const st=$('ai-status'),stxt=$('ai-status-text');
+  st.classList.remove('hidden');
+  stxt.textContent='Connecting to AI...';
+  try{
+    const ai=await AIEngine.runAllFeatures(key,extractedText,analysisResult,(l,i,n)=>{stxt.textContent=l+' ('+(i+1)+'/'+n+')'});
+    // Check if first result has an error (proxy might be misconfigured)
+    const firstResult=Object.values(ai)[0];
+    if(firstResult?.error){
+      throw new Error(firstResult.error);
+    }
+    analysisResult._aiResults=ai;
+    renderAI(ai);
+    st.classList.add('hidden');
+    $('ai-results').classList.remove('hidden');
+    document.querySelector('.ai-intro')?.classList.add('hidden');
+  }catch(e){
+    st.classList.add('hidden');
+    const msg=e.message||'Unknown error';
+    // Show error inline instead of alert
+    const intro=document.querySelector('.ai-intro');
+    if(intro){
+      intro.innerHTML='<div style="color:var(--red);padding:1rem"><h4>AI Critique Error</h4><p style="margin:.5rem 0;font-size:.82rem">'+esc(msg)+'</p><p style="font-size:.75rem;color:var(--muted)">This usually means:</p><ul style="font-size:.75rem;color:var(--muted);list-style:disc;padding-left:1.2rem;margin-top:.3rem"><li>The CLAUDE_API_KEY environment variable is not set in Vercel</li><li>Go to Vercel Dashboard > Settings > Environment Variables</li><li>Add: CLAUDE_API_KEY = your sk-ant-... key</li><li>Redeploy after adding the variable</li></ul><button class="btn-gold" style="width:auto;padding:.4rem 1rem;margin-top:.75rem" onclick="runAI(null)">Retry</button></div>';
+      intro.classList.remove('hidden');
+    }
+  }
+}
 function renderAI(ai){
   const dc=ai.deepCritique;if(dc&&!dc.error)$('ai-deep-critique').innerHTML='<h3>Deep Critique</h3><p>'+esc(dc.overallAssessment||'')+'</p><div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin:.5rem 0"><div><h4 style="color:var(--green);font-size:.75rem">Strengths</h4><ul class="ai-list">'+(dc.strengths||[]).map(s=>'<li>'+esc(s)+'</li>').join('')+'</ul></div><div><h4 style="color:var(--red);font-size:.75rem">Weaknesses</h4><ul class="ai-list">'+(dc.weaknesses||[]).map(s=>'<li>'+esc(s)+'</li>').join('')+'</ul></div></div><div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);margin-top:.4rem"><strong style="color:var(--yellow)">Priority Fix:</strong> '+esc(dc.priorityFix||'')+'</div>';
   const ct=ai.compTitles;if(ct&&!ct.error)$('ai-comp-titles').innerHTML='<h3>Comp Titles</h3><div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);font-weight:600;color:var(--gold-l);margin:.4rem 0">'+esc(ct.pitchLine||'')+'</div><div class="comp-grid">'+(ct.compTitles||[]).map(c=>'<div class="comp-card"><div class="comp-title">'+esc(c.title)+'</div><div class="comp-author">'+esc(c.author)+'</div><div class="comp-reason">'+esc(c.reason)+'</div></div>').join('')+'</div>';
