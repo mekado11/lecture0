@@ -30,8 +30,13 @@
     <div class="lib-content">
       <!-- Header -->
       <div class="lib-header">
-        <h1 class="lib-title">Your Library</h1>
-        <p class="lib-subtitle">A home for your manuscripts, drafts, and reports.</p>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+          <div>
+            <h1 class="lib-title">Your Library</h1>
+            <p class="lib-subtitle">A home for your manuscripts, drafts, and reports.</p>
+          </div>
+          <button id="lib-back-editor" class="lib-back-editor hidden" title="Return to your last opened manuscript">&#9997; Back to Editor</button>
+        </div>
       </div>
 
       <!-- Continue Writing -->
@@ -226,7 +231,13 @@
             <button class="btab" data-p="versions">Versions</button>
             <button class="btab" data-p="blurbs">Blurbs</button>
           </div>
-          <div class="bottom-icons"><span>&#8592;</span><span>&#8594;</span><span>&#8599;</span><span>&#43;</span><span>&#9633;</span></div>
+          <div class="bottom-icons">
+            <button class="bi-btn" id="bi-prev-tab" title="Previous tab">&#8592;</button>
+            <button class="bi-btn" id="bi-next-tab" title="Next tab">&#8594;</button>
+            <button class="bi-btn" id="bi-fullscreen" title="Toggle fullscreen (hide sidebars)">&#8599;</button>
+            <button class="bi-btn" id="bi-zoom-in" title="Increase font size">A+</button>
+            <button class="bi-btn" id="bi-zoom-out" title="Decrease font size">A−</button>
+          </div>
         </div>
       </main>
 

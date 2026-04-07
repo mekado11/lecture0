@@ -13,7 +13,42 @@ fi.addEventListener('change',e=>{if(e.target.files.length)hf(e.target.files[0])}
 $('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('analyze-btn').classList.add('hidden');fi.value=''});
 function hf(f){const x=f.name.split('.').pop().toLowerCase();if(!['docx','pdf','txt'].includes(x)){alert('Upload .docx, .pdf, or .txt');return}if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');$('analyze-btn').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden')}
 async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const c=await(await p.getPage(i)).getTextContent();t+=c.items.map(x=>x.str).join(' ')+'\n\n'}return t}}
-$('analyze-btn').addEventListener('click',async()=>{if(!uploadedFile)return;$('analyze-btn').classList.add('hidden');$('upload-loading').classList.remove('hidden');try{$('loader-text').textContent='Extracting...';extractedText=await ext(uploadedFile);$('loader-text').textContent='Analyzing...';await new Promise(r=>setTimeout(r,80));analysisResult=Analyzer.analyze(extractedText);if(analysisResult.error){alert(analysisResult.error);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}$('upload-modal')?.classList.add('hidden');$('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');document.body.classList.remove('lib-mode');renderAll()}catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden')}});
+$('analyze-btn').addEventListener('click',async()=>{
+  if(!uploadedFile)return;
+  $('analyze-btn').classList.add('hidden');
+  $('upload-loading').classList.remove('hidden');
+  try{
+    $('loader-text').textContent='Extracting...';
+    extractedText=await ext(uploadedFile);
+    $('loader-text').textContent='Analyzing...';
+    await new Promise(r=>setTimeout(r,80));
+    analysisResult=Analyzer.analyze(extractedText);
+    if(analysisResult.error){alert(analysisResult.error);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
+    // Save immediately to Firestore/localStorage so it appears in library
+    trackSession('analyzing');
+    // Direct save (don't wait for debounced autoSave)
+    if(Storage.userId){
+      try{
+        const existing=await Storage.getManuscripts();
+        const match=existing.find(m=>(m.fileName||'').toLowerCase()===uploadedFile.name.toLowerCase());
+        if(match){
+          Storage._currentManuscriptId=match.id;
+          await Storage.updateManuscript(match.id,extractedText,analysisResult);
+        }else{
+          Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
+        }
+      }catch(e){console.warn('Save error:',e.message)}
+    }
+    localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}));
+    // Close modal, reset state, show library
+    $('upload-modal')?.classList.add('hidden');
+    $('upload-loading').classList.add('hidden');
+    $('analyze-btn').classList.remove('hidden');
+    fi.value='';$('file-info')?.classList.add('hidden');$('genre-select-wrap')?.classList.add('hidden');
+    uploadedFile=null;extractedText='';analysisResult=null;
+    renderLibrary();
+  }catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden')}
+});
 
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function escA(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -192,13 +227,15 @@ function renderSceneIntel(r){
     const lp=$('left-panel'),rp2=$('right-panel'),pp=$('preview-panel'),gb=$('goal-bar'),badge=document.querySelector('.focus-badge');
     const isOn=badge.textContent==='ON';
     if(isOn){
-      // Turn OFF focus mode — restore all panels
       if(lp)lp.style.display='';if(rp2)rp2.style.display='';if(pp)pp.style.display='';if(gb)gb.style.display='';
       badge.textContent='OFF';badge.className='focus-badge off';
+      document.getElementById('focus-exit-pill')?.remove();
     }else{
-      // Turn ON focus mode — hide all panels
       if(lp)lp.style.display='none';if(rp2)rp2.style.display='none';if(pp)pp.style.display='none';if(gb)gb.style.display='none';
       badge.textContent='ON';badge.className='focus-badge';
+      // Show a floating "Exit Focus Mode" pill
+      let pill=document.getElementById('focus-exit-pill');
+      if(!pill){pill=document.createElement('button');pill.id='focus-exit-pill';pill.textContent='✕ Exit Focus Mode';pill.style.cssText='position:fixed;top:.7rem;right:1rem;z-index:500;padding:.3rem .8rem;background:rgba(30,24,18,.9);border:1px solid rgba(200,149,108,.4);color:var(--gold-l);border-radius:6px;font-size:.72rem;cursor:pointer;font-family:Inter,sans-serif;backdrop-filter:blur(8px)';pill.title='Click to restore all panels';document.body.appendChild(pill);pill.addEventListener('click',()=>$('focus-toggle')?.click())}
     }
   });
   // Simulate reader: switch to reader view
@@ -1062,7 +1099,14 @@ function renderBookPreview(r){
   })});
 
   // Collapse toggle
-  $('pv-toggle')?.addEventListener('click',()=>{const p=$('preview-panel');p.classList.toggle('collapsed');$('pv-toggle').textContent=p.classList.contains('collapsed')?'\u00BB':'\u00AB'});
+  const pvToggleBtn=$('pv-toggle');
+  if(pvToggleBtn&&!pvToggleBtn._wired){
+    pvToggleBtn._wired=true;
+    pvToggleBtn.addEventListener('click',()=>{
+      const p=$('preview-panel');p.classList.toggle('collapsed');
+      pvToggleBtn.textContent=p.classList.contains('collapsed')?'\u00BB':'\u00AB';
+    });
+  };
 
   // Re-paginate on resize
   let resizeTimer;
@@ -1225,6 +1269,23 @@ document.querySelectorAll('.btab').forEach(t=>{t.addEventListener('click',()=>{
     if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page')){target.classList.add('dark-page')}
   }
 })});
+// Bottom-icon buttons
+(function(){
+  const tabs=Array.from(document.querySelectorAll('.btab'));
+  function activateTab(t){tabs.forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}}
+  $('bi-prev-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur>0)activateTab(tabs[cur-1])});
+  $('bi-next-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur<tabs.length-1)activateTab(tabs[cur+1])});
+  $('bi-fullscreen')?.addEventListener('click',()=>{
+    const lp=$('left-panel'),rp2=$('right-panel'),pp=$('preview-panel');
+    const hidden=lp?.style.display==='none';
+    if(hidden){if(lp)lp.style.display='';if(rp2)rp2.style.display='';if(pp)pp.style.display=''}
+    else{if(lp)lp.style.display='none';if(rp2)rp2.style.display='none';if(pp)pp.style.display='none'}
+  });
+  let _fontSize=16;
+  $('bi-zoom-in')?.addEventListener('click',()=>{_fontSize=Math.min(22,_fontSize+1);document.querySelectorAll('.ms-page').forEach(p=>p.style.fontSize=_fontSize+'px')});
+  $('bi-zoom-out')?.addEventListener('click',()=>{_fontSize=Math.max(12,_fontSize-1);document.querySelectorAll('.ms-page').forEach(p=>p.style.fontSize=_fontSize+'px')});
+})();
+
 document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{
   document.querySelectorAll('.rtab').forEach(b=>b.classList.remove('active'));t.classList.add('active');
   const mode=t.textContent.trim().toLowerCase();
@@ -1542,6 +1603,37 @@ function _wireLibraryEvents(){
     });
   });
 
+  // "Back to Editor" button — show if there's a last-opened manuscript
+  const backBtn=$('lib-back-editor');
+  if(backBtn){
+    const lastOpen=JSON.parse(localStorage.getItem('ml_last_open')||'null');
+    if(lastOpen&&lastOpen.fileName){
+      backBtn.classList.remove('hidden');
+      backBtn.textContent='↩ Back to "'+lastOpen.fileName.replace(/\.\w+$/,'')+'"';
+      backBtn.onclick=async()=>{
+        if(lastOpen.manuscriptId&&Storage.userId){
+          const full=await Storage.getManuscript(lastOpen.manuscriptId).catch(()=>null);
+          if(full){
+            extractedText=full.text;uploadedFile={name:full.fileName,size:0};
+            analysisResult=Analyzer.analyze(extractedText);Storage._currentManuscriptId=full.id;
+            $('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');
+            document.body.classList.remove('lib-mode');renderAll();return;
+          }
+        }
+        // Fallback to autosave
+        const save=JSON.parse(localStorage.getItem('ml_autosave')||'null');
+        if(save&&save.text&&save.result){
+          extractedText=save.text;analysisResult=save.result;uploadedFile={name:save.fileName,size:0};
+          Storage._currentManuscriptId=save.manuscriptId||null;
+          $('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');
+          document.body.classList.remove('lib-mode');renderAll();
+        }
+      };
+    }else{
+      backBtn.classList.add('hidden');
+    }
+  }
+
   // Set avatar letter from Firebase user
   if(typeof firebase!=='undefined'){
     const user=firebase.auth().currentUser;
@@ -1567,6 +1659,8 @@ async function _openManuscript(idx){
     analysisResult=Analyzer.analyze(extractedText);
     Storage._currentManuscriptId=m.id;
   }
+  // Remember for "Back to Editor"
+  localStorage.setItem('ml_last_open',JSON.stringify({fileName:m.fileName,manuscriptId:Storage._currentManuscriptId||m.id||null}));
   $('upload-view').classList.add('hidden');
   $('editor-view').classList.remove('hidden');
   document.body.classList.remove('lib-mode');
