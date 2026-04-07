@@ -126,7 +126,7 @@
     <div class="panels">
       <!-- LEFT: Document Health -->
       <aside class="left-panel" id="left-panel">
-        <div class="lp-head"><span class="lp-title">Document Health</span><span class="lp-dots">&bull;&bull;&bull;</span></div>
+        <div class="lp-head"><span class="lp-title">Document Health</span><button class="lp-collapse" id="lp-collapse-btn" title="Collapse panel">&#9660;</button></div>
         <!-- Semi-circle gauge -->
         <div class="gauge-wrap">
           <canvas id="gauge-canvas" width="220" height="130"></canvas>
@@ -140,27 +140,83 @@
 
       <!-- CENTER: Manuscript -->
       <main class="center-panel">
+        <!-- Writing toolbar -->
         <div class="center-toolbar">
-          <div class="fmt-icons"><button class="fmt-btn" data-cmd="bold" title="Bold (Ctrl+B)"><b>B</b></button><button class="fmt-btn" data-cmd="italic" title="Italic (Ctrl+I)"><i>I</i></button><button class="fmt-btn" data-cmd="underline" title="Underline (Ctrl+U)"><u>U</u></button><button class="fmt-btn" data-cmd="strikeThrough" title="Strikethrough"><s>S</s></button><button class="fmt-btn" data-cmd="formatBlock:h2" title="Heading">H</button><button class="fmt-btn" data-cmd="removeFormat" title="Clear Formatting">T&#x336;</button></div>
-          <div class="fmt-right"><button class="fmt-btn" data-cmd="undo" title="Undo (Ctrl+Z)">&#8592;</button><button class="fmt-btn" data-cmd="redo" title="Redo (Ctrl+Y)">&#8635;</button></div>
+          <div class="fmt-icons">
+            <div class="fmt-group" title="Text Style">
+              <button class="fmt-btn" data-cmd="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+              <button class="fmt-btn" data-cmd="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+              <button class="fmt-btn" data-cmd="underline" title="Underline (Ctrl+U)"><u>U</u></button>
+              <button class="fmt-btn" data-cmd="strikeThrough" title="Strikethrough"><s>S</s></button>
+            </div>
+            <span class="fmt-sep"></span>
+            <div class="fmt-group" title="Structure">
+              <button class="fmt-btn" data-cmd="formatBlock:h1" title="Chapter Heading (H1)">H1</button>
+              <button class="fmt-btn" data-cmd="formatBlock:h2" title="Section Heading (H2)">H2</button>
+              <button class="fmt-btn" data-cmd="formatBlock:p" title="Body Text">P</button>
+            </div>
+            <span class="fmt-sep"></span>
+            <div class="fmt-group" title="Alignment">
+              <button class="fmt-btn" data-cmd="justifyLeft" title="Align Left">&#8676;</button>
+              <button class="fmt-btn" data-cmd="justifyCenter" title="Center">&#8596;</button>
+              <button class="fmt-btn" data-cmd="justifyFull" title="Justify">&#9776;</button>
+            </div>
+            <span class="fmt-sep"></span>
+            <button class="fmt-btn" data-cmd="removeFormat" title="Clear Formatting">T&#x336;</button>
+          </div>
+          <div class="fmt-right">
+            <select id="fmt-font" class="fmt-select" title="Font family">
+              <option value="Lora">Lora (Serif)</option>
+              <option value="Georgia">Georgia</option>
+              <option value="'Times New Roman'">Times</option>
+              <option value="Inter">Inter (Sans)</option>
+              <option value="'Courier New'">Courier</option>
+            </select>
+            <select id="fmt-size" class="fmt-select" title="Font size">
+              <option value="14">14px</option>
+              <option value="15">15px</option>
+              <option value="16" selected>16px</option>
+              <option value="18">18px</option>
+              <option value="20">20px</option>
+            </select>
+            <select id="fmt-spacing" class="fmt-select" title="Line spacing">
+              <option value="1.5">1.5x</option>
+              <option value="1.8" selected>1.8x</option>
+              <option value="2">2x</option>
+              <option value="2.5">2.5x</option>
+            </select>
+            <button class="fmt-btn" data-cmd="undo" title="Undo (Ctrl+Z)">&#8592;</button>
+            <button class="fmt-btn" data-cmd="redo" title="Redo (Ctrl+Y)">&#8635;</button>
+          </div>
         </div>
-        <div class="manuscript-scroll" id="manuscript-scroll">
-          <div id="ed-annotated" class="ms-page active"></div>
-          <div id="ed-detailed" class="ms-page"></div>
+        <!-- Chapter navigation sidebar + manuscript scroll area -->
+        <div class="ms-workspace">
+          <nav class="chapter-nav" id="chapter-nav">
+            <div class="chn-head">Chapters</div>
+            <div class="chn-list" id="chn-list"></div>
+          </nav>
+          <div class="ms-scroll-col">
+          <div class="ms-ruler" id="ms-ruler"><div class="ms-ruler-ticks" id="ms-ruler-ticks"></div></div>
+          <div class="manuscript-scroll" id="manuscript-scroll">
+            <div id="ed-annotated" class="ms-page active"></div>
+            <div id="ed-detailed" class="ms-page"></div>
           <div id="ed-reader" class="ms-page"></div>
           <div id="ed-ai" class="ms-page">
-            <div class="ai-intro" style="padding:1.5rem">
-              <h3 style="color:var(--gold-l);margin-bottom:.5rem;font-family:Lora,serif">AI-Powered Analysis</h3>
-              <p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Get deep narrative critique, comparable titles, a query letter draft, simulated beta readers, market readiness score, and chapter breakdown — powered by Claude AI.</p>
-              <ul style="list-style:none;padding:0;margin-bottom:1rem">
-                <li style="padding:.25rem 0;font-size:.82rem;color:var(--muted)">Deep Narrative Critique</li>
-                <li style="padding:.25rem 0;font-size:.82rem;color:var(--muted)">Comparable Titles ("reads like X meets Y")</li>
-                <li style="padding:.25rem 0;font-size:.82rem;color:var(--muted)">Query Letter Generator</li>
-                <li style="padding:.25rem 0;font-size:.82rem;color:var(--muted)">Beta Reader Simulation (4 readers)</li>
-                <li style="padding:.25rem 0;font-size:.82rem;color:var(--muted)">Market Readiness Score</li>
-                <li style="padding:.25rem 0;font-size:.82rem;color:var(--muted)">Chapter-by-Chapter Breakdown</li>
-              </ul>
-              <button id="run-ai-btn" class="btn-gold" style="max-width:300px">Run AI Analysis</button>
+            <div class="ai-intro smartalysis-intro">
+              <div class="smt-header">
+                <span class="smt-badge">ENGINE</span>
+                <h3 class="smt-title">Smartalysis Engine</h3>
+              </div>
+              <p class="smt-tagline">Diagnose where readers drop. Fix what matters first.</p>
+              <div class="smt-features">
+                <div class="smt-feature"><span class="smt-icon">&#9997;</span><div><strong>Narrative Critique</strong><span>Understand weaknesses in plot, structure, and character pull</span></div></div>
+                <div class="smt-feature"><span class="smt-icon">&#128214;</span><div><strong>Comparable Titles</strong><span>Position your work with "reads like X meets Y"</span></div></div>
+                <div class="smt-feature"><span class="smt-icon">&#9993;</span><div><strong>Query Letter Draft</strong><span>Generate a submission-ready pitch</span></div></div>
+                <div class="smt-feature"><span class="smt-icon">&#128101;</span><div><strong>Beta Reader Simulation</strong><span>See how multiple readers respond to your story</span></div></div>
+                <div class="smt-feature"><span class="smt-icon">&#128200;</span><div><strong>Market Readiness Score</strong><span>Know if your manuscript is commercially viable</span></div></div>
+                <div class="smt-feature"><span class="smt-icon">&#9776;</span><div><strong>Chapter Breakdown</strong><span>Identify weak sections and drop-off points</span></div></div>
+              </div>
+              <button id="run-ai-btn" class="smt-run-btn">Run Full Smartalysis</button>
               <div id="ai-status" class="hidden" style="margin-top:1rem;display:flex;align-items:center;gap:.5rem">
                 <div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0"></div>
                 <span id="ai-status-text" style="font-size:.82rem;color:var(--muted)">Connecting to AI...</span>
@@ -221,12 +277,14 @@
           <div id="ed-versions" class="ms-page"></div>
           <div id="ed-blurbs" class="ms-page"></div>
         </div>
+        </div><!-- /ms-scroll-col -->
+        </div><!-- /ms-workspace -->
         <div class="center-bottom">
           <div class="bottom-tabs">
             <button class="btab active" data-p="annotated">&#9675; Detailed</button>
             <button class="btab" data-p="detailed">Annotated</button>
             <button class="btab" data-p="reader">Reader View</button>
-            <button class="btab" data-p="ai">AI Critique</button>
+            <button class="btab" data-p="ai">Smartalysis</button>
             <button class="btab" data-p="writing">Writing &amp; Block</button>
             <button class="btab" data-p="versions">Versions</button>
             <button class="btab" data-p="blurbs">Blurbs</button>
@@ -296,7 +354,7 @@
 
       <!-- RIGHT: AI Feedback -->
       <aside class="right-panel" id="right-panel">
-        <div class="rp-head"><span class="rp-title">AI Feedback</span><select id="fb-mode" class="rp-select"><option>Suggestions</option><option>Rewrite</option><option>Tone Shift</option></select></div>
+        <div class="rp-head"><span class="rp-title">Smart Feedback</span><button class="rp-collapse" id="rp-collapse-btn" title="Collapse panel">&#9660;</button></div>
         <div class="rp-tabs"><button class="rtab active">Suggestions</button><button class="rtab">Rewrite</button><button class="rtab">Tone Shift</button><button class="rtab">Dial.</button></div>
         <div class="rp-scores" id="rp-scores"></div>
         <div class="rp-detail" id="rp-detail"></div>
@@ -392,7 +450,7 @@
         btn.id = 'signout-btn';
         btn.className = 'tb-btn';
         btn.textContent = 'Sign Out';
-        btn.onclick = () => { localStorage.clear(); sessionStorage.clear(); firebase.auth().signOut(); window.location.href = 'index.html'; };
+        btn.onclick = () => { firebase.auth().signOut().then(()=>{ localStorage.removeItem('ml_autosave'); localStorage.removeItem('ml_session'); localStorage.removeItem('ml_last_open'); localStorage.removeItem('ml_push_subscribed'); sessionStorage.clear(); window.location.href = 'index.html'; }); };
         topRight.appendChild(btn);
       }
     });

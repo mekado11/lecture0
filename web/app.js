@@ -235,7 +235,7 @@ function renderSceneIntel(r){
       badge.textContent='ON';badge.className='focus-badge';
       // Show a floating "Exit Focus Mode" pill
       let pill=document.getElementById('focus-exit-pill');
-      if(!pill){pill=document.createElement('button');pill.id='focus-exit-pill';pill.textContent='✕ Exit Focus Mode';pill.style.cssText='position:fixed;top:.7rem;right:1rem;z-index:500;padding:.3rem .8rem;background:rgba(30,24,18,.9);border:1px solid rgba(200,149,108,.4);color:var(--gold-l);border-radius:6px;font-size:.72rem;cursor:pointer;font-family:Inter,sans-serif;backdrop-filter:blur(8px)';pill.title='Click to restore all panels';document.body.appendChild(pill);pill.addEventListener('click',()=>$('focus-toggle')?.click())}
+      if(!pill){pill=document.createElement('button');pill.id='focus-exit-pill';pill.textContent='Exit Focus';pill.style.cssText='position:fixed;bottom:.7rem;right:1rem;z-index:500;padding:.25rem .6rem;background:rgba(30,24,18,.85);border:1px solid rgba(200,149,108,.25);color:var(--gold);border-radius:5px;font-size:.65rem;cursor:pointer;font-family:Inter,sans-serif;opacity:.5;transition:opacity .2s';pill.title='Click to restore all panels';pill.onmouseenter=()=>pill.style.opacity='1';pill.onmouseleave=()=>pill.style.opacity='.5';document.body.appendChild(pill);pill.addEventListener('click',()=>$('focus-toggle')?.click())}
     }
   });
   // Simulate reader: switch to reader view
@@ -509,22 +509,10 @@ function showDetail(cat){
   d.querySelectorAll('.rpd-ign-btn').forEach(btn=>{btn.addEventListener('click',()=>{const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;const page=$('ed-annotated');const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');if(hl)hl.classList.add('off');card.remove()})});
 }
 
-// ANNOTATED TEXT
+// ANNOTATED TEXT — now uses structured page-based rendering
 function renderAnnotated(text,issues){
-  const p=$('ed-annotated');p.className='ms-page active parchment';
-  p.setAttribute('contenteditable','true');
-  p.setAttribute('spellcheck','false');
-  p.addEventListener('input',()=>{addReanalyzeButton();syncPreview()});
-  const sorted=[...issues].sort((a,b)=>a.index-b.index);const no=[];let le=-1;
-  for(const i of sorted){if(i.index>=le){no.push(i);le=i.index+i.length}}
-  let h='',pos=0;
-  for(const i of no){if(i.index>pos)h+=esc(text.substring(pos,i.index));h+='<span class="hl" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'">'+esc(text.substring(i.index,i.index+i.length))+'</span>';pos=i.index+i.length}
-  if(pos<text.length)h+=esc(text.substring(pos));
-  p.innerHTML=h;
-  const tip=$('tip');
-  let activeHL=null;
-  p.addEventListener('click',e=>{const hl=e.target.closest('.hl');if(hl&&!hl.classList.contains('off')){activeHL=hl;const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};tip.innerHTML='<div class="tip-cat">'+(labels[hl.dataset.t]||hl.dataset.t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+hl.dataset.s+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">Replace &amp; Fix</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';tip.classList.add('on');const rect=hl.getBoundingClientRect();tip.style.top=(rect.bottom+8)+'px';tip.style.left=Math.min(rect.left,window.innerWidth-360)+'px';$('tip-fix-btn').onclick=()=>{replaceAndFix(activeHL)};$('tip-ign-btn').onclick=()=>{activeHL.classList.add('off');tip.classList.remove('on')}}else if(!e.target.closest('.tip')){tip.classList.remove('on')}});
-  document.addEventListener('click',e=>{if(!e.target.closest('.hl')&&!e.target.closest('.tip'))tip.classList.remove('on')});
+  renderAnnotatedAsPages(text,issues);
+  document.addEventListener('click',e=>{if(!e.target.closest('.hl')&&!e.target.closest('.tip'))$('tip')?.classList.remove('on')});
 }
 
 // DETAILED
@@ -1286,6 +1274,278 @@ document.querySelectorAll('.btab').forEach(t=>{t.addEventListener('click',()=>{
   $('bi-zoom-out')?.addEventListener('click',()=>{_fontSize=Math.max(12,_fontSize-1);document.querySelectorAll('.ms-page').forEach(p=>p.style.fontSize=_fontSize+'px')});
 })();
 
+// Collapse/expand panels
+$('lp-collapse-btn')?.addEventListener('click',()=>{
+  const lp=$('left-panel');lp.classList.toggle('panel-collapsed');
+  $('lp-collapse-btn').innerHTML=lp.classList.contains('panel-collapsed')?'&#9654;':'&#9660;';
+});
+$('rp-collapse-btn')?.addEventListener('click',()=>{
+  const rp=$('right-panel');rp.classList.toggle('panel-collapsed');
+  $('rp-collapse-btn').innerHTML=rp.classList.contains('panel-collapsed')?'&#9654;':'&#9660;';
+});
+
+// ============================================================
+// TYPOGRAPHY CONTROLS — font family, size, line spacing
+// ============================================================
+$('fmt-font')?.addEventListener('change',e=>{
+  const page=$('ed-annotated');
+  if(page)page.style.fontFamily=e.target.value+',serif';
+});
+$('fmt-size')?.addEventListener('change',e=>{
+  const page=$('ed-annotated');
+  if(page)page.style.fontSize=e.target.value+'px';
+});
+$('fmt-spacing')?.addEventListener('change',e=>{
+  const page=$('ed-annotated');
+  if(page)page.style.lineHeight=e.target.value;
+});
+
+// Toolbar format buttons (bold, italic, underline, etc.)
+document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const cmd=btn.dataset.cmd;
+    if(!cmd)return;
+    if(cmd.startsWith('formatBlock:')){
+      document.execCommand('formatBlock',false,'<'+cmd.split(':')[1]+'>');
+    }else{
+      document.execCommand(cmd,false,null);
+    }
+    // Refocus the editor
+    $('ed-annotated')?.focus();
+  });
+});
+
+// ============================================================
+// WRITING RULER — tick marks
+// ============================================================
+(function initRuler(){
+  const ticks=$('ms-ruler-ticks');if(!ticks)return;
+  let h='';
+  // 1 inch = ~96px; page is ~640px content width = ~6.67 inches
+  // Draw marks every half-inch (48px), minor every quarter (24px)
+  for(let i=0;i<=26;i++){
+    const isMajor=i%2===0;
+    h+='<div class="ms-ruler-tick '+(isMajor?'major':'minor')+'"></div>';
+  }
+  ticks.innerHTML=h;
+})();
+
+// ============================================================
+// CHAPTER NAVIGATION — detect chapters, render sidebar, click-to-scroll
+// ============================================================
+function buildChapterNav(){
+  const list=$('chn-list');if(!list)return;
+  const text=extractedText||'';
+  if(!text){list.innerHTML='<div style="padding:.5rem .7rem;font-size:.7rem;color:var(--dim)">No manuscript loaded</div>';return}
+
+  // Detect chapters and sections
+  const chapterRe=/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*|part\s+\d+[^\n]*|part\s+[a-z]+[^\n]*|prologue[^\n]*|epilogue[^\n]*)/gim;
+  const sectionRe=/^(section\s+\d+[^\n]*|scene\s+\d+[^\n]*)/gim;
+  const entries=[];
+  let m;
+
+  while((m=chapterRe.exec(text))!==null){
+    entries.push({title:m[1].trim(),index:m.index,level:1});
+  }
+  while((m=sectionRe.exec(text))!==null){
+    entries.push({title:m[1].trim(),index:m.index,level:2});
+  }
+  // Sort by position in text
+  entries.sort((a,b)=>a.index-b.index);
+
+  if(entries.length===0){
+    list.innerHTML='<div style="padding:.5rem .7rem;font-size:.7rem;color:var(--dim)">No chapters detected</div>';
+    return;
+  }
+
+  list.innerHTML=entries.map((e,i)=>{
+    const label=e.title.length>28?e.title.substring(0,28)+'...':e.title;
+    return '<div class="chn-item'+(e.level===2?' chn-h2':'')+'" data-ch-idx="'+i+'" data-ch-offset="'+e.index+'" title="'+escA(e.title)+'">'+esc(label)+'</div>';
+  }).join('');
+
+  // Click to scroll
+  list.querySelectorAll('.chn-item').forEach(item=>{
+    item.addEventListener('click',()=>{
+      list.querySelectorAll('.chn-item').forEach(c=>c.classList.remove('active'));
+      item.classList.add('active');
+      const offset=parseInt(item.dataset.chOffset);
+      scrollToTextOffset(offset);
+    });
+  });
+
+  // Mark first chapter as active
+  const first=list.querySelector('.chn-item');
+  if(first)first.classList.add('active');
+}
+
+function scrollToTextOffset(charOffset){
+  const page=$('ed-annotated');if(!page)return;
+  // Walk text nodes to find the position
+  const walker=document.createTreeWalker(page,NodeFilter.SHOW_TEXT,null);
+  let pos=0;
+  while(walker.nextNode()){
+    const node=walker.currentNode;
+    if(pos+node.length>=charOffset){
+      // Found the node — scroll its parent into view
+      const parent=node.parentElement;
+      if(parent){
+        parent.scrollIntoView({behavior:'smooth',block:'center'});
+        // Brief highlight
+        const origBg=parent.style.background;
+        parent.style.background='rgba(200,149,108,.2)';
+        parent.style.borderRadius='3px';
+        setTimeout(()=>{parent.style.background=origBg},2000);
+      }
+      return;
+    }
+    pos+=node.length;
+  }
+}
+
+// Update chapter nav highlight on scroll
+function updateChapterNavOnScroll(){
+  const scroll=$('manuscript-scroll');
+  const list=$('chn-list');
+  if(!scroll||!list)return;
+  scroll.addEventListener('scroll',()=>{
+    // Debounce
+    clearTimeout(scroll._chNavTimer);
+    scroll._chNavTimer=setTimeout(()=>{
+      const items=list.querySelectorAll('.chn-item');
+      if(!items.length)return;
+      // Find which chapter heading is currently visible
+      const page=$('ed-annotated');if(!page)return;
+      const headings=page.querySelectorAll('h1,h2,.hl');
+      // Simple: find the last heading that's above the scroll midpoint
+      const scrollMid=scroll.scrollTop+scroll.clientHeight/3;
+      let activeIdx=0;
+      items.forEach((item,i)=>{
+        const offset=parseInt(item.dataset.chOffset);
+        // Approximate: chapters at roughly (offset/totalChars)*scrollHeight
+        const approxPos=(offset/(extractedText||'').length)*scroll.scrollHeight;
+        if(approxPos<=scrollMid)activeIdx=i;
+      });
+      items.forEach(c=>c.classList.remove('active'));
+      if(items[activeIdx])items[activeIdx].classList.add('active');
+    },150);
+  });
+}
+
+// ============================================================
+// PAGE-BASED RENDERING — structure text into book pages
+// ============================================================
+function renderAnnotatedAsPages(text,issues){
+  const p=$('ed-annotated');
+  p.className='ms-page active parchment';
+  p.setAttribute('contenteditable','true');
+  p.setAttribute('spellcheck','false');
+  p.addEventListener('input',()=>{addReanalyzeButton();syncPreview()});
+
+  // Split text into paragraphs
+  const paragraphs=text.split(/\n\s*\n/);
+  const chapterRe=/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*|part\s+\d+[^\n]*|part\s+[a-z]+[^\n]*|prologue[^\n]*|epilogue[^\n]*)/i;
+  const sceneBreakRe=/^\s*(\*\s*\*\s*\*|#\s*#\s*#|---+|~~~+|\* \* \*)\s*$/;
+
+  // Build highlighted HTML with proper structure
+  const sorted=[...issues].sort((a,b)=>a.index-b.index);
+  const noOverlap=[];let lastEnd=-1;
+  for(const i of sorted){if(i.index>=lastEnd){noOverlap.push(i);lastEnd=i.index+i.length}}
+
+  // Build full annotated HTML first
+  let fullHtml='',pos=0;
+  for(const i of noOverlap){
+    if(i.index>pos)fullHtml+=esc(text.substring(pos,i.index));
+    fullHtml+='<span class="hl" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'">'+esc(text.substring(i.index,i.index+i.length))+'</span>';
+    pos=i.index+i.length;
+  }
+  if(pos<text.length)fullHtml+=esc(text.substring(pos));
+
+  // Now wrap paragraphs with proper tags
+  let structured='';
+  let charPos=0;
+  for(let pi=0;pi<paragraphs.length;pi++){
+    const para=paragraphs[pi].trim();
+    if(!para){charPos+=2;continue}
+
+    // Find this paragraph's annotated content from fullHtml
+    const paraStart=text.indexOf(para,Math.max(0,charPos-5));
+    const paraEnd=paraStart>=0?paraStart+para.length:charPos+para.length;
+
+    if(chapterRe.test(para)){
+      // Chapter heading
+      const level=para.match(/^part\s/i)?'h1':'h1';
+      structured+='<'+level+'>'+getAnnotatedSlice(text,paraStart,paraEnd,noOverlap)+'</'+level+'>';
+    }else if(sceneBreakRe.test(para)){
+      structured+='<div class="scene-break">* * *</div>';
+    }else{
+      structured+='<p>'+getAnnotatedSlice(text,paraStart,paraEnd,noOverlap)+'</p>';
+    }
+    charPos=paraEnd+2; // +2 for the \n\n separator
+  }
+
+  // Add page number footer
+  const wordCount=(text.match(/\S+/g)||[]).length;
+  const estPages=Math.max(1,Math.ceil(wordCount/250));
+  structured+='<div class="ms-page-footer">Page 1 of ~'+estPages+'</div>';
+
+  p.innerHTML=structured;
+
+  // Wire tooltip on highlights
+  const tip=$('tip');
+  let activeHL=null;
+  p.addEventListener('click',e=>{const hl=e.target.closest('.hl');if(hl&&!hl.classList.contains('off')){activeHL=hl;const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};tip.innerHTML='<div class="tip-cat">'+(labels[hl.dataset.t]||hl.dataset.t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+hl.dataset.s+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">Replace &amp; Fix</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';tip.classList.add('on');const rect=hl.getBoundingClientRect();tip.style.top=(rect.bottom+8)+'px';tip.style.left=Math.min(rect.left,window.innerWidth-360)+'px';$('tip-fix-btn').onclick=()=>{replaceAndFix(activeHL)};$('tip-ign-btn').onclick=()=>{activeHL.classList.add('off');tip.classList.remove('on')}}else if(!e.target.closest('.tip')){tip.classList.remove('on')}});
+
+  // Build chapter nav after rendering
+  buildChapterNav();
+  updateChapterNavOnScroll();
+}
+
+// Helper: get annotated HTML for a text slice
+function getAnnotatedSlice(fullText,start,end,issues){
+  let h='',pos=start;
+  for(const i of issues){
+    if(i.index>=end)break;
+    if(i.index+i.length<=start)continue;
+    const iStart=Math.max(i.index,start);
+    const iEnd=Math.min(i.index+i.length,end);
+    if(iStart>pos)h+=esc(fullText.substring(pos,iStart));
+    h+='<span class="hl" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'">'+esc(fullText.substring(iStart,iEnd))+'</span>';
+    pos=iEnd;
+  }
+  if(pos<end)h+=esc(fullText.substring(pos,end));
+  return h;
+}
+
+// ============================================================
+// SMART BEHAVIOR — auto-detect "Chapter X" and convert to heading
+// ============================================================
+(function initSmartHeadings(){
+  const page=$('ed-annotated');if(!page)return;
+  page.addEventListener('keydown',e=>{
+    if(e.key!=='Enter')return;
+    // Check if current line starts with "Chapter" or "Part"
+    const sel=window.getSelection();
+    if(!sel||!sel.rangeCount)return;
+    const node=sel.anchorNode;
+    if(!node)return;
+    const lineText=(node.textContent||'').trim();
+    const chapterRe=/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*|part\s+\d+[^\n]*|part\s+[a-z]+[^\n]*|prologue[^\n]*|epilogue[^\n]*)$/i;
+    if(chapterRe.test(lineText)){
+      // Convert the current block to H1
+      const parentBlock=node.parentElement?.closest('p,div,h1,h2,h3')||node.parentElement;
+      if(parentBlock&&parentBlock.tagName!=='H1'){
+        e.preventDefault();
+        document.execCommand('formatBlock',false,'<h1>');
+        // Move cursor to next line
+        setTimeout(()=>{
+          document.execCommand('insertParagraph',false);
+          document.execCommand('formatBlock',false,'<p>');
+        },10);
+      }
+    }
+  });
+})();
+
 document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{
   document.querySelectorAll('.rtab').forEach(b=>b.classList.remove('active'));t.classList.add('active');
   const mode=t.textContent.trim().toLowerCase();
@@ -1740,8 +2000,20 @@ if(!localStorage.getItem('cookie_consent')){$('cookie-banner')?.classList.remove
 $('cookie-accept')?.addEventListener('click',()=>{localStorage.setItem('cookie_consent','all');$('cookie-banner')?.classList.add('hidden')});
 $('cookie-essential')?.addEventListener('click',()=>{localStorage.setItem('cookie_consent','essential');$('cookie-banner')?.classList.add('hidden')});
 
-// First-time wizard
-if(!localStorage.getItem('wizard_done')){
+// First-time wizard — only show for brand-new users with no manuscripts
+async function maybeShowWizard(){
+  if(localStorage.getItem('wizard_done'))return;
+  // Check if user has existing manuscripts — if so, skip wizard
+  let hasManuscripts=false;
+  if(Storage.userId){
+    try{const ms=await Storage.getManuscripts();hasManuscripts=ms.length>0}catch(e){}
+  }
+  if(!hasManuscripts){
+    const shelf=JSON.parse(localStorage.getItem('ml_bookshelf')||'[]');
+    const saves=JSON.parse(localStorage.getItem('ml_saves')||'[]');
+    hasManuscripts=shelf.length>0||saves.length>0;
+  }
+  if(hasManuscripts){localStorage.setItem('wizard_done','1');return}
   const steps=[
     {title:'Welcome to AuthorScrolls!',icon:'&#127807;',text:'Upload your manuscript and get instant analysis — plot structure, clarity, pacing, dialogue quality, and more.'},
     {title:'How It Works',icon:'&#128209;',text:'1. Upload a .docx, .pdf, or .txt file<br>2. Get scored across 10+ writing metrics<br>3. Click highlighted issues to fix them<br>4. Preview your book on Kindle, iPad, or Paperback'},
@@ -1760,9 +2032,77 @@ if(!localStorage.getItem('wizard_done')){
   $('wizard-next')?.addEventListener('click',()=>{wizStep++;if(wizStep>=steps.length){$('wizard-overlay')?.classList.add('hidden');localStorage.setItem('wizard_done','1')}else showWizStep()});
   $('wizard-skip')?.addEventListener('click',()=>{$('wizard-overlay')?.classList.add('hidden');localStorage.setItem('wizard_done','1')});
 }
-// Load saved analyses on startup
+// STARTUP — wait for auth, then route to editor or library
 loadAutoSave();
-renderLibrary();
+Storage.whenReady().then(async user=>{
+  if(!user){renderLibrary();return}
+
+  // Try to restore the last opened manuscript
+  const lastOpen=JSON.parse(localStorage.getItem('ml_last_open')||'null');
+  const autosave=JSON.parse(localStorage.getItem('ml_autosave')||'null');
+
+  // Attempt 1: last opened manuscript by Firestore ID
+  if(lastOpen?.manuscriptId){
+    try{
+      const full=await Storage.getManuscript(lastOpen.manuscriptId);
+      if(full&&full.text){
+        extractedText=full.text;
+        uploadedFile={name:full.fileName,size:0};
+        analysisResult=Analyzer.analyze(extractedText);
+        Storage._currentManuscriptId=full.id;
+        $('upload-view').classList.add('hidden');
+        $('editor-view').classList.remove('hidden');
+        document.body.classList.remove('lib-mode');
+        renderAll();
+        return;
+      }
+    }catch(e){console.warn('Could not restore last manuscript:',e.message)}
+  }
+
+  // Attempt 2: autosave in localStorage
+  if(autosave?.text&&autosave?.result){
+    extractedText=autosave.text;
+    analysisResult=autosave.result;
+    uploadedFile={name:autosave.fileName||'Untitled',size:0};
+    Storage._currentManuscriptId=autosave.manuscriptId||null;
+    $('upload-view').classList.add('hidden');
+    $('editor-view').classList.remove('hidden');
+    document.body.classList.remove('lib-mode');
+    renderAll();
+    return;
+  }
+
+  // Attempt 3: any manuscript in Firestore (pick most recent)
+  try{
+    const manuscripts=await Storage.getManuscripts();
+    if(manuscripts.length>0){
+      // Sort by updatedAt desc, pick first
+      const sorted=manuscripts.slice().sort((a,b)=>{
+        const ad=a.updatedAt?.toDate?a.updatedAt.toDate():new Date(0);
+        const bd=b.updatedAt?.toDate?b.updatedAt.toDate():new Date(0);
+        return bd-ad;
+      });
+      const m=sorted[0];
+      const full=await Storage.getManuscript(m.id);
+      if(full&&full.text){
+        extractedText=full.text;
+        uploadedFile={name:full.fileName,size:0};
+        analysisResult=Analyzer.analyze(extractedText);
+        Storage._currentManuscriptId=m.id;
+        localStorage.setItem('ml_last_open',JSON.stringify({fileName:m.fileName,manuscriptId:m.id}));
+        $('upload-view').classList.add('hidden');
+        $('editor-view').classList.remove('hidden');
+        document.body.classList.remove('lib-mode');
+        renderAll();
+        return;
+      }
+    }
+  }catch(e){console.warn('Could not fetch manuscripts:',e.message)}
+
+  // No manuscript found — show library and prompt to upload
+  renderLibrary();
+  maybeShowWizard();
+});
 
 // NEW
 // Genre override in editor topbar — re-analyze with new genre

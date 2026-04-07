@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AuthorScrolls - Pricing</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',sans-serif;background:#0a0705;color:#e8dfd4;min-height:100vh}
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,7,5,.88);backdrop-filter:blur(12px);border-bottom:1px solid rgba(200,149,108,.12);padding:.55rem 2rem;display:flex;justify-content:space-between;align-items:center}
+.nb{display:flex;align-items:center;gap:.4rem;font-family:'Lora',serif;font-size:1.1rem;font-weight:700;color:#dbb08a;text-decoration:none}
+.nav-links{display:flex;gap:.7rem;align-items:center}
+.nav-links a{color:#9c9085;font-size:.82rem;text-decoration:none;font-family:'Inter',sans-serif}
+.nav-links a:hover{color:#dbb08a}
+
+.container{max-width:900px;margin:80px auto 40px;padding:0 1.5rem;text-align:center}
+h1{font-family:'Lora',serif;font-size:2.2rem;color:#dbb08a;margin-bottom:.5rem}
+.sub{color:#9c9085;font-size:.95rem;margin-bottom:2.5rem}
+
+.plans{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;margin-bottom:3rem}
+.plan{background:linear-gradient(145deg,#1e1812,#151010);border:1px solid rgba(200,149,108,.15);border-radius:14px;padding:2rem 1.5rem;text-align:center;position:relative;transition:.3s}
+.plan:hover{border-color:rgba(200,149,108,.35);transform:translateY(-4px)}
+.plan.featured{border-color:rgba(200,149,108,.4);box-shadow:0 0 30px rgba(200,149,108,.1)}
+.plan.featured::before{content:'MOST POPULAR';position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff;font-size:.6rem;font-weight:700;padding:.2rem .8rem;border-radius:4px;letter-spacing:1px}
+.plan-name{font-family:'Lora',serif;font-size:1.3rem;font-weight:700;color:#dbb08a;margin-bottom:.3rem}
+.plan-price{font-size:2.5rem;font-weight:800;color:#e8dfd4;margin:.5rem 0}
+.plan-price span{font-size:.9rem;font-weight:400;color:#9c9085}
+.plan-desc{font-size:.8rem;color:#9c9085;margin-bottom:1.2rem;line-height:1.5}
+.plan-features{list-style:none;padding:0;text-align:left;margin-bottom:1.5rem}
+.plan-features li{font-size:.8rem;color:#9c9085;padding:.3rem 0;border-bottom:1px solid rgba(200,149,108,.06);display:flex;align-items:center;gap:.4rem}
+.plan-features li::before{content:'\2713';color:#5dba7d;font-weight:700;font-size:.7rem}
+.plan-features li.no::before{content:'\2717';color:#c45c4a}
+.plan-btn{width:100%;padding:.65rem;border-radius:8px;font-size:.9rem;font-weight:600;cursor:pointer;font-family:inherit;transition:.3s;border:none}
+.plan-btn.primary{background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff}
+.plan-btn.primary:hover{box-shadow:0 0 20px rgba(255,200,120,.35)}
+.plan-btn.outline{background:transparent;border:2px solid #8a6548;color:#dbb08a}
+.plan-btn.outline:hover{background:rgba(138,101,72,.1)}
+
+.faq{max-width:680px;margin:0 auto 3rem;text-align:left}
+.faq h2{font-family:'Lora',serif;font-size:1.4rem;color:#dbb08a;margin-bottom:1rem;text-align:center}
+.faq-item{border-bottom:1px solid rgba(200,149,108,.1);padding:.8rem 0}
+.faq-q{font-size:.88rem;font-weight:600;color:#e8dfd4;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+.faq-q::after{content:'+';color:#9c9085;font-size:1.1rem}
+.faq-a{font-size:.82rem;color:#9c9085;line-height:1.6;max-height:0;overflow:hidden;transition:.3s}
+.faq-item.open .faq-a{max-height:200px;padding-top:.4rem}
+.faq-item.open .faq-q::after{content:'\2212'}
+
+.footer{text-align:center;padding:2rem;color:#6b6158;font-size:.75rem;border-top:1px solid rgba(200,149,108,.08)}
+.footer a{color:#9c9085;text-decoration:none}
+
+@media(max-width:700px){.plans{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<nav>
+  <a class="nb" href="index.html"><span>&#127807;</span> AuthorScrolls</a>
+  <div class="nav-links"><a href="index.html">&larr; Home</a></div>
+</nav>
+
+<div class="container">
+  <h1>Simple, Transparent Pricing</h1>
+  <p class="sub">Start free. Upgrade when you're ready for AI-powered analysis.</p>
+
+  <div class="plans">
+    <div class="plan">
+      <div class="plan-name">Free</div>
+      <div class="plan-price">$0<span>/mo</span></div>
+      <div class="plan-desc">Everything you need to start analyzing your writing.</div>
+      <ul class="plan-features">
+        <li>Full manuscript analysis engine</li>
+        <li>Plot, pacing, clarity, dialogue scoring</li>
+        <li>Copy editing issue detection</li>
+        <li>Show vs Tell detection</li>
+        <li>DNF risk prediction</li>
+        <li>Opening diagnosis</li>
+        <li>Blurb generator (5 styles)</li>
+        <li>Book preview (Kindle/iPad/Paperback)</li>
+        <li>Word export with highlights</li>
+        <li class="no">AI deep critique</li>
+        <li class="no">AI query letter</li>
+        <li class="no">AI beta reader simulation</li>
+      </ul>
+      <a href="app.html"><button class="plan-btn outline">Get Started Free</button></a>
+    </div>
+
+    <div class="plan featured">
+      <div class="plan-name">Starter</div>
+      <div class="plan-price">$5<span>/mo</span></div>
+      <div class="plan-desc">AI analysis to take your writing to the next level.</div>
+      <ul class="plan-features">
+        <li>Everything in Free</li>
+        <li>1 AI analysis per day</li>
+        <li>Deep narrative critique</li>
+        <li>Comparable titles finder</li>
+        <li>Query letter generator</li>
+        <li>AI weakness diagnosis</li>
+        <li>Cloud save & sync</li>
+        <li>Version history</li>
+        <li class="no">Beta reader simulation</li>
+        <li class="no">Market readiness score</li>
+        <li class="no">Chapter breakdown</li>
+      </ul>
+      <button class="plan-btn primary checkout-tier" data-plan="starter">Get Starter</button>
+    </div>
+
+    <div class="plan">
+      <div class="plan-name">Premium</div>
+      <div class="plan-price">$15<span>/mo</span></div>
+      <div class="plan-desc">Full AI power for serious writers ready to publish.</div>
+      <ul class="plan-features">
+        <li>Everything in Starter</li>
+        <li>5 AI analyses per day</li>
+        <li>Beta reader simulation (5 personas)</li>
+        <li>Market readiness score</li>
+        <li>Chapter-by-chapter breakdown</li>
+        <li>AI weakness diagnosis</li>
+        <li>Genre-specific guidance</li>
+        <li>Priority support</li>
+        <li>Unlimited cloud storage</li>
+      </ul>
+      <button class="plan-btn primary checkout-tier" data-plan="premium">Get Premium</button>
+    </div>
+  </div>
+
+  <div class="faq">
+    <h2>Frequently Asked Questions</h2>
+    <div class="faq-item">
+      <div class="faq-q">What AI models do you use?</div>
+      <div class="faq-a">We use Claude by Anthropic for deep narrative analysis and GPT-4.1-mini by OpenAI for faster tasks like comparable titles and query letters. All processing happens server-side — your manuscript never touches the browser.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Is my manuscript safe?</div>
+      <div class="faq-a">Yes. Your manuscripts are stored in encrypted Firebase storage. AI providers (Anthropic/OpenAI) do not store or train on your text. We never share your work with anyone.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Can I cancel anytime?</div>
+      <div class="faq-a">Absolutely. Cancel from your profile page at any time. No contracts, no hidden fees. Your data is preserved for 30 days after cancellation.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">What's the difference between the rules engine and AI?</div>
+      <div class="faq-a">The rules engine (free) runs locally in your browser — it detects patterns like passive voice, weak verbs, pacing issues, and show-vs-tell. AI features (paid) send excerpts to language models for deeper analysis: narrative critique, comparable titles, beta reader simulation, and more.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">What file formats are supported?</div>
+      <div class="faq-a">.docx (Word), .pdf, and .txt files up to 10MB.</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <p>AuthorScrolls &middot; Author's Best Buddy &middot; &copy; 2026</p>
+  <p style="margin-top:.3rem"><a href="legal.html#terms">Terms</a> &middot; <a href="legal.html#privacy">Privacy</a> &middot; <a href="legal.html#contact">Contact</a></p>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script>
+firebase.initializeApp({apiKey:"AIzaSyBkLqqoxn7gkE9EBvGeuRz54-7xEN9dAWI",authDomain:"writers-manuscript.firebaseapp.com",projectId:"writers-manuscript",storageBucket:"writers-manuscript.appspot.com",messagingSenderId:"420138585851",appId:"1:420138585851:web:09c683cf202c9dde50aa5e"});
+document.querySelectorAll('.faq-item').forEach(item=>{item.querySelector('.faq-q').addEventListener('click',()=>item.classList.toggle('open'))});
+document.querySelectorAll('.checkout-tier').forEach(btn=>{btn.addEventListener('click',async()=>{
+  const user=firebase.auth().currentUser;
+  if(!user){alert('Please sign in first at the home page');window.location.href='index.html';return}
+  const plan=btn.dataset.plan;btn.textContent='Redirecting...';btn.disabled=true;
+  try{const resp=await fetch('/api/checkout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userId:user.uid,email:user.email,plan})});const data=await resp.json();if(data.url)window.location.href=data.url;else{alert(data.error||'Checkout failed');btn.textContent='Get '+plan.charAt(0).toUpperCase()+plan.slice(1);btn.disabled=false}}
+  catch(e){alert('Error: '+e.message);btn.textContent='Get '+plan.charAt(0).toUpperCase()+plan.slice(1);btn.disabled=false}
+})});
+</script>
+</body>
+</html>

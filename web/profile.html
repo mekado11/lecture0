@@ -307,12 +307,49 @@ document.getElementById('clear-data-btn').addEventListener('click',()=>{
   }
 });
 
-// Delete account
-document.getElementById('delete-account-btn').addEventListener('click',async()=>{
-  if(!confirm('Permanently delete your account? This cannot be undone.'))return;
-  if(!confirm('Are you really sure? All manuscripts and data will be lost.'))return;
-  try{await auth.currentUser.delete();localStorage.clear();sessionStorage.clear();window.location.href='index.html'}
-  catch(e){if(e.code==='auth/requires-recent-login'){alert('For security, please sign out and sign back in before deleting your account.')}else alert(e.message)}
+// Delete account — requires typing "permanently delete" to confirm
+document.getElementById('delete-account-btn').addEventListener('click',()=>{
+  // Show confirmation modal
+  let overlay=document.getElementById('delete-confirm-overlay');
+  if(overlay){overlay.remove()}
+  overlay=document.createElement('div');
+  overlay.id='delete-confirm-overlay';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:3000';
+  overlay.innerHTML=`
+    <div style="background:#1c1917;border:1px solid #3a3330;border-radius:12px;padding:2rem;max-width:420px;width:90%;text-align:center;box-shadow:0 12px 48px rgba(0,0,0,.5)">
+      <div style="font-size:2rem;margin-bottom:.5rem">&#9888;</div>
+      <h3 style="color:#c45c4a;font-family:Lora,serif;margin-bottom:.5rem">Delete Your Account</h3>
+      <p style="color:#9c9085;font-size:.82rem;line-height:1.6;margin-bottom:1rem">This will permanently delete your account and all manuscripts. This action <strong style="color:#e8dfd4">cannot be undone</strong>.</p>
+      <p style="color:#9c9085;font-size:.78rem;margin-bottom:.6rem">Type <strong style="color:#c45c4a">permanently delete</strong> to confirm:</p>
+      <input type="text" id="delete-confirm-input" placeholder="Type here..." style="width:100%;padding:.5rem .65rem;background:#252220;border:1px solid #3a3330;border-radius:6px;color:#e8dfd4;font-size:.85rem;font-family:monospace;text-align:center;margin-bottom:1rem">
+      <div style="display:flex;gap:.5rem;justify-content:center">
+        <button id="delete-confirm-cancel" style="padding:.45rem 1.2rem;background:#252220;border:1px solid #3a3330;color:#9c9085;border-radius:6px;font-size:.82rem;cursor:pointer;font-family:inherit">Cancel</button>
+        <button id="delete-confirm-go" style="padding:.45rem 1.2rem;background:#3a1515;border:1px solid #c45c4a;color:#c45c4a;border-radius:6px;font-size:.82rem;cursor:pointer;font-family:inherit;opacity:.4;pointer-events:none">Delete Account</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const input=document.getElementById('delete-confirm-input');
+  const goBtn=document.getElementById('delete-confirm-go');
+  input.addEventListener('input',()=>{
+    const match=input.value.trim().toLowerCase()==='permanently delete';
+    goBtn.style.opacity=match?'1':'.4';
+    goBtn.style.pointerEvents=match?'auto':'none';
+  });
+  document.getElementById('delete-confirm-cancel').addEventListener('click',()=>overlay.remove());
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove()});
+  goBtn.addEventListener('click',async()=>{
+    if(input.value.trim().toLowerCase()!=='permanently delete')return;
+    goBtn.textContent='Deleting...';goBtn.style.pointerEvents='none';
+    try{await auth.currentUser.delete();localStorage.clear();sessionStorage.clear();window.location.href='index.html'}
+    catch(e){
+      if(e.code==='auth/requires-recent-login'){
+        overlay.remove();
+        alert('For security, please sign out and sign back in, then try again.');
+      }else{overlay.remove();alert(e.message)}
+    }
+  });
+  input.focus();
 });
 </script>
 </body>
