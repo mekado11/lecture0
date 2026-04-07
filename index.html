@@ -1,232 +1,202 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AuthorScrolls - Welcome to Writing, Engineered.</title>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{--bg:#120d09;--surface:#1c1510;--border:#3a3330;--text:#e8dfd4;--muted:#9c9085;--dim:#6b6158;--gold:#c8956c;--gold-l:#dbb08a;--gold-d:#8a6548;--parchment:#f0e6cc;--ink:#2c2418}
-    body{font-family:'Lora',serif;background:radial-gradient(circle at 50% 30%,#2b1f17,#120d09);color:var(--text);overflow-x:hidden;min-height:100vh}
-    .hidden{display:none!important}
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AuthorScrolls - Writing, Engineered.</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Lora',serif;background:#0a0705;color:#e8dfd4;overflow-x:hidden;min-height:100vh}
+.hidden{display:none!important}
 
-    /* NAV */
-    .nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(18,13,9,.92);backdrop-filter:blur(12px);border-bottom:1px solid rgba(200,149,108,.15);padding:.6rem 2rem;display:flex;justify-content:space-between;align-items:center}
-    .nav-brand{display:flex;align-items:center;gap:.5rem;font-family:'Lora',serif;font-size:1.15rem;font-weight:700;color:var(--gold-l)}
-    .nav-brand span{font-size:1.4rem}
-    .nav-links{display:flex;gap:.8rem;align-items:center}
-    .nav-link{color:var(--muted);font-size:.85rem;cursor:pointer;text-decoration:none;font-family:'Inter',sans-serif;transition:color .2s}
-    .nav-link:hover{color:var(--gold-l)}
-    .nav-cta{padding:.5rem 1.5rem;background:linear-gradient(135deg,var(--gold),var(--gold-d));color:#fff;border:none;border-radius:6px;font-size:.85rem;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:none;transition:all .3s ease;box-shadow:0 0 0 transparent}
-    .nav-cta:hover{box-shadow:0 0 20px rgba(255,200,120,.4);transform:translateY(-1px)}
-    .user-info{display:flex;align-items:center;gap:.5rem;font-size:.82rem;color:var(--muted)}
-    .user-avatar{width:28px;height:28px;border-radius:50%;background:var(--gold-d);display:flex;align-items:center;justify-content:center;font-size:.7rem;color:#fff;font-weight:700}
+/* BG */
+.bg{position:fixed;inset:0;background:radial-gradient(ellipse at 50% 30%,#2b1f14,#120d09 60%,#0a0705);z-index:0}
+.bg::after{content:'';position:absolute;inset:0;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.75' numOctaves='4' type='fractalNoise'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='.08'/%3E%3C/svg%3E");opacity:.5}
 
-    /* SCROLL WRAPPER */
-    .scroll-outer{max-width:820px;margin:100px auto 60px;padding:0 2rem;position:relative}
-    .scroll-outer::before{content:'';position:absolute;inset:-20px;background:radial-gradient(ellipse at center,rgba(200,149,108,.06),transparent 70%);pointer-events:none;z-index:0}
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,7,5,.88);backdrop-filter:blur(12px);border-bottom:1px solid rgba(200,149,108,.12);padding:.55rem 2rem;display:flex;justify-content:space-between;align-items:center}
+.nb{display:flex;align-items:center;gap:.4rem;font-family:'Lora',serif;font-size:1.1rem;font-weight:700;color:#dbb08a;text-decoration:none}
+.nb span{font-size:1.3rem}
+.nl{display:flex;gap:.7rem;align-items:center}
+.nl a{color:#9c9085;font-size:.82rem;cursor:pointer;text-decoration:none;font-family:'Inter',sans-serif}
+.nl a:hover{color:#dbb08a}
+.nc{padding:.45rem 1.3rem;background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff;border:none;border-radius:6px;font-size:.82rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .3s}
+.nc:hover{box-shadow:0 0 18px rgba(255,200,120,.35);transform:translateY(-1px)}
+.ui{display:flex;align-items:center;gap:.4rem;font-size:.8rem;color:#9c9085}
+.ua{width:26px;height:26px;border-radius:50%;background:#8a6548;display:flex;align-items:center;justify-content:center;font-size:.65rem;color:#fff;font-weight:700}
 
-    /* ROLLERS - METALLIC */
-    .roller{width:100%;height:56px;position:relative;z-index:3;border-radius:10px;background:linear-gradient(180deg,#d4b896 0%,#b8956a 15%,#a07848 30%,#c4a878 50%,#a07848 70%,#b8956a 85%,#d4b896 100%);box-shadow:0 6px 24px rgba(0,0,0,.5),inset 0 2px 4px rgba(255,255,255,.15),inset 0 -2px 4px rgba(0,0,0,.3)}
-    .roller::after{content:'';position:absolute;top:8px;left:20px;right:20px;height:4px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.2),transparent);border-radius:2px}
-    .knob{position:absolute;top:-12px;width:36px;height:80px;border-radius:6px;background:linear-gradient(180deg,#d4b896,#8b6b40,#6b5030,#8b6b40,#d4b896);box-shadow:2px 0 8px rgba(0,0,0,.4),-2px 0 8px rgba(0,0,0,.4),inset 0 2px 3px rgba(255,255,255,.2)}
-    .knob.l{left:-8px}.knob.r{right:-8px}
-    .knob::before{content:'';position:absolute;top:4px;left:50%;transform:translateX(-50%);width:12px;height:12px;background:radial-gradient(circle,#d4b896,#8b6b40);border-radius:50%;box-shadow:inset 0 1px 2px rgba(255,255,255,.3)}
-    .knob::after{content:'';position:absolute;bottom:4px;left:50%;transform:translateX(-50%);width:12px;height:12px;background:radial-gradient(circle,#d4b896,#8b6b40);border-radius:50%;box-shadow:inset 0 1px 2px rgba(255,255,255,.3)}
+/* SCROLL */
+.scroll-wrap{position:relative;z-index:1;max-width:800px;margin:90px auto 40px;padding:0 1.5rem}
 
-    /* PARCHMENT */
-    .parchment{position:relative;background:linear-gradient(145deg,#f5e6c8,#e8d3a3,#f0dbb8);padding:5rem 4rem;box-shadow:0 40px 100px rgba(0,0,0,.6),inset 0 0 60px rgba(0,0,0,.06),inset 3px 0 8px rgba(0,0,0,.04),inset -3px 0 8px rgba(0,0,0,.04);color:var(--ink);overflow:hidden}
-    .parchment::before{content:'';position:absolute;inset:0;background:linear-gradient(to right,rgba(0,0,0,.04),transparent 8%,transparent 92%,rgba(0,0,0,.04));pointer-events:none;z-index:1}
-    .parchment::after{content:'';position:absolute;inset:0;background-image:radial-gradient(rgba(0,0,0,.06) 1px,transparent 1px);background-size:4px 4px;opacity:.35;pointer-events:none;z-index:1}
+/* BRAND ABOVE ROLLER */
+.top-brand{text-align:center;margin-bottom:1rem;font-family:'Lora',serif;font-size:1.3rem;font-weight:700;color:#dbb08a}
+.top-brand span{font-size:1.5rem;vertical-align:middle}
 
-    /* TYPOGRAPHY */
-    .parchment h1{font-family:'Lora',serif;font-size:2.8rem;font-weight:700;line-height:1.2;margin-bottom:1rem;color:#2c1810;position:relative;z-index:2;letter-spacing:-.5px}
-    .parchment h2{font-family:'Lora',serif;font-size:1.5rem;font-weight:600;margin:2rem 0 .8rem;color:#3a2415;position:relative;z-index:2}
-    .parchment p{font-size:1.05rem;line-height:1.7;color:#4a3828;position:relative;z-index:2}
-    .subtitle{font-size:1.15rem;color:#6b5840;font-style:italic;margin-bottom:2.5rem}
-    .divider{width:80px;height:2px;background:linear-gradient(90deg,transparent,var(--gold),transparent);margin:2rem auto;position:relative;z-index:2}
-    .divider::before{content:'\2666';position:absolute;left:50%;top:-8px;transform:translateX(-50%);color:var(--gold);font-size:.7rem}
+/* ROLLER */
+.roller{position:relative;height:52px;z-index:5;border-radius:6px;
+  background:linear-gradient(180deg,#d4b896 0%,#c4a47a 8%,#a0804a 18%,#7a6038 28%,#b89860 38%,#d4b896 48%,#c4a87e 55%,#a0804a 65%,#8a6840 75%,#b89860 88%,#d4b896 100%);
+  box-shadow:0 8px 30px rgba(0,0,0,.6),0 2px 4px rgba(0,0,0,.3),inset 0 1px 2px rgba(255,255,255,.2)}
+.roller::before{content:'';position:absolute;top:6px;left:30px;right:30px;height:3px;background:linear-gradient(90deg,transparent 0%,rgba(255,240,210,.25) 30%,rgba(255,240,210,.15) 70%,transparent 100%);border-radius:2px}
 
-    /* SECTIONS */
-    .hero{text-align:center;padding-top:1rem;position:relative;z-index:2}
-    .hero-buttons{display:flex;gap:1rem;justify-content:center;margin:2.5rem 0 1rem}
-    .btn-gold-lg{padding:.8rem 2.2rem;background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;font-family:'Lora',serif;transition:all .3s ease;box-shadow:0 4px 12px rgba(138,101,72,.3)}
-    .btn-gold-lg:hover{box-shadow:0 0 24px rgba(255,200,120,.5);transform:translateY(-2px)}
-    .btn-outline{padding:.8rem 2.2rem;background:transparent;color:var(--ink);border:2px solid #a08060;border-radius:8px;font-size:1rem;cursor:pointer;font-family:'Lora',serif;transition:all .3s ease}
-    .btn-outline:hover{background:rgba(160,128,96,.1);transform:translateY(-1px)}
+/* FINIALS */
+.finial{position:absolute;top:-18px;width:42px;height:88px;z-index:6;
+  background:linear-gradient(180deg,#d4b896 0%,#b89860 15%,#8a6840 30%,#6a5030 45%,#8a6840 55%,#b89860 70%,#d4b896 85%,#a88850 100%);
+  border-radius:5px;box-shadow:3px 0 10px rgba(0,0,0,.4),-3px 0 10px rgba(0,0,0,.4),inset 0 2px 4px rgba(255,240,210,.2)}
+.finial.l{left:-8px}.finial.r{right:-8px}
+.finial::before{content:'';position:absolute;top:3px;left:50%;transform:translateX(-50%);width:16px;height:16px;
+  background:radial-gradient(circle at 40% 35%,#e8d0a8,#b89860 50%,#7a5830 100%);border-radius:50%;box-shadow:inset 0 1px 3px rgba(255,255,255,.25),0 2px 4px rgba(0,0,0,.3)}
+.finial::after{content:'';position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:16px;height:16px;
+  background:radial-gradient(circle at 40% 35%,#e8d0a8,#b89860 50%,#7a5830 100%);border-radius:50%;box-shadow:inset 0 1px 3px rgba(255,255,255,.25),0 2px 4px rgba(0,0,0,.3)}
 
-    .tagline{text-align:center;padding:3rem 0;position:relative;z-index:2}
-    .tag-big{font-family:'Lora',serif;font-size:1.6rem;font-weight:700;color:#2c1810;line-height:1.4}
-    .tag-sm{font-family:'Lora',serif;font-size:1.25rem;color:#6b5840;margin-top:.5rem;font-weight:600}
+/* PARCHMENT */
+.parch{position:relative;
+  background:linear-gradient(180deg,#e8d5b0,#f0e2c4 15%,#e5d4b0 30%,#f2e6c8 50%,#e0ccaa 70%,#ecdcc0 85%,#e5d0b0);
+  padding:4.5rem 3.5rem;color:#2c1810;
+  box-shadow:inset 4px 0 12px rgba(0,0,0,.06),inset -4px 0 12px rgba(0,0,0,.06),inset 0 6px 15px rgba(0,0,0,.04),inset 0 -6px 15px rgba(0,0,0,.04),0 30px 80px rgba(0,0,0,.5)}
+.parch::before{content:'';position:absolute;inset:0;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='p'%3E%3CfeTurbulence baseFrequency='.5' numOctaves='5' type='fractalNoise'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23p)' opacity='.07'/%3E%3C/svg%3E");pointer-events:none;z-index:0}
+.parch::after{content:'';position:absolute;inset:0;
+  background:repeating-linear-gradient(180deg,transparent 0px,transparent 80px,rgba(180,150,100,.06) 80px,rgba(180,150,100,.06) 81px);
+  pointer-events:none;z-index:0}
+.parch>*{position:relative;z-index:1}
 
-    /* SCREENSHOT */
-    .ss-wrap{background:#111;border-radius:12px;padding:.5rem;margin:2rem auto;max-width:680px;box-shadow:0 12px 40px rgba(0,0,0,.4);position:relative;z-index:2}
-    .ss-bar{display:flex;justify-content:space-between;align-items:center;padding:.4rem .75rem;background:#1a1715;border-radius:8px 8px 0 0;font-size:.68rem;font-family:'Inter',sans-serif;color:#9c9085}
-    .ss-body{background:#1a1715;border-radius:0 0 8px 8px;padding:.75rem;display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
-    .ss-card{background:#252220;border:1px solid #3a3330;border-radius:8px;padding:.6rem .75rem}
-    .ss-card h4{font-size:.7rem;color:var(--gold-l);margin-bottom:.2rem;font-family:'Inter',sans-serif}
-    .ss-score{font-size:1.6rem;font-weight:800;font-family:'Inter',sans-serif}
-    .ss-sub{font-size:.6rem;color:#9c9085;font-family:'Inter',sans-serif}
-    .ss-bar-bg{height:4px;background:#302b28;border-radius:2px;margin-top:.35rem;overflow:hidden}
-    .ss-fill{height:100%;border-radius:2px}
+/* TYPOGRAPHY */
+h1{font-size:2.6rem;font-weight:700;line-height:1.15;margin-bottom:.8rem;text-align:center;color:#2c1810}
+.sub{font-size:1.05rem;text-align:center;color:#5a4830;font-style:italic;margin-bottom:2rem;line-height:1.6}
+.tagb{font-size:1.5rem;font-weight:700;text-align:center;color:#2c1810;line-height:1.4}
+.tags{font-size:1.2rem;text-align:center;color:#6b5840;margin-top:.4rem;font-weight:600}
 
-    /* FEATURES */
-    .features{display:grid;grid-template-columns:repeat(3,1fr);gap:2rem;padding:2.5rem 0;position:relative;z-index:2}
-    .feat{text-align:center}
-    .feat-icon{font-size:2.2rem;margin-bottom:.6rem}
-    .feat h3{font-family:'Lora',serif;font-size:.95rem;font-weight:700;margin-bottom:.3rem;color:#2c1810}
-    .feat p{font-size:.9rem;color:#6b5840;line-height:1.5}
+/* DIVIDER */
+.div{width:100px;height:1px;margin:2rem auto;position:relative;
+  background:linear-gradient(90deg,transparent,#b89860,transparent)}
+.div::after{content:'\2666';position:absolute;left:50%;top:-7px;transform:translateX(-50%);color:#b89860;font-size:.6rem;background:linear-gradient(180deg,#f0e2c4,#e8d5b0);padding:0 6px}
 
-    .final-cta{text-align:center;padding:2.5rem 0 1rem;position:relative;z-index:2}
+/* BUTTONS */
+.btns{display:flex;gap:1rem;justify-content:center;margin:2rem 0 .5rem}
+.bg1{padding:.75rem 2rem;background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;font-family:'Lora',serif;transition:all .3s;box-shadow:0 3px 10px rgba(138,101,72,.3)}
+.bg1:hover{box-shadow:0 0 20px rgba(255,200,120,.45);transform:translateY(-2px)}
+.bo1{padding:.75rem 2rem;background:transparent;color:#2c1810;border:2px solid #a08060;border-radius:8px;font-size:.95rem;cursor:pointer;font-family:'Lora',serif;transition:all .3s}
+.bo1:hover{background:rgba(160,128,96,.08);transform:translateY(-1px)}
 
-    /* FOOTER */
-    .footer{text-align:center;padding:2.5rem;color:var(--dim);font-size:.8rem;font-family:'Inter',sans-serif}
+/* SCREENSHOT */
+.ss{background:#111;border-radius:10px;padding:.4rem;margin:2rem auto;max-width:660px;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+.ss-t{display:flex;justify-content:space-between;padding:.35rem .7rem;background:#1a1715;border-radius:7px 7px 0 0;font-size:.65rem;font-family:'Inter',sans-serif;color:#9c9085}
+.ss-b{background:#1a1715;border-radius:0 0 7px 7px;padding:.7rem;display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.sc{background:#252220;border:1px solid #3a3330;border-radius:7px;padding:.55rem .7rem}
+.sc h4{font-size:.65rem;color:#dbb08a;margin-bottom:.15rem;font-family:'Inter',sans-serif}
+.sn{font-size:1.5rem;font-weight:800;font-family:'Inter',sans-serif}
+.sb{height:3px;background:#302b28;border-radius:2px;margin-top:.3rem;overflow:hidden}
+.sf{height:100%;border-radius:2px}
 
-    /* SCROLL REVEAL */
-    .reveal{opacity:0;transform:translateY(40px);transition:opacity .8s ease,transform .8s ease}
-    .reveal.vis{opacity:1;transform:translateY(0)}
-    .reveal:nth-child(2){transition-delay:.15s}
-    .reveal:nth-child(3){transition-delay:.3s}
+/* FEATURES */
+.feats{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;padding:2rem 0;text-align:center}
+.ft-i{font-size:1.8rem;margin-bottom:.4rem}
+.ft h3{font-size:.9rem;font-weight:700;margin-bottom:.25rem;color:#2c1810}
+.ft p{font-size:.85rem;color:#6b5840;line-height:1.4}
 
-    /* AUTH MODAL */
-    .auth-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(4px)}
-    .auth-overlay.show{display:flex}
-    .auth-box{background:linear-gradient(145deg,#1e1812,#151010);border:1px solid rgba(200,149,108,.2);border-radius:16px;padding:2.5rem;max-width:420px;width:90%;text-align:center;font-family:'Inter',sans-serif;box-shadow:0 24px 60px rgba(0,0,0,.5)}
-    .auth-box h2{font-family:'Lora',serif;color:var(--gold-l);margin-bottom:.5rem;font-size:1.5rem}
-    .auth-box>p{color:var(--muted);font-size:.85rem;margin-bottom:1.5rem}
-    .auth-btn{display:flex;align-items:center;justify-content:center;gap:.6rem;width:100%;padding:.7rem;border-radius:10px;font-size:.9rem;font-weight:600;cursor:pointer;margin-bottom:.6rem;border:1px solid;font-family:inherit;transition:all .25s}
-    .auth-btn-google{background:#fff;color:#333;border-color:#ddd}.auth-btn-google:hover{background:#f5f5f5;box-shadow:0 2px 8px rgba(0,0,0,.1)}
-    .auth-btn-email{background:transparent;color:var(--text);border-color:#4a4340}.auth-btn-email:hover{background:#252220}
-    .auth-divider{display:flex;align-items:center;gap:.75rem;margin:1rem 0;font-size:.75rem;color:#6b6158}
-    .auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:#3a3330}
-    .auth-input{width:100%;padding:.65rem .85rem;background:#1a1510;border:1px solid #3a3330;border-radius:8px;color:var(--text);font-size:.85rem;margin-bottom:.55rem;font-family:inherit;transition:border-color .2s}
-    .auth-input:focus{outline:none;border-color:var(--gold)}
-    .auth-input::placeholder{color:#6b6158}
-    .auth-submit{width:100%;padding:.7rem;background:linear-gradient(135deg,var(--gold),var(--gold-d));color:#fff;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;font-family:inherit;margin-top:.3rem;transition:all .3s}
-    .auth-submit:hover{box-shadow:0 0 20px rgba(255,200,120,.4);transform:translateY(-1px)}
-    .auth-toggle{font-size:.82rem;color:var(--muted);margin-top:1.2rem}
-    .auth-toggle span{color:var(--gold-l);cursor:pointer;text-decoration:underline}
-    .auth-error{color:#c45c4a;font-size:.8rem;margin-top:.6rem;display:none}
-    .auth-close{position:absolute;top:1rem;right:1.2rem;background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;transition:color .2s}
-    .auth-close:hover{color:var(--text)}
+/* FINAL CTA */
+.cta{text-align:center;padding:1.5rem 0 .5rem}
 
-    @media(max-width:700px){.parchment{padding:3rem 2rem}.parchment h1{font-size:2rem}.features{grid-template-columns:1fr}.ss-body{grid-template-columns:1fr}.hero-buttons{flex-direction:column;align-items:center}}
-  </style>
+/* FOOTER */
+.foot{text-align:center;padding:2rem;color:#6b6158;font-size:.75rem;font-family:'Inter',sans-serif;position:relative;z-index:1}
+.foot a{color:#9c9085;text-decoration:none}.foot a:hover{color:#dbb08a}
+
+/* REVEAL */
+.rv{opacity:0;transform:translateY(35px);transition:opacity .7s ease,transform .7s ease}
+.rv.v{opacity:1;transform:translateY(0)}
+
+/* AUTH */
+.ao{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(4px)}
+.ao.show{display:flex}
+.ab{background:linear-gradient(145deg,#1e1812,#151010);border:1px solid rgba(200,149,108,.2);border-radius:14px;padding:2.2rem;max-width:400px;width:90%;text-align:center;font-family:'Inter',sans-serif;box-shadow:0 20px 50px rgba(0,0,0,.5);position:relative}
+.ab h2{font-family:'Lora',serif;color:#dbb08a;margin-bottom:.4rem;font-size:1.4rem}
+.ab>p{color:#9c9085;font-size:.82rem;margin-bottom:1.3rem}
+.abtn{display:flex;align-items:center;justify-content:center;gap:.5rem;width:100%;padding:.65rem;border-radius:9px;font-size:.88rem;font-weight:600;cursor:pointer;margin-bottom:.5rem;border:1px solid;font-family:inherit;transition:.2s}
+.ag{background:#fff;color:#333;border-color:#ddd}.ag:hover{background:#f5f5f5}
+.adv{display:flex;align-items:center;gap:.6rem;margin:.8rem 0;font-size:.72rem;color:#6b6158}
+.adv::before,.adv::after{content:'';flex:1;height:1px;background:#3a3330}
+.ai{width:100%;padding:.6rem .8rem;background:#1a1510;border:1px solid #3a3330;border-radius:7px;color:#e8dfd4;font-size:.82rem;margin-bottom:.45rem;font-family:inherit}
+.ai:focus{outline:none;border-color:#c8956c}
+.ai::placeholder{color:#6b6158}
+.as{width:100%;padding:.65rem;background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff;border:none;border-radius:7px;font-size:.9rem;font-weight:600;cursor:pointer;font-family:inherit;margin-top:.2rem;transition:all .3s}
+.as:hover{box-shadow:0 0 18px rgba(255,200,120,.35)}
+.at{font-size:.8rem;color:#9c9085;margin-top:1rem}.at span{color:#dbb08a;cursor:pointer;text-decoration:underline}
+.ae{color:#c45c4a;font-size:.78rem;margin-top:.5rem;display:none}
+.ax{position:absolute;top:.8rem;right:1rem;background:none;border:none;color:#9c9085;font-size:1.2rem;cursor:pointer}
+
+@media(max-width:650px){.parch{padding:2.5rem 1.5rem}h1{font-size:1.8rem}.feats{grid-template-columns:1fr}.ss-b{grid-template-columns:1fr}.btns{flex-direction:column;align-items:center}}
+</style>
 </head>
 <body>
-  <nav class="nav">
-    <div class="nav-brand"><span>&#127807;</span> AuthorScrolls</div>
-    <div class="nav-links" id="nav-links">
-      <a class="nav-link" onclick="showAuth('signin')">Sign In</a>
-      <button class="nav-cta" onclick="showAuth('signup')">Sign Up Free</button>
-    </div>
-    <div class="user-info hidden" id="nav-user">
-      <div class="user-avatar" id="user-avatar">?</div>
-      <span id="user-name">User</span>
-      <a class="nav-cta" href="app.html">Open Editor</a>
-    </div>
-  </nav>
+<div class="bg"></div>
+<nav>
+  <a class="nb" href="index.html"><span>&#127807;</span> AuthorScrolls</a>
+  <div class="nl" id="nl"><a onclick="showAuth('signin')">Sign In</a><button class="nc" onclick="showAuth('signup')">Sign Up Free</button></div>
+  <div class="ui hidden" id="nu"><div class="ua" id="uav">?</div><span id="unm">User</span><a class="nc" href="app.html">Open Editor</a></div>
+</nav>
 
-  <div class="scroll-outer">
-    <!-- TOP ROLLER -->
-    <div class="roller"><div class="knob l"></div><div class="knob r"></div></div>
-
-    <!-- PARCHMENT -->
-    <div class="parchment">
-      <div class="hero reveal">
-        <h1>Welcome to Writing,<br>Engineered.</h1>
-        <p class="subtitle">Turn your words into precision-crafted storytelling<br>with real-time intelligence, not guesswork.</p>
-        <div class="hero-buttons">
-          <button class="btn-gold-lg" onclick="showAuth('signup')">Start Writing</button>
-          <button class="btn-outline" onclick="document.getElementById('how').scrollIntoView({behavior:'smooth'})">See How It Works</button>
-        </div>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="tagline reveal" id="how">
-        <p class="tag-big">Most tools fix grammar.</p>
-        <p class="tag-big">None tell you if your story works.</p>
-        <div class="divider"></div>
-        <p class="tag-sm">Measure How Your Writing Performs</p>
-      </div>
-
-      <!-- SCREENSHOT -->
-      <div class="ss-wrap reveal">
-        <div class="ss-bar">
-          <span>&#127807; AuthorScrolls &nbsp; &#9889; 512</span>
-          <span>LIVE SCORE: <b style="color:#dbb08a">52</b> &#8593; &nbsp; &#8635; +12</span>
-        </div>
-        <div class="ss-body">
-          <div class="ss-card"><div style="display:flex;align-items:center;gap:.4rem"><div class="ss-score" style="color:#c45c4a">37</div><div><h4>Engagement</h4><div class="ss-sub">Weak transitions</div></div></div><div class="ss-bar-bg"><div class="ss-fill" style="width:37%;background:#c45c4a"></div></div></div>
-          <div class="ss-card"><div style="display:flex;align-items:center;gap:.4rem"><div class="ss-score" style="color:#d4a855">57</div><div><h4>Pacing</h4><div class="ss-sub">382 issues</div></div></div><div class="ss-bar-bg"><div class="ss-fill" style="width:57%;background:#d4a855"></div></div></div>
-          <div class="ss-card"><div style="display:flex;align-items:center;gap:.4rem"><div class="ss-score" style="color:#5dba7d">73</div><div><h4>Clarity</h4><div class="ss-sub">Good flow</div></div></div><div class="ss-bar-bg"><div class="ss-fill" style="width:73%;background:#5dba7d"></div></div></div>
-          <div class="ss-card"><div style="display:flex;align-items:center;gap:.4rem"><div class="ss-score" style="color:#d4a855">63</div><div><h4>DNF Risk</h4><div class="ss-sub">Mid paced</div></div></div><div class="ss-bar-bg"><div class="ss-fill" style="width:63%;background:#d4a855"></div></div><div style="display:flex;justify-content:space-between;font-size:.5rem;color:#9c9085;margin-top:.15rem"><span>Safe</span><span>At Risk</span></div></div>
-        </div>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="features">
-        <div class="feat reveal"><div class="feat-icon">&#127811;</div><h3>See exactly what's working &mdash; or not</h3><p>Every sentence scored for clarity, pacing, engagement, and reader impact.</p></div>
-        <div class="feat reveal"><div class="feat-icon">&#9997;</div><h3>Fix issues with a click, tailored to your story goals</h3><p>Replace & Fix rewrites weak verbs, splits long sentences, and removes filler automatically.</p></div>
-        <div class="feat reveal"><div class="feat-icon">&#128065;</div><h3>Know how readers will respond before they read</h3><p>DNF Risk, engagement score, hook strength, and emotional journey mapping.</p></div>
-      </div>
-
-      <div class="final-cta reveal">
-        <button class="btn-gold-lg" style="font-size:1.15rem;padding:.9rem 2.8rem" onclick="showAuth('signup')">Start Writing Better Today &rsaquo;</button>
+<div class="scroll-wrap">
+  <div class="top-brand"><span>&#127807;</span> AuthorScrolls</div>
+  <div class="roller"><div class="finial l"></div><div class="finial r"></div></div>
+  <div class="parch">
+    <div class="rv"><h1>Welcome to Writing,<br>Engineered.</h1><p class="sub">Turn your words into precision-crafted storytelling<br>with real-time intelligence, not guesswork.</p>
+    <div class="btns"><button class="bg1" onclick="showAuth('signup')">Start Writing</button><button class="bo1" onclick="document.getElementById('how').scrollIntoView({behavior:'smooth'})">See How It Works</button></div></div>
+    <div class="div"></div>
+    <div class="rv" id="how"><p class="tagb">Most tools fix grammar.</p><p class="tagb">None tell you if your story works.</p><div class="div"></div><p class="tags">Measure How Your Writing Performs</p></div>
+    <div class="ss rv">
+      <div class="ss-t"><span>&#127807; AuthorScrolls &#9889; 512</span><span>LIVE SCORE: <b style="color:#dbb08a">52</b> &#8593; &#8635; +12</span></div>
+      <div class="ss-b">
+        <div class="sc"><div style="display:flex;align-items:center;gap:.35rem"><div class="sn" style="color:#c45c4a">37</div><div><h4>Engagement</h4><div style="font-size:.55rem;color:#9c9085">Weak transitions</div></div></div><div class="sb"><div class="sf" style="width:37%;background:#c45c4a"></div></div></div>
+        <div class="sc"><div style="display:flex;align-items:center;gap:.35rem"><div class="sn" style="color:#d4a855">57</div><div><h4>Pacing</h4><div style="font-size:.55rem;color:#9c9085">382 issues</div></div></div><div class="sb"><div class="sf" style="width:57%;background:#d4a855"></div></div></div>
+        <div class="sc"><div style="display:flex;align-items:center;gap:.35rem"><div class="sn" style="color:#5dba7d">73</div><div><h4>Clarity</h4><div style="font-size:.55rem;color:#9c9085">Good flow</div></div></div><div class="sb"><div class="sf" style="width:73%;background:#5dba7d"></div></div></div>
+        <div class="sc"><div style="display:flex;align-items:center;gap:.35rem"><div class="sn" style="color:#d4a855">63</div><div><h4>DNF Risk</h4><div style="font-size:.55rem;color:#9c9085">Mid paced</div></div></div><div class="sb"><div class="sf" style="width:63%;background:#d4a855"></div></div></div>
       </div>
     </div>
-
-    <!-- BOTTOM ROLLER -->
-    <div class="roller"><div class="knob l"></div><div class="knob r"></div></div>
+    <div class="div"></div>
+    <div class="feats">
+      <div class="ft rv"><div class="ft-i">&#127811;</div><h3>See exactly what's working — or not</h3><p>Every sentence scored for clarity, pacing, engagement, and reader impact.</p></div>
+      <div class="ft rv"><div class="ft-i">&#9997;</div><h3>Fix issues with a click, tailored to your goals</h3><p>Replace & Fix rewrites weak verbs, splits long sentences, removes filler.</p></div>
+      <div class="ft rv"><div class="ft-i">&#128065;</div><h3>Know how readers respond before they read</h3><p>DNF Risk, engagement, hook strength, emotional journey mapping.</p></div>
+    </div>
+    <div class="cta rv"><button class="bg1" style="font-size:1.05rem;padding:.85rem 2.5rem" onclick="showAuth('signup')">Start Writing Better Today &#8250;</button></div>
   </div>
+  <div class="roller"><div class="finial l"></div><div class="finial r"></div></div>
+</div>
 
-  <div class="footer">
-    <p>AuthorScrolls &middot; Author's Best Buddy &middot; &copy; 2026</p>
-    <p style="margin-top:.3rem;font-size:.7rem"><a href="legal.html#terms" style="color:var(--dim)">Terms</a> &middot; <a href="legal.html#privacy" style="color:var(--dim)">Privacy</a> &middot; <a href="legal.html#cookies" style="color:var(--dim)">Cookies</a> &middot; <a href="legal.html#ai" style="color:var(--dim)">AI Disclaimer</a> &middot; <a href="legal.html#contact" style="color:var(--dim)">Contact</a></p>
-  </div>
+<div class="foot">
+  <p>AuthorScrolls &middot; Author's Best Buddy &middot; &copy; 2026</p>
+  <p style="margin-top:.3rem"><a href="legal.html#terms">Terms</a> &middot; <a href="legal.html#privacy">Privacy</a> &middot; <a href="legal.html#cookies">Cookies</a> &middot; <a href="legal.html#ai">AI Disclaimer</a> &middot; <a href="legal.html#contact">Contact</a></p>
+</div>
 
-  <!-- Auth Modal -->
-  <div class="auth-overlay" id="auth-overlay">
-    <div class="auth-box" style="position:relative">
-      <button class="auth-close" onclick="hideAuth()">&times;</button>
-      <h2 id="auth-title">Welcome Back</h2>
-      <p id="auth-subtitle">Sign in to access your manuscripts</p>
-      <button class="auth-btn auth-btn-google" id="google-btn">
-        <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-        Continue with Google
-      </button>
-      <div class="auth-divider">or</div>
-      <div>
-        <input type="text" class="auth-input" id="auth-name" placeholder="Full Name (for sign up)" style="display:none">
-        <input type="email" class="auth-input" id="auth-email" placeholder="Email address">
-        <input type="password" class="auth-input" id="auth-password" placeholder="Password (min 6 characters)">
-        <button class="auth-submit" id="email-submit">Sign In</button>
-      </div>
-      <div class="auth-error" id="auth-error"></div>
-      <div class="auth-toggle" id="auth-toggle">Don't have an account? <span onclick="switchAuthMode()">Sign up</span></div>
-    </div>
-  </div>
+<!-- AUTH -->
+<div class="ao" id="ao">
+<div class="ab"><button class="ax" onclick="hideAuth()">&times;</button>
+<h2 id="ati">Welcome Back</h2><p id="asu">Sign in to access your manuscripts</p>
+<button class="abtn ag" id="gbtn"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>Continue with Google</button>
+<div class="adv">or</div>
+<input type="text" class="ai" id="anm" placeholder="Full Name" style="display:none">
+<input type="email" class="ai" id="aem" placeholder="Email address">
+<input type="password" class="ai" id="apw" placeholder="Password (min 6 characters)">
+<button class="as" id="aes">Sign In</button>
+<div class="ae" id="aer"></div>
+<div class="at" id="atg">Don't have an account? <span onclick="sw()">Sign up</span></div>
+</div></div>
 
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-  <script>
-    firebase.initializeApp({apiKey:"AIzaSyBkLqqoxn7gkE9EBvGeuRz54-7xEN9dAWI",authDomain:"writers-manuscript.firebaseapp.com",projectId:"writers-manuscript",storageBucket:"writers-manuscript.appspot.com",messagingSenderId:"420138585851",appId:"1:420138585851:web:09c683cf202c9dde50aa5e"});
-    const auth=firebase.auth();
-    let authMode='signin';
-    auth.onAuthStateChanged(u=>{if(u){document.getElementById('nav-links').classList.add('hidden');document.getElementById('nav-user').classList.remove('hidden');document.getElementById('user-name').textContent=u.displayName||u.email.split('@')[0];document.getElementById('user-avatar').textContent=(u.displayName||u.email)[0].toUpperCase();hideAuth()}else{document.getElementById('nav-links').classList.remove('hidden');document.getElementById('nav-user').classList.add('hidden')}});
-    function showAuth(m){authMode=m||'signin';document.getElementById('auth-overlay').classList.add('show');if(authMode==='signup'){document.getElementById('auth-title').textContent='Create Your Account';document.getElementById('auth-subtitle').textContent='Start analyzing your manuscripts for free';document.getElementById('auth-name').style.display='block';document.getElementById('email-submit').textContent='Sign Up';document.getElementById('auth-toggle').innerHTML='Already have an account? <span onclick="switchAuthMode()">Sign in</span>'}else{document.getElementById('auth-title').textContent='Welcome Back';document.getElementById('auth-subtitle').textContent='Sign in to access your manuscripts';document.getElementById('auth-name').style.display='none';document.getElementById('email-submit').textContent='Sign In';document.getElementById('auth-toggle').innerHTML='Don\'t have an account? <span onclick="switchAuthMode()">Sign up</span>'}document.getElementById('auth-error').style.display='none'}
-    function hideAuth(){document.getElementById('auth-overlay').classList.remove('show')}
-    function switchAuthMode(){showAuth(authMode==='signin'?'signup':'signin')}
-    function showError(m){const e=document.getElementById('auth-error');e.textContent=m;e.style.display='block'}
-    document.getElementById('google-btn').addEventListener('click',async()=>{try{await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());window.location.href='app.html'}catch(e){showError(e.message)}});
-    document.getElementById('email-submit').addEventListener('click',async()=>{const email=document.getElementById('auth-email').value.trim(),pw=document.getElementById('auth-password').value,name=document.getElementById('auth-name').value.trim();if(!email||!pw){showError('Enter email and password');return}if(pw.length<6){showError('Password: 6+ characters');return}try{if(authMode==='signup'){const c=await auth.createUserWithEmailAndPassword(email,pw);if(name)await c.user.updateProfile({displayName:name})}else{await auth.signInWithEmailAndPassword(email,pw)}window.location.href='app.html'}catch(e){const m={'auth/email-already-in-use':'Email already registered. Try signing in.','auth/invalid-email':'Invalid email.','auth/user-not-found':'No account with this email.','auth/wrong-password':'Incorrect password.','auth/weak-password':'Password: 6+ characters.'};showError(m[e.code]||e.message)}});
-    // Scroll reveal
-    const obs=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('vis')})},{threshold:.15});
-    document.querySelectorAll('.reveal').forEach(el=>obs.observe(el));
-  </script>
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script>
+firebase.initializeApp({apiKey:"AIzaSyBkLqqoxn7gkE9EBvGeuRz54-7xEN9dAWI",authDomain:"writers-manuscript.firebaseapp.com",projectId:"writers-manuscript",storageBucket:"writers-manuscript.appspot.com",messagingSenderId:"420138585851",appId:"1:420138585851:web:09c683cf202c9dde50aa5e"});
+const auth=firebase.auth();let am='signin';
+auth.onAuthStateChanged(u=>{if(u){document.getElementById('nl').classList.add('hidden');document.getElementById('nu').classList.remove('hidden');document.getElementById('unm').textContent=u.displayName||u.email.split('@')[0];document.getElementById('uav').textContent=(u.displayName||u.email)[0].toUpperCase();hideAuth()}else{document.getElementById('nl').classList.remove('hidden');document.getElementById('nu').classList.add('hidden')}});
+function showAuth(m){am=m||'signin';document.getElementById('ao').classList.add('show');if(am==='signup'){document.getElementById('ati').textContent='Create Your Account';document.getElementById('asu').textContent='Start analyzing your manuscripts for free';document.getElementById('anm').style.display='block';document.getElementById('aes').textContent='Sign Up';document.getElementById('atg').innerHTML='Already have an account? <span onclick="sw()">Sign in</span>'}else{document.getElementById('ati').textContent='Welcome Back';document.getElementById('asu').textContent='Sign in to access your manuscripts';document.getElementById('anm').style.display='none';document.getElementById('aes').textContent='Sign In';document.getElementById('atg').innerHTML='Don\'t have an account? <span onclick="sw()">Sign up</span>'}document.getElementById('aer').style.display='none'}
+function hideAuth(){document.getElementById('ao').classList.remove('show')}
+function sw(){showAuth(am==='signin'?'signup':'signin')}
+function se(m){const e=document.getElementById('aer');e.textContent=m;e.style.display='block'}
+document.getElementById('gbtn').addEventListener('click',async()=>{try{await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());window.location.href='app.html'}catch(e){se(e.message)}});
+document.getElementById('aes').addEventListener('click',async()=>{const em=document.getElementById('aem').value.trim(),pw=document.getElementById('apw').value,nm=document.getElementById('anm').value.trim();if(!em||!pw){se('Enter email and password');return}if(pw.length<6){se('Password: 6+ characters');return}try{if(am==='signup'){const c=await auth.createUserWithEmailAndPassword(em,pw);if(nm)await c.user.updateProfile({displayName:nm})}else{await auth.signInWithEmailAndPassword(em,pw)}window.location.href='app.html'}catch(e){const m={'auth/email-already-in-use':'Email already registered.','auth/invalid-email':'Invalid email.','auth/user-not-found':'No account found.','auth/wrong-password':'Incorrect password.','auth/weak-password':'Password too short.'};se(m[e.code]||e.message)}});
+new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('v')})},{threshold:.15}).observe(document.querySelectorAll?document.querySelectorAll('.rv').forEach(el=>el)?document.body:document.body);
+document.querySelectorAll('.rv').forEach(el=>new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('v')})},{threshold:.15}).observe(el));
+</script>
 </body>
 </html>
