@@ -167,6 +167,44 @@
     </div>
   </div>
 
+  <!-- PRICING MODAL -->
+  <div id="pricing-modal" class="modal hidden">
+    <div class="modal-box" style="max-width:500px;position:relative;text-align:center">
+      <button style="position:absolute;top:.8rem;right:1rem;background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer" onclick="document.getElementById('pricing-modal').classList.add('hidden')">&times;</button>
+      <h2 style="font-family:Lora,serif;color:var(--gold-l);margin-bottom:.3rem">Upgrade to Premium</h2>
+      <p style="color:var(--muted);font-size:.85rem;margin-bottom:1.5rem">Unlock the full power of AuthorScrolls</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;text-align:left;margin-bottom:1.5rem">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1rem">
+          <div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:.3rem">Free</div>
+          <div style="font-size:1.5rem;font-weight:800;color:var(--text);margin-bottom:.5rem">$0<span style="font-size:.75rem;color:var(--muted)">/mo</span></div>
+          <ul style="list-style:none;padding:0;font-size:.75rem;color:var(--muted)">
+            <li style="padding:.15rem 0">&#10003; Full manuscript analysis</li>
+            <li style="padding:.15rem 0">&#10003; Copy & line editing</li>
+            <li style="padding:.15rem 0">&#10003; 3 AI analyses/day</li>
+            <li style="padding:.15rem 0">&#10003; Book preview</li>
+            <li style="padding:.15rem 0;opacity:.4">&#10007; Deep AI critique</li>
+            <li style="padding:.15rem 0;opacity:.4">&#10007; Query letter gen</li>
+          </ul>
+        </div>
+        <div style="background:var(--gold-bg);border:2px solid var(--gold);border-radius:10px;padding:1rem;position:relative">
+          <div style="position:absolute;top:-.5rem;right:.5rem;background:var(--gold);color:#fff;font-size:.55rem;padding:.15rem .5rem;border-radius:8px;font-weight:700">POPULAR</div>
+          <div style="font-size:.75rem;color:var(--gold-l);text-transform:uppercase;letter-spacing:1px;margin-bottom:.3rem">Premium</div>
+          <div style="font-size:1.5rem;font-weight:800;color:var(--gold-l);margin-bottom:.5rem">$5<span style="font-size:.75rem;color:var(--muted)">/mo</span></div>
+          <ul style="list-style:none;padding:0;font-size:.75rem;color:var(--text)">
+            <li style="padding:.15rem 0">&#10003; Everything in Free</li>
+            <li style="padding:.15rem 0">&#10003; 50 AI analyses/day</li>
+            <li style="padding:.15rem 0">&#10003; Claude deep critique</li>
+            <li style="padding:.15rem 0">&#10003; Query letter gen</li>
+            <li style="padding:.15rem 0">&#10003; Beta reader sim</li>
+            <li style="padding:.15rem 0">&#10003; Market readiness</li>
+          </ul>
+        </div>
+      </div>
+      <button class="btn-gold" id="checkout-btn" style="max-width:280px;margin:0 auto">Upgrade to Premium — $5/mo</button>
+      <p style="font-size:.65rem;color:var(--dim);margin-top:.5rem">Cancel anytime. Powered by Stripe.</p>
+    </div>
+  </div>
+
   <!-- TOOLTIP -->
   <div class="tip" id="tip"></div>
   <!-- API MODAL -->

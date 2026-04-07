@@ -55,6 +55,15 @@ const AIEngine = {
   // Both work with the same path
   API_ENDPOINT: '/api/claude',
 
+  // Model routing: cheap OpenAI for most, Claude for premium
+  _routeModel(feature) {
+    // Features that benefit from Claude's superior analysis
+    const claudeFeatures = ['deepCritique', 'chapterBreakdown'];
+    if (claudeFeatures.includes(feature)) return 'claude';
+    // Everything else uses OpenAI (10-50x cheaper)
+    return 'openai-fast';
+  },
+
   async _callClaude(apiKey, systemPrompt, userPrompt, manuscriptText, feature) {
     // Check cache first
     const cached = this._getCached(manuscriptText, feature);
@@ -73,7 +82,10 @@ const AIEngine = {
     }
     // Send user ID for rate limiting (server-side only)
     const userId = typeof firebase !== 'undefined' && firebase.auth().currentUser ? firebase.auth().currentUser.uid : 'anon';
-    if (!isDirect) headers['x-user-id'] = userId;
+    if (!isDirect) {
+      headers['x-user-id'] = userId;
+      headers['x-model'] = this._routeModel(feature);
+    }
 
     const response = await fetch(endpoint, {
       method: 'POST',

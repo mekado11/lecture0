@@ -944,7 +944,7 @@ async function runAI(key){
     const intro=document.querySelector('.ai-intro');
     if(intro){
       if(isRateLimit){
-        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Daily Limit Reached</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Free accounts get 1 AI analysis per day to keep the service available for everyone.</p><p style="color:var(--muted);font-size:.78rem">Your analysis resets at midnight UTC. Upgrade to Premium for 20 analyses per day.</p><div style="margin-top:1rem;padding:.5rem;background:var(--surface2);border-radius:var(--rs);font-size:.75rem;color:var(--dim)">Today\'s usage: 1/1</div></div>';
+        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Daily Limit Reached</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Free accounts get 3 AI analyses per day.</p><p style="color:var(--muted);font-size:.78rem">Resets at midnight UTC.</p><button class="btn-gold" style="width:auto;padding:.5rem 1.5rem;margin-top:1rem" onclick="document.getElementById(\'pricing-modal\').classList.remove(\'hidden\')">&#9733; Upgrade to Premium — $5/mo</button><p style="color:var(--dim);font-size:.7rem;margin-top:.5rem">50 AI analyses/day + Claude deep critique</p></div>';
       }else{
         intro.innerHTML='<div style="color:var(--red);padding:1rem"><h4>AI Analysis Error</h4><p style="margin:.5rem 0;font-size:.85rem">'+esc(msg)+'</p><button class="btn-gold" style="width:auto;padding:.4rem 1rem;margin-top:.75rem" onclick="runAI(null)">Retry</button></div>';
       }
@@ -1056,9 +1056,23 @@ async function loadSavedAnalyses(){
   })});
 }
 
-// Add save button to top bar
+// Add save + upgrade buttons to top bar
 $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="save-btn">&#128190; Save</button>');
+$('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="upgrade-btn" style="color:var(--gold-l);border-color:var(--gold-d)">&#9733; Premium</button>');
 $('save-btn')?.addEventListener('click',saveAnalysis);
+$('upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
+// Stripe checkout
+$('checkout-btn')?.addEventListener('click',async()=>{
+  const user=typeof firebase!=='undefined'?firebase.auth().currentUser:null;
+  if(!user){alert('Please sign in first');return}
+  $('checkout-btn').textContent='Redirecting...';$('checkout-btn').disabled=true;
+  try{
+    const resp=await fetch('/api/checkout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userId:user.uid,email:user.email,plan:'premium'})});
+    const data=await resp.json();
+    if(data.url){window.location.href=data.url}
+    else{alert(data.error||'Checkout failed');$('checkout-btn').textContent='Upgrade to Premium — $5/mo';$('checkout-btn').disabled=false}
+  }catch(e){alert('Error: '+e.message);$('checkout-btn').textContent='Upgrade to Premium — $5/mo';$('checkout-btn').disabled=false}
+});
 // Load saved analyses on startup
 loadAutoSave();
 loadSavedAnalyses();
