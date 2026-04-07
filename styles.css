@@ -289,5 +289,10 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .autosave{font-size:.6rem;color:var(--dim);padding:.1rem .4rem}
 .autosave.saving{color:var(--gold)}
 
+/* COOKIE BANNER */
+.cookie-banner{position:fixed;bottom:0;left:0;right:0;z-index:300;background:var(--surface);border-top:1px solid var(--border);padding:.75rem 1.5rem;box-shadow:0 -4px 20px rgba(0,0,0,.3)}
+.cookie-inner{display:flex;align-items:center;justify-content:space-between;gap:1rem;max-width:900px;margin:0 auto}
+.cookie-inner p{font-size:.75rem;color:var(--muted);flex:1;line-height:1.4}
+
 @media(max-width:900px){.left-panel{width:220px}.right-panel{width:250px}}
 @media(max-width:700px){.panels{flex-direction:column}.left-panel,.right-panel{width:100%;max-height:180px;border:none;border-bottom:1px solid var(--border)}}

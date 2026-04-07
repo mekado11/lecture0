@@ -4,12 +4,15 @@
 const https = require('https');
 
 const rateLimitMap = new Map();
-const FREE_AI_LIMIT = 3;   // 3 AI calls/day free
-const PREMIUM_AI_LIMIT = 50; // 50/day for $5/mo
+const FREE_AI_LIMIT = 0;    // Free users: no AI
+const STARTER_AI_LIMIT = 1; // Starter $5: 1 AI call/day
+const PREMIUM_AI_LIMIT = 5; // Premium $15: 5 AI calls/day
+const DEV_LIMIT = 9999;     // Developer: unlimited
 
-// Premium users (checked via Stripe webhook or manual list)
-// In production, check Firestore for user.premium = true
-const PREMIUM_USERS = new Set(); // populated by webhook
+// Developer admin UIDs (your Firebase UID — unlimited access)
+const DEV_UIDS = new Set([
+  'REPLACE_WITH_YOUR_FIREBASE_UID' // Get this from Firebase Console > Authentication > Users
+]);
 
 module.exports = async (req, res) => {
   const origin = req.headers.origin || '';
@@ -31,16 +34,19 @@ module.exports = async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
   const key = userId + ':' + today;
   const current = rateLimitMap.get(key) || 0;
-  const isPremium = PREMIUM_USERS.has(userId);
-  const limit = isPremium ? PREMIUM_AI_LIMIT : FREE_AI_LIMIT;
+  const isDev = DEV_UIDS.has(userId);
+  // TODO: check Firestore for user tier. For now, all non-dev users are free.
+  const userTier = isDev ? 'dev' : 'free';
+  const limitMap = { dev: DEV_LIMIT, premium: PREMIUM_AI_LIMIT, starter: STARTER_AI_LIMIT, free: FREE_AI_LIMIT };
+  const limit = limitMap[userTier] || FREE_AI_LIMIT;
 
   if (current >= limit) {
     res.status(429).json({
       error: {
-        message: isPremium
-          ? 'Premium daily limit reached (' + limit + '/day). Resets at midnight UTC.'
-          : 'Free daily limit reached. Upgrade to Premium for ' + PREMIUM_AI_LIMIT + ' AI analyses per day.',
-        code: 'RATE_LIMITED', limit, used: current, isPremium
+        message: userTier === 'free'
+          ? 'AI features require a subscription. Upgrade to Starter ($5/mo) for 1 AI analysis per day.'
+          : 'Daily AI limit reached (' + limit + '/day). Upgrade for more, or wait until midnight UTC.',
+        code: 'RATE_LIMITED', limit, used: current, tier: userTier
       }
     });
     return;

@@ -1060,18 +1060,47 @@ $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="sa
 $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="upgrade-btn" style="color:var(--gold-l);border-color:var(--gold-d)">&#9733; Premium</button>');
 $('save-btn')?.addEventListener('click',saveAnalysis);
 $('upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
-// Stripe checkout
-$('checkout-btn')?.addEventListener('click',async()=>{
-  const user=typeof firebase!=='undefined'?firebase.auth().currentUser:null;
-  if(!user){alert('Please sign in first');return}
-  $('checkout-btn').textContent='Redirecting...';$('checkout-btn').disabled=true;
-  try{
-    const resp=await fetch('/api/checkout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userId:user.uid,email:user.email,plan:'premium'})});
-    const data=await resp.json();
-    if(data.url){window.location.href=data.url}
-    else{alert(data.error||'Checkout failed');$('checkout-btn').textContent='Upgrade to Premium — $5/mo';$('checkout-btn').disabled=false}
-  }catch(e){alert('Error: '+e.message);$('checkout-btn').textContent='Upgrade to Premium — $5/mo';$('checkout-btn').disabled=false}
+// Stripe checkout — tier buttons
+document.querySelectorAll('.checkout-tier').forEach(btn=>{
+  btn.addEventListener('click',async()=>{
+    const user=typeof firebase!=='undefined'?firebase.auth().currentUser:null;
+    if(!user){alert('Please sign in first');return}
+    const plan=btn.dataset.plan;
+    btn.textContent='Redirecting...';btn.disabled=true;
+    try{
+      const resp=await fetch('/api/checkout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userId:user.uid,email:user.email,plan})});
+      const data=await resp.json();
+      if(data.url){window.location.href=data.url}
+      else{alert(data.error||'Checkout failed');btn.textContent='Get '+plan.charAt(0).toUpperCase()+plan.slice(1);btn.disabled=false}
+    }catch(e){alert('Error: '+e.message);btn.textContent='Get '+plan.charAt(0).toUpperCase()+plan.slice(1);btn.disabled=false}
+  });
 });
+
+// Cookie consent
+if(!localStorage.getItem('cookie_consent')){$('cookie-banner')?.classList.remove('hidden')}
+$('cookie-accept')?.addEventListener('click',()=>{localStorage.setItem('cookie_consent','all');$('cookie-banner')?.classList.add('hidden')});
+$('cookie-essential')?.addEventListener('click',()=>{localStorage.setItem('cookie_consent','essential');$('cookie-banner')?.classList.add('hidden')});
+
+// First-time wizard
+if(!localStorage.getItem('wizard_done')){
+  const steps=[
+    {title:'Welcome to AuthorScrolls!',icon:'&#127807;',text:'Upload your manuscript and get instant analysis — plot structure, clarity, pacing, dialogue quality, and more.'},
+    {title:'How It Works',icon:'&#128209;',text:'1. Upload a .docx, .pdf, or .txt file<br>2. Get scored across 10+ writing metrics<br>3. Click highlighted issues to fix them<br>4. Preview your book on Kindle, iPad, or Paperback'},
+    {title:'AI-Powered Features',icon:'&#9889;',text:'Upgrade to unlock deep narrative critique, comparable titles, query letter drafting, beta reader simulation, and market readiness scoring.'},
+    {title:'Ready to Start?',icon:'&#9997;',text:'Drop your manuscript and let AuthorScrolls guide you to better writing. Your work is saved securely to the cloud.'}
+  ];
+  let wizStep=0;
+  function showWizStep(){
+    const s=steps[wizStep];
+    $('wizard-step').innerHTML='<div style="font-size:2.5rem;margin-bottom:.5rem">'+s.icon+'</div><h3 style="color:var(--gold-l);margin-bottom:.5rem;font-family:Lora,serif">'+s.title+'</h3><p style="color:var(--muted);font-size:.85rem;line-height:1.6">'+s.text+'</p>';
+    $('wizard-dots').innerHTML=steps.map((_,i)=>'<div style="width:8px;height:8px;border-radius:50%;background:'+(i===wizStep?'var(--gold)':'var(--surface3)')+'"></div>').join('');
+    $('wizard-next').textContent=wizStep===steps.length-1?'Get Started':'Next';
+  }
+  showWizStep();
+  $('wizard-overlay')?.classList.remove('hidden');
+  $('wizard-next')?.addEventListener('click',()=>{wizStep++;if(wizStep>=steps.length){$('wizard-overlay')?.classList.add('hidden');localStorage.setItem('wizard_done','1')}else showWizStep()});
+  $('wizard-skip')?.addEventListener('click',()=>{$('wizard-overlay')?.classList.add('hidden');localStorage.setItem('wizard_done','1')});
+}
 // Load saved analyses on startup
 loadAutoSave();
 loadSavedAnalyses();

@@ -14,6 +14,7 @@
   <!-- UPLOAD -->
   <div id="upload-view" class="upload-view">
     <div class="upload-card">
+      <a href="index.html" style="display:flex;align-items:center;gap:.3rem;color:var(--muted);font-size:.75rem;text-decoration:none;margin-bottom:.75rem;font-family:Inter,sans-serif"><span>&larr;</span> Back to Home</a>
       <div class="upload-logo"><span class="leaf">&#127807;</span><h1>AuthorScrolls</h1><p class="tagline">Author's Best Buddy</p></div>
       <div id="drop-zone" class="drop-zone">
         <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -171,37 +172,46 @@
   <div id="pricing-modal" class="modal hidden">
     <div class="modal-box" style="max-width:500px;position:relative;text-align:center">
       <button style="position:absolute;top:.8rem;right:1rem;background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer" onclick="document.getElementById('pricing-modal').classList.add('hidden')">&times;</button>
-      <h2 style="font-family:Lora,serif;color:var(--gold-l);margin-bottom:.3rem">Upgrade to Premium</h2>
-      <p style="color:var(--muted);font-size:.85rem;margin-bottom:1.5rem">Unlock the full power of AuthorScrolls</p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;text-align:left;margin-bottom:1.5rem">
+      <h2 style="font-family:Lora,serif;color:var(--gold-l);margin-bottom:.3rem">Choose Your Plan</h2>
+      <p style="color:var(--muted);font-size:.85rem;margin-bottom:1.5rem">Unlock AI-powered features to level up your writing</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem;text-align:left;margin-bottom:1.5rem">
         <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1rem">
-          <div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:.3rem">Free</div>
-          <div style="font-size:1.5rem;font-weight:800;color:var(--text);margin-bottom:.5rem">$0<span style="font-size:.75rem;color:var(--muted)">/mo</span></div>
-          <ul style="list-style:none;padding:0;font-size:.75rem;color:var(--muted)">
-            <li style="padding:.15rem 0">&#10003; Full manuscript analysis</li>
-            <li style="padding:.15rem 0">&#10003; Copy & line editing</li>
-            <li style="padding:.15rem 0">&#10003; 3 AI analyses/day</li>
-            <li style="padding:.15rem 0">&#10003; Book preview</li>
-            <li style="padding:.15rem 0;opacity:.4">&#10007; Deep AI critique</li>
-            <li style="padding:.15rem 0;opacity:.4">&#10007; Query letter gen</li>
+          <div style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:.25rem">Free</div>
+          <div style="font-size:1.4rem;font-weight:800;color:var(--text);margin-bottom:.4rem">$0<span style="font-size:.7rem;color:var(--muted)">/mo</span></div>
+          <ul style="list-style:none;padding:0;font-size:.7rem;color:var(--muted)">
+            <li style="padding:.12rem 0">&#10003; Full manuscript analysis</li>
+            <li style="padding:.12rem 0">&#10003; Copy & line editing</li>
+            <li style="padding:.12rem 0">&#10003; Book preview</li>
+            <li style="padding:.12rem 0;opacity:.4">&#10007; AI features locked</li>
           </ul>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--gold-d);border-radius:10px;padding:1rem;position:relative">
+          <div style="font-size:.7rem;color:var(--gold-l);text-transform:uppercase;letter-spacing:1px;margin-bottom:.25rem">Starter</div>
+          <div style="font-size:1.4rem;font-weight:800;color:var(--gold-l);margin-bottom:.4rem">$5<span style="font-size:.7rem;color:var(--muted)">/mo</span></div>
+          <ul style="list-style:none;padding:0;font-size:.7rem;color:var(--text)">
+            <li style="padding:.12rem 0">&#10003; Everything in Free</li>
+            <li style="padding:.12rem 0">&#10003; 1 AI analysis/day</li>
+            <li style="padding:.12rem 0">&#10003; AI critique (OpenAI)</li>
+            <li style="padding:.12rem 0">&#10003; Book preview</li>
+          </ul>
+          <button class="btn-gold checkout-tier" data-plan="starter" data-amount="500" style="width:100%;margin-top:.5rem;padding:.4rem;font-size:.75rem">Get Starter</button>
         </div>
         <div style="background:var(--gold-bg);border:2px solid var(--gold);border-radius:10px;padding:1rem;position:relative">
-          <div style="position:absolute;top:-.5rem;right:.5rem;background:var(--gold);color:#fff;font-size:.55rem;padding:.15rem .5rem;border-radius:8px;font-weight:700">POPULAR</div>
-          <div style="font-size:.75rem;color:var(--gold-l);text-transform:uppercase;letter-spacing:1px;margin-bottom:.3rem">Premium</div>
-          <div style="font-size:1.5rem;font-weight:800;color:var(--gold-l);margin-bottom:.5rem">$5<span style="font-size:.75rem;color:var(--muted)">/mo</span></div>
-          <ul style="list-style:none;padding:0;font-size:.75rem;color:var(--text)">
-            <li style="padding:.15rem 0">&#10003; Everything in Free</li>
-            <li style="padding:.15rem 0">&#10003; 50 AI analyses/day</li>
-            <li style="padding:.15rem 0">&#10003; Claude deep critique</li>
-            <li style="padding:.15rem 0">&#10003; Query letter gen</li>
-            <li style="padding:.15rem 0">&#10003; Beta reader sim</li>
-            <li style="padding:.15rem 0">&#10003; Market readiness</li>
+          <div style="position:absolute;top:-.5rem;right:.5rem;background:var(--gold);color:#fff;font-size:.5rem;padding:.12rem .4rem;border-radius:6px;font-weight:700">BEST VALUE</div>
+          <div style="font-size:.7rem;color:var(--gold-l);text-transform:uppercase;letter-spacing:1px;margin-bottom:.25rem">Premium</div>
+          <div style="font-size:1.4rem;font-weight:800;color:var(--gold-l);margin-bottom:.4rem">$15<span style="font-size:.7rem;color:var(--muted)">/mo</span></div>
+          <ul style="list-style:none;padding:0;font-size:.7rem;color:var(--text)">
+            <li style="padding:.12rem 0">&#10003; Everything in Starter</li>
+            <li style="padding:.12rem 0">&#10003; 5 AI analyses/day</li>
+            <li style="padding:.12rem 0">&#10003; Claude deep critique</li>
+            <li style="padding:.12rem 0">&#10003; Query letter gen</li>
+            <li style="padding:.12rem 0">&#10003; Beta reader sim</li>
+            <li style="padding:.12rem 0">&#10003; Market readiness</li>
           </ul>
+          <button class="btn-gold checkout-tier" data-plan="premium" data-amount="1500" style="width:100%;margin-top:.5rem;padding:.4rem;font-size:.75rem">Get Premium</button>
         </div>
       </div>
-      <button class="btn-gold" id="checkout-btn" style="max-width:280px;margin:0 auto">Upgrade to Premium — $5/mo</button>
-      <p style="font-size:.65rem;color:var(--dim);margin-top:.5rem">Cancel anytime. Powered by Stripe.</p>
+      <p style="font-size:.6rem;color:var(--dim);margin-top:.3rem">Cancel anytime. Secure payment via Stripe.</p>
     </div>
   </div>
 
@@ -242,6 +252,29 @@
       }
     });
   </script>
+  <!-- COOKIE BANNER -->
+  <div id="cookie-banner" class="cookie-banner hidden">
+    <div class="cookie-inner">
+      <p>We use cookies to improve your experience and save your work. By continuing, you agree to our <a href="privacy.html" style="color:var(--gold-l)">Privacy Policy</a> and <a href="cookies.html" style="color:var(--gold-l)">Cookie Policy</a>.</p>
+      <div style="display:flex;gap:.4rem">
+        <button class="btn-gold" id="cookie-accept" style="width:auto;padding:.35rem 1rem;font-size:.75rem">Accept All</button>
+        <button class="btn-dark" id="cookie-essential" style="font-size:.75rem;padding:.35rem .8rem">Essential Only</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FIRST-TIME WIZARD -->
+  <div id="wizard-overlay" class="modal hidden">
+    <div class="modal-box" style="max-width:480px;text-align:center">
+      <div id="wizard-step" style="min-height:200px"></div>
+      <div style="display:flex;justify-content:space-between;margin-top:1rem">
+        <button class="btn-dark" id="wizard-skip" style="font-size:.75rem">Skip</button>
+        <button class="btn-gold" id="wizard-next" style="width:auto;padding:.4rem 1.2rem;font-size:.8rem">Next</button>
+      </div>
+      <div id="wizard-dots" style="display:flex;gap:.3rem;justify-content:center;margin-top:.75rem"></div>
+    </div>
+  </div>
+
   <script src="analyzer.js"></script>
   <script src="ai-engine.js"></script>
   <script src="storage.js"></script>

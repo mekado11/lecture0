@@ -22,9 +22,10 @@ module.exports = async (req, res) => {
   // Price IDs - create these in your Stripe dashboard
   // For now, use ad-hoc price
   const prices = {
-    premium: { amount: 500, name: 'AuthorScrolls Premium', interval: 'month' }
+    starter: { amount: 500, name: 'AuthorScrolls Starter', interval: 'month' },
+    premium: { amount: 1500, name: 'AuthorScrolls Premium', interval: 'month' }
   };
-  const selectedPlan = prices[plan] || prices.premium;
+  const selectedPlan = prices[plan] || prices.starter;
 
   const payload = new URLSearchParams({
     'payment_method_types[0]': 'card',
