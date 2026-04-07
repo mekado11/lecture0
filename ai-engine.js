@@ -71,21 +71,12 @@ const AIEngine = {
 
     // In production: calls your server proxy (no API key in browser)
     // In dev mode: if apiKey passed, calls Anthropic directly
-    const isDirect = !!apiKey;
-    const endpoint = isDirect ? 'https://api.anthropic.com/v1/messages' : this.API_ENDPOINT;
+    // Always use server proxy — API keys never touch the browser
+    const endpoint = this.API_ENDPOINT;
     const headers = { 'content-type': 'application/json' };
-    if (isDirect) {
-      headers['x-api-key'] = apiKey;
-      headers['anthropic-version'] = '2023-06-01';
-      headers['anthropic-beta'] = 'prompt-caching-2024-07-31';
-      headers['anthropic-dangerous-direct-browser-access'] = 'true';
-    }
-    // Send user ID for rate limiting (server-side only)
     const userId = typeof firebase !== 'undefined' && firebase.auth().currentUser ? firebase.auth().currentUser.uid : 'anon';
-    if (!isDirect) {
-      headers['x-user-id'] = userId;
-      headers['x-model'] = this._routeModel(feature);
-    }
+    headers['x-user-id'] = userId;
+    headers['x-model'] = this._routeModel(feature);
 
     const response = await fetch(endpoint, {
       method: 'POST',

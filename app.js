@@ -10,7 +10,7 @@ dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files.length)hf(e.dataTransfer.files[0])});
 fi.addEventListener('change',e=>{if(e.target.files.length)hf(e.target.files[0])});
 $('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('analyze-btn').classList.add('hidden');fi.value=''});
-function hf(f){const x=f.name.split('.').pop().toLowerCase();if(!['docx','pdf','txt'].includes(x)){alert('Upload .docx, .pdf, or .txt');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');$('analyze-btn').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden')}
+function hf(f){const x=f.name.split('.').pop().toLowerCase();if(!['docx','pdf','txt'].includes(x)){alert('Upload .docx, .pdf, or .txt');return}if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');$('analyze-btn').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden')}
 async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const c=await(await p.getPage(i)).getTextContent();t+=c.items.map(x=>x.str).join(' ')+'\n\n'}return t}}
 $('analyze-btn').addEventListener('click',async()=>{if(!uploadedFile)return;$('analyze-btn').classList.add('hidden');$('upload-loading').classList.remove('hidden');try{$('loader-text').textContent='Extracting...';extractedText=await ext(uploadedFile);$('loader-text').textContent='Analyzing...';await new Promise(r=>setTimeout(r,80));analysisResult=Analyzer.analyze(extractedText);if(analysisResult.error){alert(analysisResult.error);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}$('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');renderAll()}catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden')}});
 
@@ -918,8 +918,7 @@ $('run-ai-btn')?.addEventListener('click',async()=>{
   // Just try the proxy directly — no test ping needed
   runAI(null);
 });
-$('modal-x')?.addEventListener('click',()=>$('api-modal').classList.add('hidden'));
-$('modal-go')?.addEventListener('click',()=>{const k=$('modal-key').value.trim();if(!k){alert('Enter API key');return}sessionStorage.setItem('ml_claude_key',k);$('api-modal').classList.add('hidden');runAI(k)});
+// API keys handled server-side only
 async function runAI(key){
   if(!analysisResult)return;
   const st=$('ai-status'),stxt=$('ai-status-text');

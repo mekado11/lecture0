@@ -12,9 +12,15 @@ const PREMIUM_AI_LIMIT = 50; // 50/day for $5/mo
 const PREMIUM_USERS = new Set(); // populated by webhook
 
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin || '';
+  const allowed = ['https://authorscrolls.com','https://www.authorscrolls.com'];
+  if (allowed.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', 'https://authorscrolls.com');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, X-Model');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, X-Model, Authorization');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: { message: 'Method not allowed' } }); return; }
 

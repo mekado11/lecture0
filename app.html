@@ -207,10 +207,7 @@
 
   <!-- TOOLTIP -->
   <div class="tip" id="tip"></div>
-  <!-- API MODAL -->
-  <div id="api-modal" class="modal hidden">
-    <div class="modal-box"><h3>API Configuration</h3><p>Your key is stored in this browser session only and never sent to any server besides Anthropic's API.</p><input type="password" id="modal-key" class="modal-input" placeholder="Claude API Key (sk-ant-...)"><div class="modal-btns"><button id="modal-go" class="btn-gold" style="width:auto;padding:.5rem 1.5rem">Save & Run</button><button id="modal-x" class="btn-dark">Cancel</button></div></div>
-  </div>
+  <!-- API key is handled server-side only, never in the browser -->
 
   <!-- Firebase SDK for auth check -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -240,7 +237,7 @@
         btn.id = 'signout-btn';
         btn.className = 'tb-btn';
         btn.textContent = 'Sign Out';
-        btn.onclick = () => { firebase.auth().signOut(); window.location.href = 'index.html'; };
+        btn.onclick = () => { localStorage.clear(); sessionStorage.clear(); firebase.auth().signOut(); window.location.href = 'index.html'; };
         topRight.appendChild(btn);
       }
     });

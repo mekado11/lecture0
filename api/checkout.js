@@ -3,9 +3,11 @@
 const https = require('https');
 
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin || '';
+  const allowed = ['https://authorscrolls.com','https://www.authorscrolls.com'];
+  res.setHeader('Access-Control-Allow-Origin', allowed.includes(origin) ? origin : 'https://authorscrolls.com');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
 
@@ -14,6 +16,8 @@ module.exports = async (req, res) => {
 
   const { userId, email, plan } = req.body;
   if (!userId || !email) { res.status(400).json({ error: 'Missing userId or email' }); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { res.status(400).json({ error: 'Invalid email' }); return; }
+  if (!/^[a-zA-Z0-9]{10,}$/.test(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
   // Price IDs - create these in your Stripe dashboard
   // For now, use ad-hoc price
