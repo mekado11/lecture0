@@ -1,6 +1,7 @@
 (function(){
 let uploadedFile=null,extractedText='',analysisResult=null;
 const $=id=>document.getElementById(id);
+document.body.classList.add('lib-mode'); // Library is first view — allow scroll
 
 // UPLOAD
 const dz=$('drop-zone'),fi=$('file-input');
@@ -12,7 +13,7 @@ fi.addEventListener('change',e=>{if(e.target.files.length)hf(e.target.files[0])}
 $('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('analyze-btn').classList.add('hidden');fi.value=''});
 function hf(f){const x=f.name.split('.').pop().toLowerCase();if(!['docx','pdf','txt'].includes(x)){alert('Upload .docx, .pdf, or .txt');return}if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');$('analyze-btn').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden')}
 async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const c=await(await p.getPage(i)).getTextContent();t+=c.items.map(x=>x.str).join(' ')+'\n\n'}return t}}
-$('analyze-btn').addEventListener('click',async()=>{if(!uploadedFile)return;$('analyze-btn').classList.add('hidden');$('upload-loading').classList.remove('hidden');try{$('loader-text').textContent='Extracting...';extractedText=await ext(uploadedFile);$('loader-text').textContent='Analyzing...';await new Promise(r=>setTimeout(r,80));analysisResult=Analyzer.analyze(extractedText);if(analysisResult.error){alert(analysisResult.error);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}$('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');renderAll()}catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden')}});
+$('analyze-btn').addEventListener('click',async()=>{if(!uploadedFile)return;$('analyze-btn').classList.add('hidden');$('upload-loading').classList.remove('hidden');try{$('loader-text').textContent='Extracting...';extractedText=await ext(uploadedFile);$('loader-text').textContent='Analyzing...';await new Promise(r=>setTimeout(r,80));analysisResult=Analyzer.analyze(extractedText);if(analysisResult.error){alert(analysisResult.error);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}$('upload-modal')?.classList.add('hidden');$('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');document.body.classList.remove('lib-mode');renderAll()}catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden')}});
 
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function escA(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -87,6 +88,13 @@ function renderAll(){
   renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderBlurbs(r);renderVersions();
   // Auto-save
   autoSave();
+  // Re-engagement tracking
+  setTimeout(()=>{
+    trackSession('analyzing');
+    _resetReminderTier();
+    // Prompt for push after first real analysis, with a short delay so it doesn't compete with UI
+    setTimeout(maybePromptPush,8000);
+  },1000);
 }
 
 // AUTO-SAVE (Firestore + localStorage fallback)
@@ -110,30 +118,8 @@ function autoSave(){
     localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}));
   },5000);
 }
-// Load autosave on startup
-function loadAutoSave(){
-  const save=localStorage.getItem('ml_autosave');
-  if(!save)return false;
-  try{
-    const data=JSON.parse(save);
-    if(data.text&&data.result){
-      // Show restore option
-      const card=document.querySelector('.upload-card');
-      if(!card)return false;
-      let el=card.querySelector('.autosave-restore');
-      if(el)el.remove();
-      const div=document.createElement('div');
-      div.className='autosave-restore';
-      div.style.cssText='margin-top:.75rem;padding:.6rem;background:var(--surface2);border:1px solid var(--gold-d);border-radius:var(--rs)';
-      div.innerHTML='<div style="font-size:.78rem;font-weight:600;color:var(--gold-l);margin-bottom:.3rem">Unsaved work found</div><div style="font-size:.7rem;color:var(--muted);margin-bottom:.4rem">'+data.fileName+' &middot; Score: '+data.result.overall+'/100 &middot; '+new Date(data.savedAt).toLocaleString()+'</div><div style="display:flex;gap:.3rem"><button class="btn-gold" id="restore-btn" style="width:auto;padding:.3rem .8rem;font-size:.72rem">Restore</button><button class="btn-dark" id="dismiss-btn" style="font-size:.72rem;padding:.3rem .6rem">Dismiss</button></div>';
-      card.appendChild(div);
-      $('restore-btn')?.addEventListener('click',()=>{extractedText=data.text;analysisResult=data.result;uploadedFile={name:data.fileName,size:0};$('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');renderAll()});
-      $('dismiss-btn')?.addEventListener('click',()=>{div.remove();localStorage.removeItem('ml_autosave')});
-      return true;
-    }
-  }catch(e){}
-  return false;
-}
+// Load autosave on startup (legacy — now integrated into library)
+function loadAutoSave(){ return false; }
 
 // GOAL PILLS BAR
 function renderGoalBar(r){
@@ -1373,67 +1359,245 @@ async function saveAnalysis(){
   alert('Saved locally. Sign in to save to cloud.');
 }
 
-async function loadSavedAnalyses(){
-  const container=document.querySelector('.upload-card');
-  if(!container)return;
-  let existing=container.querySelector('.saved-list');
-  if(existing)existing.remove();
+// ============================================================
+// LIBRARY DASHBOARD — Render manuscript cards
+// ============================================================
+let _libManuscripts=[];
 
-  // Try Firestore first, fall back to localStorage
+async function renderLibrary(){
+  const recentSection=$('lib-recent-section');
+  const recentCards=$('lib-recent-cards');
+  const allCards=$('lib-all-cards');
+  const loading=$('lib-loading');
+  if(!allCards)return;
+
+  // Show loading
+  if(loading)loading.classList.remove('hidden');
+
+  // Load manuscripts from Firestore
   let manuscripts=[];
   if(Storage.userId){
     try{manuscripts=await Storage.getManuscripts()}catch(e){console.warn('Firestore load error:',e.message)}
   }
-  // Fallback to localStorage
+  // Fallback to localStorage bookshelf
   if(manuscripts.length===0){
+    const shelf=JSON.parse(localStorage.getItem('ml_bookshelf')||'[]');
     const saves=JSON.parse(localStorage.getItem('ml_saves')||'[]');
-    manuscripts=saves.map(s=>({id:null,fileName:s.fileName,overall:s.result?.overall||0,wordCount:s.result?.totalWords||0,genre:s.result?.genre?.label||'',updatedAt:{toDate:()=>new Date(s.savedAt)},_local:true,_data:s}));
+    const all=[...shelf,...saves];
+    manuscripts=all.map((s,i)=>({id:null,fileName:s.fileName,overall:s.result?.overall||s.overall||0,wordCount:s.result?.totalWords||s.totalWords||0,genre:s.result?.genre?.label||s.genre||'',updatedAt:{toDate:()=>new Date(s.savedAt||Date.now())},text:s.text,_local:true,_data:s}));
   }
-  if(manuscripts.length===0)return;
+  _libManuscripts=manuscripts;
+  if(loading)loading.classList.add('hidden');
 
-  const div=document.createElement('div');
-  div.className='saved-list';
-  div.style.cssText='margin-top:1rem;border-top:1px solid var(--border);padding-top:.75rem';
-  div.innerHTML='<div style="font-size:.8rem;font-weight:600;margin-bottom:.5rem;color:var(--gold-l)">Your Manuscripts</div>'+
-    manuscripts.map((m,i)=>{
-      const date=m.updatedAt?.toDate?m.updatedAt.toDate():new Date();
-      const grade=Analyzer.getGrade(m.overall||0);
-      const cloud=m._local?'':'<span style="font-size:.55rem;color:var(--green);margin-left:.3rem">\u2601 cloud</span>';
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .6rem;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:.35rem;cursor:pointer;font-size:.78rem" data-ms-idx="'+i+'"><div><strong>'+esc(m.fileName)+'</strong>'+cloud+'<br><span style="color:var(--muted);font-size:.65rem">'+date.toLocaleDateString()+' &middot; '+grade+' ('+m.overall+'/100) &middot; '+(m.wordCount||0).toLocaleString()+' words &middot; '+esc(m.genre)+'</span></div><div style="display:flex;gap:.3rem;align-items:center"><span style="color:var(--gold)">\u2192</span>'+(m._local?'':'<button class="del-ms" data-del="'+i+'" style="background:none;border:none;color:var(--red);font-size:.7rem;cursor:pointer;padding:.2rem" title="Delete">\u2715</button>')+'</div></div>';
-    }).join('');
-  container.appendChild(div);
+  // Detect chapter count from text
+  function chapterCount(text){
+    if(!text)return 0;
+    return (text.match(/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*)/gim)||[]).length;
+  }
 
-  // Click to load
-  div.querySelectorAll('[data-ms-idx]').forEach(el=>{el.addEventListener('click',async(e)=>{
-    if(e.target.classList.contains('del-ms'))return;
-    const idx=parseInt(el.dataset.msIdx);
-    const m=manuscripts[idx];if(!m)return;
-    if(m._local){
-      extractedText=m._data.text;analysisResult=m._data.result;uploadedFile={name:m.fileName,size:0};
-    }else{
-      // Load from Firestore
-      const full=await Storage.getManuscript(m.id);
-      if(!full)return;
-      extractedText=full.text;
-      uploadedFile={name:full.fileName,size:0};
-      analysisResult=Analyzer.analyze(extractedText);
-      Storage._currentManuscriptId=m.id;
+  // Time ago helper
+  function timeAgo(date){
+    const h=(Date.now()-date.getTime())/3600000;
+    if(h<1)return 'Just now';
+    if(h<24)return Math.floor(h)+' hours ago';
+    if(h<48)return 'Yesterday';
+    return Math.floor(h/24)+' days ago';
+  }
+
+  // Status badge
+  function statusBadge(m){
+    const s=m.overall||0;
+    if(s>=70)return '<span class="lib-card-badge lib-badge-analyzed">&#9679; Analyzed</span>';
+    if(s>=45)return '<span class="lib-card-badge lib-badge-progress">&#9679; In Progress</span>';
+    if(s>0)return '<span class="lib-card-badge lib-badge-needs">&#9679; Needs Work</span>';
+    return '<span class="lib-card-badge lib-badge-draft">&#9679; Draft</span>';
+  }
+
+  // Score circle
+  function scoreCircle(s){
+    if(!s)return '';
+    const col=s>=70?'var(--green)':s>=45?'var(--yellow)':'var(--red)';
+    return '<div class="lib-card-score" style="color:'+col+';border-color:'+col+'">'+s+'</div>';
+  }
+
+  // Build card HTML
+  function cardHtml(m,i,isRecent){
+    const date=m.updatedAt?.toDate?m.updatedAt.toDate():new Date();
+    const chs=chapterCount(m.text);
+    const chLabel=chs>0?chs+' Chapters':'';
+    const name=esc(m.fileName||'Untitled').replace(/\.\w+$/,'');
+    return '<div class="lib-card'+(isRecent?' lib-card-recent':'')+'" data-lib-idx="'+i+'">'+
+      scoreCircle(m.overall)+
+      '<div class="lib-card-title" title="'+escA(m.fileName)+'">'+name+'</div>'+
+      '<div class="lib-card-meta">'+(chLabel?chLabel+' &middot; ':'')+
+        'Last edited: '+timeAgo(date)+
+        (m.genre?' &middot; '+esc(m.genre):'')+
+        (m.wordCount?' &middot; '+(m.wordCount).toLocaleString()+' words':'')+
+      '</div>'+
+      statusBadge(m)+
+      '<div class="lib-card-actions">'+
+        '<button class="lib-btn-open" data-action="open" data-idx="'+i+'">Open</button>'+
+        '<button class="lib-btn-analyze" data-action="analyze" data-idx="'+i+'">Analyze</button>'+
+        '<button class="lib-btn-more" data-action="more" data-idx="'+i+'">&middot;&middot;&middot;</button>'+
+      '</div>'+
+    '</div>';
+  }
+
+  // Continue Writing — most recent 3 edited in last 7 days
+  const recent=manuscripts.filter(m=>{
+    const d=m.updatedAt?.toDate?m.updatedAt.toDate():new Date(0);
+    return (Date.now()-d.getTime())<7*24*3600000;
+  }).slice(0,3);
+
+  if(recent.length>0&&recentSection&&recentCards){
+    recentSection.classList.remove('hidden');
+    recentCards.innerHTML=recent.map((m,i)=>cardHtml(m,manuscripts.indexOf(m),true)).join('');
+  }else if(recentSection){
+    recentSection.classList.add('hidden');
+  }
+
+  // All Manuscripts — add card is always first
+  const addCardHtml='<div class="lib-card lib-card-add" id="lib-add-btn">'+
+    '<svg class="lib-add-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+
+    '<span class="lib-add-title">Add Manuscript</span>'+
+    '<span class="lib-add-sub">Upload .docx, .pdf, .txt<br>or start from scratch</span></div>';
+  allCards.innerHTML=addCardHtml+manuscripts.map((m,i)=>cardHtml(m,i,false)).join('');
+
+  // Wire up events
+  _wireLibraryEvents();
+}
+
+function _wireLibraryEvents(){
+  // Add Manuscript button
+  $('lib-add-btn')?.addEventListener('click',()=>{
+    $('upload-modal')?.classList.remove('hidden');
+  });
+
+  // Upload modal back button
+  $('upload-modal-back')?.addEventListener('click',e=>{
+    e.preventDefault();
+    $('upload-modal')?.classList.add('hidden');
+    // Reset upload state
+    $('upload-loading')?.classList.add('hidden');
+    $('analyze-btn')?.classList.add('hidden');
+    $('file-info')?.classList.add('hidden');
+    fi.value='';uploadedFile=null;
+  });
+
+  // Open buttons
+  document.querySelectorAll('[data-action="open"]').forEach(btn=>{
+    btn.addEventListener('click',async e=>{
+      e.stopPropagation();
+      const idx=parseInt(btn.dataset.idx);
+      await _openManuscript(idx);
+    });
+  });
+
+  // Analyze buttons
+  document.querySelectorAll('[data-action="analyze"]').forEach(btn=>{
+    btn.addEventListener('click',async e=>{
+      e.stopPropagation();
+      const idx=parseInt(btn.dataset.idx);
+      await _openManuscript(idx);
+    });
+  });
+
+  // More (...) buttons
+  document.querySelectorAll('[data-action="more"]').forEach(btn=>{
+    btn.addEventListener('click',e=>{
+      e.stopPropagation();
+      _showContextMenu(btn,parseInt(btn.dataset.idx));
+    });
+  });
+
+  // Search
+  $('lib-search')?.addEventListener('input',e=>{
+    const q=e.target.value.toLowerCase().trim();
+    document.querySelectorAll('.lib-card[data-lib-idx]').forEach(card=>{
+      const idx=parseInt(card.dataset.libIdx);
+      const m=_libManuscripts[idx];
+      if(!m)return;
+      const match=!q||m.fileName.toLowerCase().includes(q)||(m.genre||'').toLowerCase().includes(q);
+      card.style.display=match?'':'none';
+    });
+  });
+
+  // Set avatar letter from Firebase user
+  if(typeof firebase!=='undefined'){
+    const user=firebase.auth().currentUser;
+    if(user){
+      const letter=(user.displayName||user.email||'U')[0].toUpperCase();
+      const el=$('lib-avatar-letter');
+      if(el)el.textContent=letter;
     }
-    $('upload-view').classList.add('hidden');
-    $('editor-view').classList.remove('hidden');
-    renderAll();
-  })});
+  }
+}
 
-  // Delete buttons
-  div.querySelectorAll('.del-ms').forEach(btn=>{btn.addEventListener('click',async(e)=>{
+async function _openManuscript(idx){
+  const m=_libManuscripts[idx];if(!m)return;
+  if(m._local){
+    extractedText=m._data?.text||m.text||'';
+    analysisResult=m._data?.result||Analyzer.analyze(extractedText);
+    uploadedFile={name:m.fileName,size:0};
+  }else{
+    const full=await Storage.getManuscript(m.id);
+    if(!full)return;
+    extractedText=full.text;
+    uploadedFile={name:full.fileName,size:0};
+    analysisResult=Analyzer.analyze(extractedText);
+    Storage._currentManuscriptId=m.id;
+  }
+  $('upload-view').classList.add('hidden');
+  $('editor-view').classList.remove('hidden');
+  document.body.classList.remove('lib-mode');
+  renderAll();
+}
+
+function _showContextMenu(anchor,idx){
+  // Remove any existing menu
+  document.querySelectorAll('.lib-ctx-menu').forEach(m=>m.remove());
+  const m=_libManuscripts[idx];if(!m)return;
+
+  const menu=document.createElement('div');
+  menu.className='lib-ctx-menu';
+  menu.innerHTML=
+    '<button class="lib-ctx-item" data-ctx="rename">Rename</button>'+
+    '<button class="lib-ctx-item danger" data-ctx="delete">Delete</button>';
+
+  // Position near the anchor
+  const rect=anchor.getBoundingClientRect();
+  menu.style.position='fixed';
+  menu.style.top=(rect.bottom+4)+'px';
+  menu.style.left=(rect.left-100)+'px';
+  document.body.appendChild(menu);
+
+  // Close on outside click
+  const closeMenu=()=>{menu.remove();document.removeEventListener('click',closeMenu)};
+  setTimeout(()=>document.addEventListener('click',closeMenu),10);
+
+  menu.querySelector('[data-ctx="rename"]')?.addEventListener('click',async e=>{
     e.stopPropagation();
-    const idx=parseInt(btn.dataset.del);
-    const m=manuscripts[idx];
-    if(m&&m.id&&confirm('Delete "'+m.fileName+'"?')){
-      await Storage.deleteManuscript(m.id);
-      loadSavedAnalyses();
+    menu.remove();
+    const newName=prompt('Rename manuscript:',m.fileName);
+    if(!newName||!newName.trim())return;
+    if(m.id&&Storage.userId){
+      try{
+        const ref=firebase.firestore().collection('users').doc(Storage.userId).collection('manuscripts').doc(m.id);
+        await ref.update({fileName:newName.trim()});
+      }catch(err){console.warn('Rename error:',err.message)}
     }
-  })});
+    renderLibrary();
+  });
+
+  menu.querySelector('[data-ctx="delete"]')?.addEventListener('click',async e=>{
+    e.stopPropagation();
+    menu.remove();
+    if(!confirm('Delete "'+m.fileName+'"?'))return;
+    if(m.id&&Storage.userId){
+      await Storage.deleteManuscript(m.id);
+    }
+    renderLibrary();
+  });
 }
 
 // Add save + upgrade buttons to top bar
@@ -1484,7 +1648,7 @@ if(!localStorage.getItem('wizard_done')){
 }
 // Load saved analyses on startup
 loadAutoSave();
-loadSavedAnalyses();
+renderLibrary();
 
 // NEW
 // Genre override in editor topbar — re-analyze with new genre
@@ -1494,9 +1658,9 @@ $('genre-override')?.addEventListener('change',()=>{
   renderAll();
 });
 
-function goToUpload(){$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.add('hidden');$('file-info').classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value='';loadSavedAnalyses()}
-$('new-btn')?.addEventListener('click',goToUpload);
-$('back-to-upload')?.addEventListener('click',e=>{e.preventDefault();goToUpload()});
+function goToLibrary(){$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-modal')?.classList.add('hidden');$('upload-loading')?.classList.add('hidden');$('analyze-btn')?.classList.add('hidden');$('file-info')?.classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value='';Storage._currentManuscriptId=null;document.body.classList.add('lib-mode');renderLibrary()}
+$('new-btn')?.addEventListener('click',goToLibrary);
+$('back-to-upload')?.addEventListener('click',e=>{e.preventDefault();goToLibrary()});
 
 // Formatting toolbar
 document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{
@@ -1520,72 +1684,7 @@ document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{
   });
 });
 
-// ========================
-// BOOKSHELF — Multi-manuscript storage
-// ========================
-$('bookshelf-btn')?.addEventListener('click',()=>{
-  $('bookshelf-modal')?.classList.remove('hidden');
-  renderBookshelf();
-});
-$('bookshelf-close')?.addEventListener('click',()=>$('bookshelf-modal')?.classList.add('hidden'));
-
-function renderBookshelf(){
-  const list=$('bookshelf-list');if(!list)return;
-  // Load from localStorage
-  const shelf=JSON.parse(localStorage.getItem('ml_bookshelf')||'[]');
-  let h='<button class="btn-gold" id="shelf-add" style="width:100%;margin-bottom:1rem;padding:.5rem;font-size:.8rem">+ Add Current Manuscript to Bookshelf</button>';
-  if(shelf.length===0){
-    h+='<p style="color:var(--muted);font-size:.8rem;text-align:center;padding:2rem 0">Your bookshelf is empty. Analyze a manuscript, then add it here.</p>';
-  }else{
-    shelf.forEach((book,i)=>{
-      h+='<div class="shelf-book" style="display:flex;align-items:center;gap:.6rem;padding:.6rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:.4rem;cursor:pointer" data-shelf-idx="'+i+'">';
-      h+='<div style="font-size:1.5rem;flex-shrink:0">&#128213;</div>';
-      h+='<div style="flex:1;min-width:0"><div style="font-size:.82rem;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(book.fileName)+'</div>';
-      h+='<div style="font-size:.65rem;color:var(--muted)">'+esc(book.genre)+' &middot; '+(book.totalWords||0).toLocaleString()+' words &middot; Score: '+(book.overall||0)+'/100</div>';
-      h+='<div style="font-size:.6rem;color:var(--dim)">Saved: '+new Date(book.savedAt).toLocaleDateString()+'</div></div>';
-      h+='<button class="btn-gold shelf-populate" data-idx="'+i+'" style="padding:.25rem .6rem;font-size:.7rem;flex-shrink:0">Populate</button>';
-      h+='<button class="btn-dark shelf-remove" data-idx="'+i+'" style="padding:.25rem .4rem;font-size:.7rem;flex-shrink:0">&times;</button>';
-      h+='</div>';
-    });
-  }
-  list.innerHTML=h;
-  // Add current to bookshelf
-  $('shelf-add')?.addEventListener('click',()=>{
-    if(!uploadedFile||!extractedText||!analysisResult){alert('Analyze a manuscript first.');return}
-    const shelf=JSON.parse(localStorage.getItem('ml_bookshelf')||'[]');
-    shelf.push({fileName:uploadedFile.name,text:extractedText,result:analysisResult,genre:analysisResult.genre?.label||'',totalWords:analysisResult.totalWords||0,overall:analysisResult.overall||0,savedAt:Date.now()});
-    localStorage.setItem('ml_bookshelf',JSON.stringify(shelf));
-    renderBookshelf();
-  });
-  // Populate from bookshelf
-  list.querySelectorAll('.shelf-populate').forEach(btn=>{btn.addEventListener('click',e=>{
-    e.stopPropagation();
-    const idx=parseInt(btn.dataset.idx);
-    const shelf=JSON.parse(localStorage.getItem('ml_bookshelf')||'[]');
-    const book=shelf[idx];if(!book)return;
-    if(extractedText&&analysisResult){
-      if(!confirm('Loading "'+book.fileName+'" will replace your current work. Save first?'))return;
-    }
-    extractedText=book.text;
-    analysisResult=book.result||Analyzer.analyze(book.text);
-    uploadedFile={name:book.fileName,size:0};
-    $('bookshelf-modal')?.classList.add('hidden');
-    $('upload-view')?.classList.add('hidden');
-    $('editor-view')?.classList.remove('hidden');
-    renderAll();
-  })});
-  // Remove from bookshelf
-  list.querySelectorAll('.shelf-remove').forEach(btn=>{btn.addEventListener('click',e=>{
-    e.stopPropagation();
-    const idx=parseInt(btn.dataset.idx);
-    const shelf=JSON.parse(localStorage.getItem('ml_bookshelf')||'[]');
-    if(confirm('Remove "'+shelf[idx]?.fileName+'" from bookshelf?')){
-      shelf.splice(idx,1);
-      localStorage.setItem('ml_bookshelf',JSON.stringify(shelf));
-      renderBookshelf();
-    }
-  })});
-}
+// (Bookshelf replaced by Library dashboard)
 
 // ========================
 // FOCUS & RECOVERY — Writing Health Guard
@@ -1667,52 +1766,342 @@ if(typeof AIEngine!=='undefined'){
   };
 }
 
-// ========================
-// RE-ENGAGEMENT TRACKING
-// ========================
-function trackSession(){
+// ============================================================
+// RE-ENGAGEMENT SYSTEM (3-layer)
+// ============================================================
+
+// ── Tracking data model ──────────────────────────────────
+function trackSession(actionType){
   if(!uploadedFile||!analysisResult)return;
-  const data={
-    manuscript:uploadedFile.name,
-    lastChapter:null,
-    lastSessionTime:Date.now(),
-    genre:analysisResult.genre?.label||'',
-    overall:analysisResult.overall||0,
-    totalWords:analysisResult.totalWords||0
-  };
-  // Try to detect current chapter
+  const prev=JSON.parse(localStorage.getItem('ml_session')||'{}');
   const text=extractedText||'';
   const chapters=text.match(/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*)/gim)||[];
-  if(chapters.length>0)data.lastChapter=chapters[chapters.length-1].trim();
-  localStorage.setItem('ml_session',JSON.stringify(data));
-}
-// Track on analysis and periodically
-setInterval(trackSession,60000);
+  const lastChapter=chapters.length>0?chapters[chapters.length-1].trim():(prev.lastChapter||null);
 
-// Show re-engagement message on upload page if returning after absence
+  const data={
+    manuscript:uploadedFile.name,
+    manuscriptId:Storage._currentManuscriptId||prev.manuscriptId||null,
+    lastChapter,
+    lastActionType:actionType||prev.lastActionType||'viewing',
+    lastScore:analysisResult.overall||prev.lastScore||0,
+    lastSessionTime:Date.now(),
+    genre:analysisResult.genre?.label||'',
+    totalWords:analysisResult.totalWords||0,
+    // Preserve reminder tier so server-side cron can pick up where it left off
+    lastReminderTier:prev.lastReminderTier||0
+  };
+  localStorage.setItem('ml_session',JSON.stringify(data));
+
+  // Mirror to Firestore (server uses this for push/email cron)
+  _syncSessionToServer(data);
+}
+
+function _syncSessionToServer(data){
+  if(typeof firebase==='undefined')return;
+  const user=firebase.auth().currentUser;if(!user)return;
+  const prefs=JSON.parse(localStorage.getItem('ml_prefs')||'{}');
+  const db=firebase.firestore();
+  db.collection('userSessions').doc(user.uid).set({
+    uid:user.uid,
+    email:user.email||'',
+    manuscript:data.manuscript||'',
+    manuscriptId:data.manuscriptId||'',
+    lastChapter:data.lastChapter||'',
+    lastActionType:data.lastActionType||'viewing',
+    lastScore:data.lastScore||0,
+    lastSessionTime:data.lastSessionTime||Date.now(),
+    emailReminders:prefs.emailReminders||false,
+    lastReminderTier:data.lastReminderTier||0
+  },{merge:true}).catch(()=>{});
+}
+
+function _resetReminderTier(){
+  if(typeof firebase==='undefined')return;
+  const user=firebase.auth().currentUser;if(!user)return;
+  firebase.firestore().collection('userSessions').doc(user.uid).set(
+    {lastReminderTier:0,lastSessionTime:Date.now()},{merge:true}
+  ).catch(()=>{});
+  // Also reset local tier
+  const s=JSON.parse(localStorage.getItem('ml_session')||'{}');
+  s.lastReminderTier=0;s.lastSessionTime=Date.now();
+  localStorage.setItem('ml_session',JSON.stringify(s));
+}
+
+// Track on analysis and periodically
+setInterval(()=>trackSession(),60000);
+
+// ============================================================
+// WRITING & BLOCK TOOLS
+// ============================================================
+let _sprintInterval=null;
+
+// Writing Prompt Generator
+$('wb-prompt-btn')?.addEventListener('click',async()=>{
+  const res=$('wb-prompt-result');if(!res)return;
+  res.classList.remove('hidden');
+  res.textContent='Generating prompt...';
+  const genre=analysisResult?.genre?.label||'fiction';
+  const text=extractedText||'';
+  const chapters=text.match(/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*)/gim)||[];
+  const lastCh=chapters.length>0?chapters[chapters.length-1].trim():'the opening';
+
+  // Simple local prompt generation (no AI needed)
+  const prompts=[
+    `Write the next 500 words of your ${genre} manuscript. Your character just discovered something they can't ignore.`,
+    `Start with a line of dialogue. Someone in "${lastCh}" says something that changes the direction of the scene.`,
+    `Describe a setting your protagonist has never been to before. Use all five senses. Make it matter to the plot.`,
+    `Write a flashback scene — something that happened before the story opened. It explains why your character acts the way they do in "${lastCh}".`,
+    `Your protagonist is alone with their thoughts. What are they afraid of? Write the inner monologue, then have someone interrupt them.`,
+    `Two characters disagree about something important. Write the argument — no one is entirely right.`,
+    `A minor detail from an earlier chapter becomes important now. Write the scene where your character notices it.`,
+    `Write a quiet moment. No action, no tension. Just your character existing in the world. Make the reader care.`
+  ];
+  res.textContent=prompts[Math.floor(Math.random()*prompts.length)];
+});
+
+// What If Generator
+$('wb-whatif-btn')?.addEventListener('click',()=>{
+  const res=$('wb-whatif-result');if(!res)return;
+  res.classList.remove('hidden');
+  const genre=analysisResult?.genre?.label||'fiction';
+  const twists=[
+    'What if the character everyone trusts is the one causing the problem?',
+    'What if the setting suddenly becomes hostile — a storm, a lockdown, a blackout?',
+    'What if the protagonist discovers they were wrong about the one thing they were sure of?',
+    'What if someone from the past shows up uninvited — and they have information that changes everything?',
+    'What if the goal your character has been chasing turns out to be worthless?',
+    'What if two characters who\'ve never spoken are forced to depend on each other?',
+    'What if the antagonist has a genuinely good reason for what they\'re doing?',
+    'What if the next chapter starts 6 months later — and everything has changed?',
+    'What if your character has to choose between two people they care about?',
+    'What if a seemingly insignificant choice from Chapter 1 has massive consequences now?',
+    'What if the mentor, guide, or helper figure is lying?',
+    'What if the rules of your world suddenly stop working?'
+  ];
+  // Pick 5 random unique twists
+  const shuffled=twists.sort(()=>0.5-Math.random()).slice(0,5);
+  res.innerHTML=shuffled.map((t,i)=>'<div style="padding:.3rem 0;'+(i>0?'border-top:1px solid var(--border);':'')+'"><strong style="color:var(--gold-l)">'+(i+1)+'.</strong> '+t+'</div>').join('');
+});
+
+// Sprint Timer
+$('wb-sprint-btn')?.addEventListener('click',()=>{
+  const display=$('wb-sprint-display');
+  const btn=$('wb-sprint-btn');
+  if(!display||!btn)return;
+
+  if(_sprintInterval){
+    // Stop sprint
+    clearInterval(_sprintInterval);
+    _sprintInterval=null;
+    btn.textContent='Start Sprint';
+    display.classList.add('hidden');
+    return;
+  }
+
+  const mins=parseInt($('wb-sprint-time')?.value||'15');
+  let remaining=mins*60;
+  display.classList.remove('hidden');
+  btn.textContent='Stop Sprint';
+
+  function updateDisplay(){
+    const m=Math.floor(remaining/60);
+    const s=remaining%60;
+    display.innerHTML='<div style="font-size:1.5rem;font-weight:700;color:var(--gold-l);text-align:center">'+m+':'+(s<10?'0':'')+s+'</div><div style="font-size:.7rem;color:var(--muted);text-align:center">Just write. Don\'t edit. Don\'t look back.</div>';
+  }
+  updateDisplay();
+
+  _sprintInterval=setInterval(()=>{
+    remaining--;
+    if(remaining<=0){
+      clearInterval(_sprintInterval);
+      _sprintInterval=null;
+      btn.textContent='Start Sprint';
+      display.innerHTML='<div style="font-size:1.1rem;font-weight:700;color:var(--green);text-align:center">Sprint complete! Well done.</div>';
+      if('Notification' in window&&Notification.permission==='granted'){
+        new Notification('AuthorScrolls',{body:'Your writing sprint is complete!'});
+      }
+    }else{
+      updateDisplay();
+    }
+  },1000);
+});
+
+// Character Voice
+$('wb-voice-btn')?.addEventListener('click',()=>{
+  const res=$('wb-voice-result');
+  const nameInput=$('wb-char-name');
+  if(!res||!nameInput)return;
+  const name=nameInput.value.trim()||'your character';
+  res.classList.remove('hidden');
+  const exercises=[
+    `Write 200 words as ${name}. They're writing a letter to someone they've wronged. What do they say — and what do they leave out?`,
+    `${name} is ordering food at a place they've never been. How do they talk to the server? What do they notice about the menu?`,
+    `Write ${name}'s internal monologue while waiting for something important. What are the specific words and rhythms of how they think?`,
+    `${name} is explaining something they love to someone who doesn't care. How do they sound when they're passionate and ignored?`,
+    `${name} is lying. Write the lie in their voice — then write what they're actually thinking underneath it.`
+  ];
+  res.textContent=exercises[Math.floor(Math.random()*exercises.length)];
+});
+
+// ── Layer 1: In-app welcome-back ────────────────────────────
 function showReengagement(){
   try{
     const raw=localStorage.getItem('ml_session');if(!raw)return;
     const data=JSON.parse(raw);
     const hoursSince=(Date.now()-data.lastSessionTime)/3600000;
-    if(hoursSince<1)return; // Was here recently
+    if(hoursSince<1)return;
     const card=document.querySelector('.upload-card');if(!card)return;
+    if(document.querySelector('.reengage-msg'))return; // already shown
+
     let msg='';
-    if(hoursSince>=48&&data.lastChapter){
-      msg='You left the story mid-turn. Reopen <strong>'+esc(data.manuscript)+'</strong> and keep going.';
-    }else if(hoursSince>=24&&data.lastChapter){
-      msg='You were editing <strong>'+esc(data.lastChapter)+'</strong> in '+esc(data.manuscript)+'. Pick up where you left off.';
-    }else if(hoursSince>=1){
-      msg='Welcome back! Your last manuscript: <strong>'+esc(data.manuscript)+'</strong> (Score: '+data.overall+'/100).';
+    const m=esc(data.manuscript||'your manuscript');
+    const ch=data.lastChapter?esc(data.lastChapter):'';
+    const sc=data.lastScore||0;
+    const act=data.lastActionType||'viewing';
+
+    if(hoursSince>=72){
+      if(ch) msg='You stopped in the middle of <em>'+ch+'</em>. Stories don\'t finish themselves — but yours could.';
+      else msg='It\'s been a few days. <strong>'+m+'</strong> is still right where you left it.';
+    }else if(hoursSince>=48){
+      if(act==='editing'&&ch) msg='You were mid-edit on <em>'+ch+'</em> in <strong>'+m+'</strong>. The prose is still unfinished.';
+      else if(ch) msg='<strong>'+m+'</strong> — you left off at <em>'+ch+'</em>. One more pass could make a real difference.';
+      else msg='Two days since your last session. <strong>'+m+'</strong> could use your attention.';
+    }else if(hoursSince>=24){
+      if(act==='analyzing'&&sc) msg='<strong>'+m+'</strong> scored <strong>'+sc+'/100</strong>. Yesterday\'s analysis flagged things worth fixing — want to dig in?';
+      else if(ch) msg='You were working on <em>'+ch+'</em> in <strong>'+m+'</strong>. Ready to pick it up?';
+      else msg='Welcome back. <strong>'+m+'</strong> is where you left it.';
+    }else{
+      if(sc>=80) msg='Good to see you back. <strong>'+m+'</strong> is scoring well — keep the momentum going.';
+      else if(sc>0) msg='Welcome back. <strong>'+m+'</strong> — last score was <strong>'+sc+'/100</strong>. Let\'s improve it.';
+      else msg='Welcome back. Ready to keep working on <strong>'+m+'</strong>?';
     }
+
     if(!msg)return;
     const div=document.createElement('div');
     div.className='reengage-msg';
-    div.style.cssText='margin-bottom:.75rem;padding:.6rem;background:var(--surface2);border:1px solid var(--gold-d);border-radius:var(--rs);font-size:.78rem;color:var(--text);line-height:1.5;font-family:Inter,sans-serif';
-    div.innerHTML='<span style="color:var(--gold-l);font-weight:600">&#9997; '+msg+'</span>';
+    div.style.cssText='margin-bottom:.75rem;padding:.65rem .85rem;background:var(--surface2);border:1px solid rgba(200,149,108,.25);border-radius:var(--rs);font-size:.78rem;color:var(--text);line-height:1.6;font-family:Inter,sans-serif;display:flex;align-items:flex-start;gap:.5rem';
+    div.innerHTML='<span style="color:#c8956c;font-size:.9rem;margin-top:.05rem">&#9997;</span><span style="color:#e8dfd4">'+msg+'</span>';
     card.prepend(div);
+
+    // Mark tier 1 sent
+    data.lastReminderTier=Math.max(data.lastReminderTier||0,1);
+    localStorage.setItem('ml_session',JSON.stringify(data));
   }catch(e){}
 }
 showReengagement();
+
+// ── Layer 2: Push notification subscription ─────────────
+const PushManager={
+  VAPID_PUBLIC:'BIExireuGYmZMRI4Ou3bUI0k4BaAJP1pxczO9WCmb58JvUiSqROFYRPcTFcrHcWUWtoF2aGTmBc6uudgqfkFpf8',
+
+  async isSupported(){
+    return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  },
+
+  async getPermission(){ return Notification.permission; },
+
+  async register(){
+    if(!await this.isSupported())return null;
+    try{
+      const reg=await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      return reg;
+    }catch(e){console.warn('SW register failed',e);return null}
+  },
+
+  async subscribe(){
+    const reg=await this.register();if(!reg)return false;
+    if(Notification.permission==='denied')return false;
+
+    const perm=await Notification.requestPermission();
+    if(perm!=='granted')return false;
+
+    try{
+      const sub=await reg.pushManager.subscribe({
+        userVisibleOnly:true,
+        applicationServerKey:this._urlBase64ToUint8Array(this.VAPID_PUBLIC)
+      });
+
+      const user=firebase.auth().currentUser;
+      if(!user)return false;
+
+      // Store subscription directly in Firestore (no server roundtrip needed)
+      await firebase.firestore().collection('pushSubscriptions').doc(user.uid).set({
+        uid:user.uid,
+        email:user.email||'',
+        subscription:sub.toJSON(),
+        updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      localStorage.setItem('ml_push_subscribed','1');
+      return true;
+    }catch(e){console.warn('Push subscribe failed',e);return false}
+  },
+
+  async unsubscribe(){
+    try{
+      const reg=await navigator.serviceWorker.getRegistration('/sw.js');
+      const sub=await reg?.pushManager.getSubscription();
+      if(sub)await sub.unsubscribe();
+      const user=firebase.auth().currentUser;
+      if(user)await firebase.firestore().collection('pushSubscriptions').doc(user.uid).delete();
+      localStorage.removeItem('ml_push_subscribed');
+    }catch(e){}
+  },
+
+  _urlBase64ToUint8Array(base64String){
+    const padding='='.repeat((4-base64String.length%4)%4);
+    const base64=(base64String+padding).replace(/-/g,'+').replace(/_/g,'/');
+    const raw=atob(base64);
+    return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)));
+  }
+};
+
+// Prompt for push after first successful analysis (gentle, non-intrusive)
+function maybePromptPush(){
+  if(localStorage.getItem('ml_push_subscribed')||localStorage.getItem('ml_push_dismissed'))return;
+  if(!PushManager.isSupported)return;
+  if(Notification.permission==='denied')return;
+
+  // Show a subtle opt-in banner rather than a browser permission dialog cold-call
+  const existing=document.getElementById('push-prompt-bar');
+  if(existing)return;
+
+  const bar=document.createElement('div');
+  bar.id='push-prompt-bar';
+  bar.style.cssText='position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);z-index:1000;background:#1e1812;border:1px solid rgba(200,149,108,.3);border-radius:10px;padding:.65rem 1rem;display:flex;align-items:center;gap:.75rem;font-size:.78rem;color:#9c9085;box-shadow:0 4px 20px rgba(0,0,0,.5);max-width:420px;width:90%';
+  bar.innerHTML=`
+    <span style="color:#c8956c;font-size:1rem">&#128276;</span>
+    <span style="flex:1;color:#e8dfd4">Get nudged when your manuscript needs attention?</span>
+    <button id="push-yes" style="padding:.3rem .75rem;background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff;border:none;border-radius:6px;font-size:.75rem;font-weight:600;cursor:pointer">Enable</button>
+    <button id="push-no" style="padding:.3rem .6rem;background:none;border:none;color:#6b6158;font-size:.75rem;cursor:pointer">Not now</button>
+  `;
+  document.body.appendChild(bar);
+
+  document.getElementById('push-yes').addEventListener('click',async()=>{
+    bar.remove();
+    const ok=await PushManager.subscribe();
+    if(ok){
+      const toast=document.createElement('div');
+      toast.style.cssText='position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:#1e3320;border:1px solid #5dba7d;border-radius:8px;padding:.5rem 1rem;color:#5dba7d;font-size:.78rem;z-index:1001';
+      toast.textContent='Notifications enabled.';
+      document.body.appendChild(toast);
+      setTimeout(()=>toast.remove(),3000);
+    }
+  });
+
+  document.getElementById('push-no').addEventListener('click',()=>{
+    bar.remove();
+    localStorage.setItem('ml_push_dismissed','1');
+  });
+
+  // Auto-dismiss after 12 seconds
+  setTimeout(()=>bar.remove(),12000);
+}
+
+// Register service worker early (needed for push to work even before prompting)
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}
 
 })();

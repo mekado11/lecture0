@@ -11,10 +11,60 @@
 </head>
 <body>
 
-  <!-- UPLOAD -->
-  <div id="upload-view" class="upload-view">
-    <div class="upload-card">
-      <a href="index.html" style="display:flex;align-items:center;gap:.3rem;color:var(--muted);font-size:.75rem;text-decoration:none;margin-bottom:.75rem;font-family:Inter,sans-serif"><span>&larr;</span> Back to Home</a>
+  <!-- LIBRARY DASHBOARD -->
+  <div id="upload-view" class="library-view">
+    <!-- Library Nav -->
+    <nav class="lib-nav">
+      <div class="lib-nav-l"><span class="leaf">&#127807;</span><strong class="lib-brand">AuthorScrolls</strong></div>
+      <div class="lib-nav-r">
+        <div class="lib-search-wrap">
+          <svg class="lib-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="lib-search" class="lib-search" placeholder="Search manuscripts...">
+        </div>
+        <a href="profile.html" class="lib-avatar" id="lib-avatar-btn" title="Profile"><span id="lib-avatar-letter">M</span></a>
+        <a href="pricing.html" class="lib-nav-link">Pricing</a>
+      </div>
+    </nav>
+
+    <!-- Library Content -->
+    <div class="lib-content">
+      <!-- Header -->
+      <div class="lib-header">
+        <h1 class="lib-title">Your Library</h1>
+        <p class="lib-subtitle">A home for your manuscripts, drafts, and reports.</p>
+      </div>
+
+      <!-- Continue Writing -->
+      <div id="lib-recent-section" class="lib-section hidden">
+        <div class="lib-section-head"><h2>Continue Writing</h2></div>
+        <div class="lib-cards-row" id="lib-recent-cards"></div>
+      </div>
+
+      <!-- All Manuscripts -->
+      <div class="lib-section">
+        <div class="lib-section-head"><h2>All Manuscripts</h2></div>
+        <div class="lib-cards-grid" id="lib-all-cards">
+          <!-- Add Manuscript card (always first) -->
+          <div class="lib-card lib-card-add" id="lib-add-btn">
+            <svg class="lib-add-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span class="lib-add-title">Add Manuscript</span>
+            <span class="lib-add-sub">Upload .docx, .pdf, .txt<br>or start from scratch</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Loading state -->
+      <div id="lib-loading" class="lib-loading hidden">
+        <div class="spinner"></div>
+        <p style="color:var(--muted);font-size:.82rem;margin-top:.5rem">Loading your manuscripts...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- UPLOAD MODAL (appears when "Add Manuscript" is clicked) -->
+  <div id="upload-modal" class="modal hidden">
+    <div class="modal-box" style="max-width:500px;padding:2rem">
+      <a href="#" id="upload-modal-back" style="display:flex;align-items:center;gap:.3rem;color:var(--muted);font-size:.75rem;text-decoration:none;margin-bottom:1rem;font-family:Inter,sans-serif"><span>&larr;</span> Back to Library</a>
       <div class="upload-logo"><span class="leaf">&#127807;</span><h1>AuthorScrolls</h1><p class="tagline">Author's Best Buddy</p></div>
       <div id="drop-zone" class="drop-zone">
         <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -64,7 +114,7 @@
     <header class="topbar">
       <div class="topbar-l"><a href="#" id="back-to-upload" style="text-decoration:none;display:flex;align-items:center;gap:.5rem" title="Back to upload"><span style="font-size:.85rem;color:var(--muted)">&larr;</span><span class="leaf-sm">&#127807;</span><strong class="brand">AuthorScrolls</strong></a><span class="status-pill" id="top-status">Analyzing...</span></div>
       <div class="topbar-c"><span id="top-filename">Untitled</span><select id="genre-override" class="genre-override" title="Change genre"><option value="">Auto-detect</option><optgroup label="Fiction"><option value="scifi">Sci-Fi</option><option value="fantasy">Fantasy</option><option value="romance">Romance</option><option value="thriller">Thriller</option><option value="mystery">Mystery</option><option value="horror">Horror</option><option value="historical">Historical</option><option value="dystopian">Dystopian</option><option value="ya">YA</option><option value="literary">Literary</option><option value="romantasy">Romantasy</option><option value="cozyMystery">Cozy Mystery</option><option value="adventure">Adventure</option><option value="western">Western</option></optgroup><optgroup label="Non-Fiction"><option value="memoir">Memoir</option><option value="selfHelp">Self-Help</option><option value="biography">Biography</option><option value="historyNF">History</option><option value="trueCrime">True Crime</option><option value="philosophy">Philosophy</option></optgroup></select></div>
-      <div class="topbar-r"><span class="live-score">LIVE SCORE: <b id="top-score">0</b> <span id="top-delta" class="delta"></span></span><span class="wc">Words: <b id="top-wc">0</b></span><button class="tb-btn" id="bookshelf-btn">&#128218; Bookshelf</button><button class="tb-btn" id="export-btn">&#8681; Export</button><button class="tb-btn" id="new-btn">&#8634; New</button></div>
+      <div class="topbar-r"><span class="live-score">LIVE SCORE: <b id="top-score">0</b> <span id="top-delta" class="delta"></span></span><span class="wc">Words: <b id="top-wc">0</b></span><button class="tb-btn" id="export-btn">&#8681; Export</button><button class="tb-btn" id="new-btn">&#128218; Library</button></div>
     </header>
 
     <!-- Goal bar removed - actions already in sidebar -->
@@ -121,6 +171,48 @@
               <div id="ai-chapter-breakdown" class="a-sec"></div>
             </div>
           </div>
+          <div id="ed-writing" class="ms-page">
+            <div style="padding:1.5rem">
+              <h3 style="color:var(--gold-l);font-family:Lora,serif;margin-bottom:.8rem">Writing &amp; Block</h3>
+              <p style="color:var(--muted);font-size:.82rem;line-height:1.6;margin-bottom:1.5rem">Tools to help you push through creative blocks and keep writing.</p>
+              <div class="wb-grid" id="wb-grid">
+                <div class="wb-tool">
+                  <div class="wb-tool-icon">&#9997;</div>
+                  <h4>Writing Prompts</h4>
+                  <p>Get a scene prompt based on your manuscript's genre and current chapter.</p>
+                  <button class="btn-gold wb-btn" id="wb-prompt-btn" style="margin-top:.5rem;width:auto;padding:.4rem 1rem;font-size:.78rem">Generate Prompt</button>
+                  <div id="wb-prompt-result" class="wb-result hidden"></div>
+                </div>
+                <div class="wb-tool">
+                  <div class="wb-tool-icon">&#127912;</div>
+                  <h4>"What If" Generator</h4>
+                  <p>Stuck? Get 5 unexpected twists for your current scene or chapter.</p>
+                  <button class="btn-gold wb-btn" id="wb-whatif-btn" style="margin-top:.5rem;width:auto;padding:.4rem 1rem;font-size:.78rem">What If...</button>
+                  <div id="wb-whatif-result" class="wb-result hidden"></div>
+                </div>
+                <div class="wb-tool">
+                  <div class="wb-tool-icon">&#128337;</div>
+                  <h4>Sprint Timer</h4>
+                  <p>Set a timed writing sprint. No editing, just words.</p>
+                  <div style="display:flex;gap:.4rem;margin-top:.5rem;align-items:center">
+                    <select id="wb-sprint-time" style="padding:.3rem .5rem;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--rs);font-size:.78rem">
+                      <option value="5">5 min</option><option value="10">10 min</option><option value="15" selected>15 min</option><option value="25">25 min</option><option value="45">45 min</option>
+                    </select>
+                    <button class="btn-gold wb-btn" id="wb-sprint-btn" style="width:auto;padding:.4rem 1rem;font-size:.78rem">Start Sprint</button>
+                  </div>
+                  <div id="wb-sprint-display" class="wb-result hidden"></div>
+                </div>
+                <div class="wb-tool">
+                  <div class="wb-tool-icon">&#128161;</div>
+                  <h4>Character Voice</h4>
+                  <p>Write a paragraph in a specific character's voice to find their rhythm.</p>
+                  <input type="text" id="wb-char-name" placeholder="Character name..." style="width:100%;padding:.35rem .5rem;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--rs);font-size:.78rem;margin-top:.5rem">
+                  <button class="btn-gold wb-btn" id="wb-voice-btn" style="margin-top:.4rem;width:auto;padding:.4rem 1rem;font-size:.78rem">Find Voice</button>
+                  <div id="wb-voice-result" class="wb-result hidden"></div>
+                </div>
+              </div>
+            </div>
+          </div>
           <div id="ed-versions" class="ms-page"></div>
           <div id="ed-blurbs" class="ms-page"></div>
         </div>
@@ -130,6 +222,7 @@
             <button class="btab" data-p="detailed">Annotated</button>
             <button class="btab" data-p="reader">Reader View</button>
             <button class="btab" data-p="ai">AI Critique</button>
+            <button class="btab" data-p="writing">Writing &amp; Block</button>
             <button class="btab" data-p="versions">Versions</button>
             <button class="btab" data-p="blurbs">Blurbs</button>
           </div>
@@ -317,16 +410,6 @@
     <div class="focus-timer" id="focus-timer-bar"></div>
   </div>
 
-  <!-- BOOKSHELF MODAL -->
-  <div id="bookshelf-modal" class="modal hidden">
-    <div class="modal-box" style="max-width:600px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-        <h2 style="font-family:Lora,serif;color:var(--gold-l);font-size:1.2rem;margin:0">&#128218; Bookshelf</h2>
-        <button class="btn-dark" id="bookshelf-close" style="padding:.2rem .6rem;font-size:.8rem">&times;</button>
-      </div>
-      <div id="bookshelf-list" style="max-height:400px;overflow-y:auto"></div>
-    </div>
-  </div>
 
   <!-- FIRST-TIME WIZARD -->
   <div id="wizard-overlay" class="modal hidden">
