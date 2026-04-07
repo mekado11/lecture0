@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ManuscriptLens - Author's Best Buddy</title>
+  <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+
+  <!-- UPLOAD -->
+  <div id="upload-view" class="upload-view">
+    <div class="upload-card">
+      <div class="upload-logo"><span class="leaf">&#127807;</span><h1>ManuscriptLens</h1><p class="tagline">Author's Best Buddy</p></div>
+      <div id="drop-zone" class="drop-zone">
+        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <p class="drop-text">Drop your manuscript here</p>
+        <p class="drop-sub">or click to browse &middot; .docx .pdf .txt</p>
+        <input type="file" id="file-input" accept=".docx,.pdf,.txt" hidden>
+      </div>
+      <div id="file-info" class="file-info hidden"><span id="file-name"></span><button id="clear-file" class="x-btn">&times;</button></div>
+      <button id="analyze-btn" class="btn-gold hidden">Analyze Manuscript</button>
+      <div id="upload-loading" class="loading hidden"><div class="spinner"></div><p id="loader-text">Extracting text...</p></div>
+    </div>
+  </div>
+
+  <!-- EDITOR -->
+  <div id="editor-view" class="editor-view hidden">
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <div class="topbar-l"><span class="leaf-sm">&#127807;</span><strong class="brand">ManuscriptLens</strong><span class="status-pill" id="top-status">Analyzing...</span></div>
+      <div class="topbar-c"><span id="top-filename">Untitled</span></div>
+      <div class="topbar-r"><span class="live-score">LIVE SCORE: <b id="top-score">0</b> <span id="top-delta" class="delta"></span></span><span class="wc">Words: <b id="top-wc">0</b></span><button class="tb-btn" id="export-btn">&#8681; Export</button><button class="tb-btn" id="new-btn">&#8634; New</button></div>
+    </header>
+
+    <!-- Goal Pills Bar -->
+    <div class="goal-bar" id="goal-bar"></div>
+    <div class="panels">
+      <!-- LEFT: Document Health -->
+      <aside class="left-panel" id="left-panel">
+        <div class="lp-head"><span class="lp-title">Document Health</span><span class="lp-dots">&bull;&bull;&bull;</span></div>
+        <!-- Semi-circle gauge -->
+        <div class="gauge-wrap">
+          <canvas id="gauge-canvas" width="220" height="130"></canvas>
+          <div class="gauge-value"><span id="gauge-num">0</span><span class="gauge-lbl">Overall Score</span></div>
+        </div>
+        <div class="gauge-cats" id="gauge-cats">Plot &middot; Clarity &middot; Pacing &middot; Dialogue</div>
+        <div class="lp-cards" id="lp-cards"></div>
+        <!-- Scene Intelligence -->
+        <div id="scene-intel" class="scene-intel"></div>
+      </aside>
+
+      <!-- CENTER: Manuscript -->
+      <main class="center-panel">
+        <div class="center-toolbar">
+          <div class="fmt-icons"><span>I</span><span>&#9776;</span><span>&#9633;</span><span>|</span><span>T</span><span>&#8635;</span></div>
+          <div class="fmt-right"><span>&#8592;</span><span>&#8635;</span><span>&#8230;</span></div>
+        </div>
+        <div class="manuscript-scroll" id="manuscript-scroll">
+          <div id="ed-annotated" class="ms-page active"></div>
+          <div id="ed-detailed" class="ms-page"></div>
+          <div id="ed-reader" class="ms-page"></div>
+          <div id="ed-ai" class="ms-page"></div>
+          <div id="ed-versions" class="ms-page"></div>
+          <div id="ed-blurbs" class="ms-page"></div>
+        </div>
+        <div class="center-bottom">
+          <div class="bottom-tabs">
+            <button class="btab active" data-p="annotated">&#9675; Detailed</button>
+            <button class="btab" data-p="detailed">Annotated</button>
+            <button class="btab" data-p="reader">Reader View</button>
+            <button class="btab" data-p="ai">AI Critique</button>
+            <button class="btab" data-p="versions">Versions</button>
+            <button class="btab" data-p="blurbs">Blurbs</button>
+          </div>
+          <div class="bottom-icons"><span>&#8592;</span><span>&#8594;</span><span>&#8599;</span><span>&#43;</span><span>&#9633;</span></div>
+        </div>
+      </main>
+
+      <!-- RIGHT: AI Feedback -->
+      <aside class="right-panel" id="right-panel">
+        <div class="rp-head"><span class="rp-title">AI Feedback</span><select id="fb-mode" class="rp-select"><option>Suggestions</option><option>Rewrite</option><option>Tone Shift</option></select></div>
+        <div class="rp-tabs"><button class="rtab active">Suggestions</button><button class="rtab">Rewrite</button><button class="rtab">Tone Shift</button><button class="rtab">Dial.</button></div>
+        <div class="rp-scores" id="rp-scores"></div>
+        <div class="rp-detail" id="rp-detail"></div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- TOOLTIP -->
+  <div class="tip" id="tip"></div>
+  <!-- API MODAL -->
+  <div id="api-modal" class="modal hidden">
+    <div class="modal-box"><h3>API Configuration</h3><p>Your key is stored in this browser session only and never sent to any server besides Anthropic's API.</p><input type="password" id="modal-key" class="modal-input" placeholder="Claude API Key (sk-ant-...)"><div class="modal-btns"><button id="modal-go" class="btn-gold" style="width:auto;padding:.5rem 1.5rem">Save & Run</button><button id="modal-x" class="btn-dark">Cancel</button></div></div>
+  </div>
+
+  <!-- Firebase SDK for auth check -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script>
+    // Same Firebase config as index.html
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "writers-manuscript.firebaseapp.com",
+      projectId: "writers-manuscript",
+      storageBucket: "writers-manuscript.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+    firebase.initializeApp(firebaseConfig);
+    // Auth gate: redirect to landing if not signed in
+    firebase.auth().onAuthStateChanged(user => {
+      if (!user) { window.location.href = 'index.html'; return; }
+      // Show user name in top bar
+      const brand = document.querySelector('.brand');
+      if (brand) brand.textContent = 'ManuscriptLens';
+      // Add sign out button
+      const topRight = document.querySelector('.topbar-r');
+      if (topRight && !document.getElementById('signout-btn')) {
+        const btn = document.createElement('button');
+        btn.id = 'signout-btn';
+        btn.className = 'tb-btn';
+        btn.textContent = 'Sign Out';
+        btn.onclick = () => { firebase.auth().signOut(); window.location.href = 'index.html'; };
+        topRight.appendChild(btn);
+      }
+    });
+  </script>
+  <script src="analyzer.js"></script>
+  <script src="ai-engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
