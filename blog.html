@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AuthorScrolls - Writing Tips & Blog</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',sans-serif;background:#0a0705;color:#e8dfd4;min-height:100vh}
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,7,5,.88);backdrop-filter:blur(12px);border-bottom:1px solid rgba(200,149,108,.12);padding:.55rem 2rem;display:flex;justify-content:space-between;align-items:center}
+.nb{display:flex;align-items:center;gap:.4rem;font-family:'Lora',serif;font-size:1.1rem;font-weight:700;color:#dbb08a;text-decoration:none}
+.nav-links{display:flex;gap:.7rem;align-items:center}
+.nav-links a{color:#9c9085;font-size:.82rem;text-decoration:none}.nav-links a:hover{color:#dbb08a}
+.container{max-width:760px;margin:80px auto 40px;padding:0 1.5rem}
+h1{font-family:'Lora',serif;font-size:2rem;color:#dbb08a;margin-bottom:.3rem}
+.sub{color:#9c9085;font-size:.9rem;margin-bottom:2rem}
+.featured{background:linear-gradient(145deg,#1e1812,#151010);border:1px solid rgba(200,149,108,.25);border-radius:14px;padding:2rem;margin-bottom:2rem}
+.featured .tag{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c8956c;margin-bottom:.5rem}
+.featured h2{font-family:'Lora',serif;font-size:1.5rem;color:#e8dfd4;margin-bottom:.5rem;line-height:1.3}
+.featured p{font-size:.88rem;color:#9c9085;line-height:1.7;margin-bottom:1rem}
+.featured .meta{font-size:.7rem;color:#6b6158}
+
+.tips-grid{display:grid;grid-template-columns:1fr;gap:1.2rem;margin-bottom:2.5rem}
+.tip-card{background:#151010;border:1px solid rgba(200,149,108,.1);border-radius:10px;padding:1.5rem;transition:.2s}
+.tip-card:hover{border-color:rgba(200,149,108,.3)}
+.tip-card .num{font-size:.6rem;font-weight:700;color:#c8956c;letter-spacing:1px;margin-bottom:.4rem}
+.tip-card h3{font-family:'Lora',serif;font-size:1.05rem;color:#e8dfd4;margin-bottom:.4rem;line-height:1.3}
+.tip-card p{font-size:.82rem;color:#9c9085;line-height:1.7}
+.tip-card .example{margin-top:.6rem;background:#1a1510;border-left:3px solid #c8956c;padding:.5rem .8rem;border-radius:0 6px 6px 0;font-size:.78rem;font-style:italic;color:#9c9085;line-height:1.6}
+.tip-card .example strong{color:#e8dfd4;font-style:normal}
+
+.section-title{font-family:'Lora',serif;font-size:1.3rem;color:#dbb08a;margin-bottom:1rem;padding-top:1rem;border-top:1px solid rgba(200,149,108,.1)}
+
+.cta-box{text-align:center;background:linear-gradient(145deg,#1e1812,#151010);border:1px solid rgba(200,149,108,.2);border-radius:14px;padding:2rem;margin-bottom:2rem}
+.cta-box h3{font-family:'Lora',serif;font-size:1.2rem;color:#dbb08a;margin-bottom:.5rem}
+.cta-box p{font-size:.85rem;color:#9c9085;margin-bottom:1rem}
+.cta-btn{display:inline-block;padding:.6rem 2rem;background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff;border:none;border-radius:8px;font-size:.9rem;font-weight:600;cursor:pointer;text-decoration:none;font-family:inherit;transition:.3s}
+.cta-btn:hover{box-shadow:0 0 20px rgba(255,200,120,.35)}
+
+.footer{text-align:center;padding:2rem;color:#6b6158;font-size:.75rem;border-top:1px solid rgba(200,149,108,.08)}
+.footer a{color:#9c9085;text-decoration:none}
+@media(max-width:600px){.container{padding:0 1rem}}
+</style>
+</head>
+<body>
+<nav>
+  <a class="nb" href="index.html"><span>&#127807;</span> AuthorScrolls</a>
+  <div class="nav-links"><a href="index.html">&larr; Home</a><a href="pricing.html">Pricing</a></div>
+</nav>
+
+<div class="container">
+  <h1>Writing Tips & Craft Blog</h1>
+  <p class="sub">Practical advice from the patterns we see in thousands of manuscripts.</p>
+
+  <div class="featured">
+    <div class="tag">Featured</div>
+    <h2>The 10 Opening Mistakes That Kill Your First Chapter</h2>
+    <p>We analyzed the opening patterns that our engine flags most often. Weather openings, waking-up scenes, and backstory dumps are just the beginning. Here's what actually makes agents stop reading &mdash; and the one-sentence test every opening should pass.</p>
+    <p>The strongest openings in our dataset share three traits: they introduce a specific character within the first two sentences, they contain at least one tension word in the first paragraph, and they begin mid-scene. The weakest openings share one: they explain before they engage.</p>
+    <div class="meta">AuthorScrolls Team &middot; April 2026 &middot; 5 min read</div>
+  </div>
+
+  <h2 class="section-title">Craft Fundamentals</h2>
+  <div class="tips-grid">
+    <div class="tip-card">
+      <div class="num">TIP 01</div>
+      <h3>Show vs Tell: The Only Rule That Actually Matters</h3>
+      <p>"She felt angry" tells. "Her jaw clenched. She set the glass down too hard and it cracked." shows. The difference isn't decoration &mdash; it's the gap between reading about a character and being in the room with them. Readers bond with characters they can observe, not characters they're told about.</p>
+      <div class="example"><strong>Before:</strong> Sarah was nervous about the interview.<br><strong>After:</strong> Sarah checked her reflection three times in the elevator doors. She pressed the button for the fourteenth floor, then pressed it again.</div>
+    </div>
+    <div class="tip-card">
+      <div class="num">TIP 02</div>
+      <h3>Kill Your Adverbs (Most of Them)</h3>
+      <p>Adverbs are the training wheels of prose. "He ran quickly" means your verb is too weak. "He sprinted" is tighter, faster, and trusts the reader. The test: if you remove the adverb and the sentence loses its meaning, find a better verb. If it doesn't lose meaning, the adverb was dead weight.</p>
+      <div class="example"><strong>Weak:</strong> "Stop," she said angrily.<br><strong>Strong:</strong> "Stop." The word came out through her teeth.</div>
+    </div>
+    <div class="tip-card">
+      <div class="num">TIP 03</div>
+      <h3>Passive Voice: When It Kills and When It's Fine</h3>
+      <p>Passive voice ("The door was opened by Sarah") creates distance. Active voice ("Sarah opened the door") puts the reader in the action. But passive voice isn't always wrong &mdash; it's perfect when the receiver of the action matters more than the actor: "The village was destroyed" focuses on the village, not who did it.</p>
+      <div class="example"><strong>Kill it:</strong> "The letter was read by John" &rarr; "John read the letter"<br><strong>Keep it:</strong> "Three soldiers were killed in the ambush" (focus on the loss)</div>
+    </div>
+    <div class="tip-card">
+      <div class="num">TIP 04</div>
+      <h3>Dialogue That Does Double Duty</h3>
+      <p>Every line of dialogue should advance the plot OR reveal character &mdash; ideally both. If a line does neither, cut it. Real people speak in subtext: what they don't say is often more important than what they do. "I'm fine" from a character who clearly isn't fine tells the reader more than a paragraph of internal monologue.</p>
+      <div class="example"><strong>Dead weight:</strong> "Hello." "Hi, how are you?" "Good, thanks. Nice weather."<br><strong>Works hard:</strong> "You look terrible." "Thanks. I got your message." "Which one?" The pause told her everything.</div>
+    </div>
+  </div>
+
+  <h2 class="section-title">Pacing & Structure</h2>
+  <div class="tips-grid">
+    <div class="tip-card">
+      <div class="num">TIP 05</div>
+      <h3>The Chapter Ending Hook</h3>
+      <p>Readers don't quit in the middle of a chapter &mdash; they quit at the end. Every chapter ending is a decision point: keep reading or put the book down? End on an unanswered question, a revelation, a reversal, or a ticking clock. The last line of every chapter should pull the reader into the next one.</p>
+      <div class="example"><strong>Weak ending:</strong> Sarah went to bed, exhausted from the day's events.<br><strong>Hook ending:</strong> Sarah reached for the light switch. That's when she saw the second shadow on the wall.</div>
+    </div>
+    <div class="tip-card">
+      <div class="num">TIP 06</div>
+      <h3>Pacing: The Art of Sentence Length</h3>
+      <p>Short sentences speed up. Long, flowing sentences with subordinate clauses and descriptive language slow the reader down and create a sense of contemplation or rest. Use short sentences for action, tension, and urgency. Use long sentences for reflection, atmosphere, and beauty. The rhythm itself tells the story.</p>
+      <div class="example"><strong>Action:</strong> He ran. The door slammed. Glass shattered behind him.<br><strong>Calm:</strong> The morning light filtered through the kitchen curtains, casting long amber patterns across the table where her coffee sat cooling, untouched.</div>
+    </div>
+    <div class="tip-card">
+      <div class="num">TIP 07</div>
+      <h3>The DNF Zone: Why Readers Abandon Books</h3>
+      <p>Our DNF engine shows the three biggest reader-loss points: the first page (no hook), the end of chapter one (no reason to continue), and the "sagging middle" around 30-40% where the initial excitement fades. The fix for all three is the same: give the character a clear goal and put something in the way of it.</p>
+    </div>
+  </div>
+
+  <h2 class="section-title">The Business of Writing</h2>
+  <div class="tips-grid">
+    <div class="tip-card">
+      <div class="num">TIP 08</div>
+      <h3>Your Query Letter Has 10 Seconds</h3>
+      <p>Agents read hundreds of queries a week. Your first paragraph must answer: Who is the character? What do they want? What's stopping them? What happens if they fail? That's it. No themes, no "in a world where," no rhetorical questions. Character + Want + Obstacle + Stakes.</p>
+    </div>
+    <div class="tip-card">
+      <div class="num">TIP 09</div>
+      <h3>Comp Titles: How to Position Your Book</h3>
+      <p>"My book is like Game of Thrones meets The Hunger Games" tells an agent nothing useful. Good comps are: recent (within 5 years), in your genre, and specific about WHAT you're comparing. "The political intrigue of Circe meets the unreliable narrator of Gone Girl" &mdash; that's a pitch.</p>
+    </div>
+    <div class="tip-card">
+      <div class="num">TIP 10</div>
+      <h3>Word Count: Know Your Genre's Range</h3>
+      <p>Fantasy: 90,000-120,000. Romance: 70,000-90,000. Thriller: 80,000-100,000. Literary fiction: 70,000-100,000. YA: 55,000-80,000. Memoir: 70,000-90,000. Going significantly over or under signals to agents that you don't know your market &mdash; or that the book needs structural editing.</p>
+    </div>
+  </div>
+
+  <div class="cta-box">
+    <h3>Ready to Test Your Manuscript?</h3>
+    <p>Upload your manuscript and see exactly where your writing is strong and where it needs work.</p>
+    <a href="app.html" class="cta-btn">Open the Editor</a>
+  </div>
+</div>
+
+<div class="footer">
+  <p>AuthorScrolls &middot; Author's Best Buddy &middot; &copy; 2026</p>
+  <p style="margin-top:.3rem"><a href="index.html">Home</a> &middot; <a href="pricing.html">Pricing</a> &middot; <a href="legal.html#terms">Terms</a> &middot; <a href="legal.html#privacy">Privacy</a></p>
+</div>
+</body>
+</html>
