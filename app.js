@@ -83,15 +83,26 @@ function renderAll(){
   autoSave();
 }
 
-// AUTO-SAVE (debounced, saves to localStorage every 10s of inactivity)
+// AUTO-SAVE (Firestore + localStorage fallback)
 function autoSave(){
   if(!analysisResult||!uploadedFile)return;
   clearTimeout(autoSaveTimer);
-  autoSaveTimer=setTimeout(()=>{
-    const saveData={fileName:uploadedFile.name,text:extractedText,result:analysisResult,savedAt:new Date().toISOString()};
-    localStorage.setItem('ml_autosave',JSON.stringify(saveData));
-    AIEngine.saveVersion(uploadedFile.name,analysisResult,null);
-  },3000);
+  autoSaveTimer=setTimeout(async()=>{
+    // Save to Firestore
+    if(Storage.userId){
+      try{
+        if(!Storage._currentManuscriptId){
+          Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
+          await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
+        }else{
+          await Storage.updateManuscript(Storage._currentManuscriptId,extractedText,analysisResult);
+          await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
+        }
+      }catch(e){console.warn('Cloud save error:',e.message)}
+    }
+    // Also localStorage fallback
+    localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}));
+  },5000);
 }
 // Load autosave on startup
 function loadAutoSave(){
@@ -910,52 +921,89 @@ c.innerHTML=h;c.querySelector('#clr-v')?.addEventListener('click',()=>{if(confir
 $('export-btn')?.addEventListener('click',()=>{if(!analysisResult)return;const r=analysisResult;const l=['AuthorScrolls Report','='.repeat(30),'','File: '+uploadedFile.name,'Genre: '+r.genre.label,'Words: '+r.totalWords,'Overall: '+r.overall+'/100','','Plot: '+r.scores.plot+'/100','Copy: '+r.scores.copy+'/100','Style: '+r.scores.style+'/100','Dialogue: '+r.scores.dialogue+'/100','Show/Tell: '+r.scores.showTell+'/100','','Engagement: '+r.readerPerspective.engagementScore+'/100','Hook: '+r.readerPerspective.hookStrength+'/100','DNF Risk: '+r.readerPerspective.dnfRisk+'/100','Clarity: '+r.readerPerspective.clarityScore+'/100','','Issues: '+r.issues.length];r.issues.slice(0,20).forEach((i,n)=>{l.push((n+1)+'. ['+i.type+'] '+i.message)});const b=new Blob([l.join('\n')],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=uploadedFile.name.replace(/\.\w+$/,'')+'-report.txt';a.click()});
 
 // SAVE / LOAD
-function saveAnalysis(){
+async function saveAnalysis(){
   if(!analysisResult||!uploadedFile)return;
-  const saveData={
-    fileName:uploadedFile.name,
-    text:extractedText,
-    result:analysisResult,
-    savedAt:new Date().toISOString()
-  };
+  // Save to Firestore
+  if(Storage.userId){
+    try{
+      if(!Storage._currentManuscriptId){
+        Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
+      }else{
+        await Storage.updateManuscript(Storage._currentManuscriptId,extractedText,analysisResult);
+      }
+      await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
+      alert('Saved to cloud! Your manuscript is stored securely.');
+      return;
+    }catch(e){console.warn('Cloud save error:',e.message)}
+  }
+  // Fallback to localStorage
   const saves=JSON.parse(localStorage.getItem('ml_saves')||'[]');
-  // Keep last 10 saves
-  saves.push(saveData);
+  saves.push({fileName:uploadedFile.name,text:extractedText,result:analysisResult,savedAt:new Date().toISOString()});
   if(saves.length>10)saves.splice(0,saves.length-10);
   localStorage.setItem('ml_saves',JSON.stringify(saves));
-  alert('Analysis saved! You can reload it from the home screen.');
+  alert('Saved locally. Sign in to save to cloud.');
 }
 
-function loadSavedAnalyses(){
-  const saves=JSON.parse(localStorage.getItem('ml_saves')||'[]');
-  if(saves.length===0)return;
-  // Show saved analyses on upload page
+async function loadSavedAnalyses(){
   const container=document.querySelector('.upload-card');
   if(!container)return;
   let existing=container.querySelector('.saved-list');
   if(existing)existing.remove();
+
+  // Try Firestore first, fall back to localStorage
+  let manuscripts=[];
+  if(Storage.userId){
+    try{manuscripts=await Storage.getManuscripts()}catch(e){console.warn('Firestore load error:',e.message)}
+  }
+  // Fallback to localStorage
+  if(manuscripts.length===0){
+    const saves=JSON.parse(localStorage.getItem('ml_saves')||'[]');
+    manuscripts=saves.map(s=>({id:null,fileName:s.fileName,overall:s.result?.overall||0,wordCount:s.result?.totalWords||0,genre:s.result?.genre?.label||'',updatedAt:{toDate:()=>new Date(s.savedAt)},_local:true,_data:s}));
+  }
+  if(manuscripts.length===0)return;
+
   const div=document.createElement('div');
   div.className='saved-list';
   div.style.cssText='margin-top:1rem;border-top:1px solid var(--border);padding-top:.75rem';
-  div.innerHTML='<div style="font-size:.8rem;font-weight:600;margin-bottom:.5rem;color:var(--gold-l)">Saved Analyses</div>'+
-    saves.slice().reverse().map((s,i)=>{
-      const idx=saves.length-1-i;
-      const date=new Date(s.savedAt);
-      const grade=Analyzer.getGrade(s.result.overall);
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem .5rem;background:var(--surface2);border-radius:var(--rs);margin-bottom:.3rem;cursor:pointer;font-size:.78rem" data-save-idx="'+idx+'"><div><strong>'+esc(s.fileName)+'</strong><br><span style="color:var(--muted);font-size:.65rem">'+date.toLocaleDateString()+' '+date.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' &middot; '+grade+' ('+s.result.overall+'/100)</span></div><span style="color:var(--gold)">\u2192</span></div>';
+  div.innerHTML='<div style="font-size:.8rem;font-weight:600;margin-bottom:.5rem;color:var(--gold-l)">Your Manuscripts</div>'+
+    manuscripts.map((m,i)=>{
+      const date=m.updatedAt?.toDate?m.updatedAt.toDate():new Date();
+      const grade=Analyzer.getGrade(m.overall||0);
+      const cloud=m._local?'':'<span style="font-size:.55rem;color:var(--green);margin-left:.3rem">\u2601 cloud</span>';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .6rem;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:.35rem;cursor:pointer;font-size:.78rem" data-ms-idx="'+i+'"><div><strong>'+esc(m.fileName)+'</strong>'+cloud+'<br><span style="color:var(--muted);font-size:.65rem">'+date.toLocaleDateString()+' &middot; '+grade+' ('+m.overall+'/100) &middot; '+(m.wordCount||0).toLocaleString()+' words &middot; '+esc(m.genre)+'</span></div><div style="display:flex;gap:.3rem;align-items:center"><span style="color:var(--gold)">\u2192</span>'+(m._local?'':'<button class="del-ms" data-del="'+i+'" style="background:none;border:none;color:var(--red);font-size:.7rem;cursor:pointer;padding:.2rem" title="Delete">\u2715</button>')+'</div></div>';
     }).join('');
   container.appendChild(div);
+
   // Click to load
-  div.querySelectorAll('[data-save-idx]').forEach(el=>{el.addEventListener('click',()=>{
-    const idx=parseInt(el.dataset.saveIdx);
-    const save=saves[idx];
-    if(!save)return;
-    extractedText=save.text;
-    analysisResult=save.result;
-    uploadedFile={name:save.fileName,size:0};
+  div.querySelectorAll('[data-ms-idx]').forEach(el=>{el.addEventListener('click',async(e)=>{
+    if(e.target.classList.contains('del-ms'))return;
+    const idx=parseInt(el.dataset.msIdx);
+    const m=manuscripts[idx];if(!m)return;
+    if(m._local){
+      extractedText=m._data.text;analysisResult=m._data.result;uploadedFile={name:m.fileName,size:0};
+    }else{
+      // Load from Firestore
+      const full=await Storage.getManuscript(m.id);
+      if(!full)return;
+      extractedText=full.text;
+      uploadedFile={name:full.fileName,size:0};
+      analysisResult=Analyzer.analyze(extractedText);
+      Storage._currentManuscriptId=m.id;
+    }
     $('upload-view').classList.add('hidden');
     $('editor-view').classList.remove('hidden');
     renderAll();
+  })});
+
+  // Delete buttons
+  div.querySelectorAll('.del-ms').forEach(btn=>{btn.addEventListener('click',async(e)=>{
+    e.stopPropagation();
+    const idx=parseInt(btn.dataset.del);
+    const m=manuscripts[idx];
+    if(m&&m.id&&confirm('Delete "'+m.fileName+'"?')){
+      await Storage.deleteManuscript(m.id);
+      loadSavedAnalyses();
+    }
   })});
 }
 

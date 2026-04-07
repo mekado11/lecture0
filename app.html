@@ -150,6 +150,7 @@
   <!-- Firebase SDK for auth check -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <script>
     // Same Firebase config as index.html
     const firebaseConfig = {
@@ -161,6 +162,7 @@
       appId: "1:420138585851:web:09c683cf202c9dde50aa5e"
     };
     firebase.initializeApp(firebaseConfig);
+    Storage.init();
     // Auth gate: redirect to landing if not signed in
     firebase.auth().onAuthStateChanged(user => {
       if (!user) { window.location.href = 'index.html'; return; }
@@ -181,6 +183,7 @@
   </script>
   <script src="analyzer.js"></script>
   <script src="ai-engine.js"></script>
+  <script src="storage.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
