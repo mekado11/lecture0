@@ -1514,9 +1514,25 @@ const Analyzer = {
     strategies.push({ title: 'The One-Sentence Test', desc: 'If a reader only reads your first sentence and decides whether to continue — does your first sentence earn the second?', example: 'Read your first sentence in isolation. Does it make you want to know more? If not, rewrite it until it does.' });
 
     // Score the opening
-    const severityWeight = { high: 3, medium: 2, low: 1 };
+    // Start from a base that requires EARNING a high score, not just avoiding penalties
+    const severityWeight = { high: 4, medium: 2.5, low: 1.5 };
     const totalPenalty = problems.reduce((s, p) => s + severityWeight[p.severity], 0);
-    const openingScore = Math.max(0, Math.min(100, 100 - totalPenalty * 8));
+
+    // Positive signals that earn points
+    const positiveSignals = [
+      hasQuestion || hasConflict,    // Hook in first sentence
+      hasSpecificity,                // Named character early
+      earlyTension >= 2,             // Tension words present
+      hasDialogue,                   // Dialogue in opening
+      hasAction,                     // Action in opening
+      firstSentWords <= 20,          // Concise first sentence
+    ].filter(Boolean).length;
+
+    // Base score: 50 + up to 30 from positive signals + up to 20 from lack of problems
+    const signalBonus = Math.round(positiveSignals / 6 * 30);
+    const penaltyDeduction = Math.round(totalPenalty * 8);
+    const cleanBonus = problems.length === 0 ? 20 : Math.max(0, 15 - problems.length * 5);
+    const openingScore = Math.max(0, Math.min(100, 50 + signalBonus + cleanBonus - penaltyDeduction));
 
     return {
       score: openingScore,

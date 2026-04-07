@@ -195,7 +195,6 @@ function sw(){showAuth(am==='signin'?'signup':'signin')}
 function se(m){const e=document.getElementById('aer');e.textContent=m;e.style.display='block'}
 document.getElementById('gbtn').addEventListener('click',async()=>{try{await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());window.location.href='app.html'}catch(e){se(e.message)}});
 document.getElementById('aes').addEventListener('click',async()=>{const em=document.getElementById('aem').value.trim(),pw=document.getElementById('apw').value,nm=document.getElementById('anm').value.trim();if(!em||!pw){se('Enter email and password');return}if(pw.length<6){se('Password: 6+ characters');return}try{if(am==='signup'){const c=await auth.createUserWithEmailAndPassword(em,pw);if(nm)await c.user.updateProfile({displayName:nm})}else{await auth.signInWithEmailAndPassword(em,pw)}window.location.href='app.html'}catch(e){const m={'auth/email-already-in-use':'Email already registered.','auth/invalid-email':'Invalid email.','auth/user-not-found':'No account found.','auth/wrong-password':'Incorrect password.','auth/weak-password':'Password too short.'};se(m[e.code]||e.message)}});
-new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('v')})},{threshold:.15}).observe(document.querySelectorAll?document.querySelectorAll('.rv').forEach(el=>el)?document.body:document.body);
 document.querySelectorAll('.rv').forEach(el=>new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('v')})},{threshold:.15}).observe(el));
 </script>
 </body>

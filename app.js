@@ -426,7 +426,7 @@ function renderRight(r){
     {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:r.issueCounts.adverb},
     {k:'style',name:'Style & Voice',score:r.scores.style,issues:r.issueCounts['weak-verb']},
     {k:'dialogue',name:'Dialogue',score:r.scores.dialogue,issues:0},
-    {k:'showTell',name:'Show vs Tell',score:r.scores.showTell,issues:r.issueCounts['show-tell']},
+    {k:'showTell',name:'Show vs Tell',score:r.scores.showTell,issues:r.showTell.issues.length},
     {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:r.issues.length}
   ];
   const container=$('rp-scores');
@@ -1107,4 +1107,26 @@ loadSavedAnalyses();
 
 // NEW
 $('new-btn')?.addEventListener('click',()=>{$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.add('hidden');$('file-info').classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value='';loadSavedAnalyses()});
+
+// Formatting toolbar
+document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const cmd=btn.dataset.cmd;
+    const ed=$('ed-annotated');
+    if(!ed)return;
+    ed.focus();
+    if(cmd.startsWith('formatBlock:')){
+      const tag=cmd.split(':')[1];
+      const sel=window.getSelection();
+      if(sel.rangeCount&&sel.toString().length>0){
+        document.execCommand('formatBlock',false,'<'+tag+'>');
+      }else{
+        document.execCommand('formatBlock',false,'<'+tag+'>');
+      }
+    }else{
+      document.execCommand(cmd,false,null);
+    }
+    addReanalyzeButton();syncPreview();
+  });
+});
 })();
