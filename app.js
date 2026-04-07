@@ -940,10 +940,14 @@ async function runAI(key){
   }catch(e){
     st.classList.add('hidden');
     const msg=e.message||'Unknown error';
-    // Show error inline instead of alert
+    const isRateLimit=msg.includes('limit reached')||msg.includes('RATE_LIMITED');
     const intro=document.querySelector('.ai-intro');
     if(intro){
-      intro.innerHTML='<div style="color:var(--red);padding:1rem"><h4>AI Critique Error</h4><p style="margin:.5rem 0;font-size:.82rem">'+esc(msg)+'</p><p style="font-size:.75rem;color:var(--muted)">This usually means:</p><ul style="font-size:.75rem;color:var(--muted);list-style:disc;padding-left:1.2rem;margin-top:.3rem"><li>The CLAUDE_API_KEY environment variable is not set in Vercel</li><li>Go to Vercel Dashboard > Settings > Environment Variables</li><li>Add: CLAUDE_API_KEY = your sk-ant-... key</li><li>Redeploy after adding the variable</li></ul><button class="btn-gold" style="width:auto;padding:.4rem 1rem;margin-top:.75rem" onclick="runAI(null)">Retry</button></div>';
+      if(isRateLimit){
+        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Daily Limit Reached</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Free accounts get 1 AI analysis per day to keep the service available for everyone.</p><p style="color:var(--muted);font-size:.78rem">Your analysis resets at midnight UTC. Upgrade to Premium for 20 analyses per day.</p><div style="margin-top:1rem;padding:.5rem;background:var(--surface2);border-radius:var(--rs);font-size:.75rem;color:var(--dim)">Today\'s usage: 1/1</div></div>';
+      }else{
+        intro.innerHTML='<div style="color:var(--red);padding:1rem"><h4>AI Analysis Error</h4><p style="margin:.5rem 0;font-size:.85rem">'+esc(msg)+'</p><button class="btn-gold" style="width:auto;padding:.4rem 1rem;margin-top:.75rem" onclick="runAI(null)">Retry</button></div>';
+      }
       intro.classList.remove('hidden');
     }
   }

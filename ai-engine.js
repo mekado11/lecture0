@@ -71,6 +71,9 @@ const AIEngine = {
       headers['anthropic-beta'] = 'prompt-caching-2024-07-31';
       headers['anthropic-dangerous-direct-browser-access'] = 'true';
     }
+    // Send user ID for rate limiting (server-side only)
+    const userId = typeof firebase !== 'undefined' && firebase.auth().currentUser ? firebase.auth().currentUser.uid : 'anon';
+    if (!isDirect) headers['x-user-id'] = userId;
 
     const response = await fetch(endpoint, {
       method: 'POST',
