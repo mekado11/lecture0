@@ -74,8 +74,9 @@ const AIEngine = {
     // Always use server proxy — API keys never touch the browser
     const endpoint = this.API_ENDPOINT;
     const headers = { 'content-type': 'application/json' };
-    const userId = typeof firebase !== 'undefined' && firebase.auth().currentUser ? firebase.auth().currentUser.uid : 'anon';
-    headers['x-user-id'] = userId;
+    const currentUser = typeof firebase !== 'undefined' && firebase.auth().currentUser ? firebase.auth().currentUser : null;
+    headers['x-user-id'] = currentUser ? currentUser.uid : 'anon';
+    headers['x-user-email'] = currentUser ? currentUser.email : '';
     headers['x-model'] = this._routeModel(feature);
 
     const response = await fetch(endpoint, {
@@ -304,6 +305,65 @@ const AIEngine = {
 }
 If the text is a single chapter or doesn't have clear chapter breaks, treat major scene breaks as sections.`,
       text, 'chapterBreakdown');
+  },
+
+  // ========================
+  // 7. AI WEAKNESS ANALYZER (for DNF + low-score areas)
+  // Picks the weakest paragraphs and explains WHY with fix suggestions
+  // Uses cheaper model (OpenAI) — available for paid users only
+  // ========================
+  async analyzeWeaknesses(apiKey, text, analysis) {
+    // Find the weakest paragraphs based on analysis data
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 20);
+    const dnf = analysis.dnfAnalysis || {};
+    const weakAreas = [];
+
+    // Collect weak dimensions from DNF
+    if (dnf.scores) {
+      Object.entries(dnf.scores).forEach(([k, v]) => {
+        if (v <= 5) weakAreas.push(k);
+      });
+    }
+
+    // Pick sample paragraphs from different parts of the text
+    const samples = [];
+    const pickIndices = [0, Math.floor(paragraphs.length * 0.25), Math.floor(paragraphs.length * 0.5), Math.floor(paragraphs.length * 0.75), paragraphs.length - 1];
+    for (const idx of pickIndices) {
+      if (paragraphs[idx] && paragraphs[idx].length > 30) {
+        samples.push({ index: idx + 1, text: paragraphs[idx].substring(0, 500) });
+      }
+    }
+
+    const weakAreaList = weakAreas.length > 0 ? weakAreas.join(', ') : 'momentum, writing quality';
+    const sampleText = samples.map(s => `[Paragraph ${s.index}]\n${s.text}`).join('\n\n---\n\n');
+
+    return this._callClaude(apiKey,
+      'You are a manuscript diagnostic tool. Your job is to identify specific weak passages and explain exactly what is wrong, with a concrete rewrite suggestion. Be direct and specific. No praise.',
+      `The manuscript scored poorly in these areas: ${weakAreaList}.
+DNF risk: ${dnf.dnf_risk || 'unknown'}%.
+Top reasons readers may stop: ${(dnf.top_3_reasons || []).join('; ')}
+
+Here are sample paragraphs from different sections. For each one, identify what makes it weak and provide a concrete rewrite.
+
+${sampleText}
+
+Return JSON:
+{
+  "paragraphs": [
+    {
+      "paragraph_number": 1,
+      "problem": "What specifically is wrong with this paragraph (1-2 sentences)",
+      "category": "momentum|character|exposition|clarity|prose|pacing",
+      "severity": "high|medium|low",
+      "original_snippet": "The first 80 chars of the problem text",
+      "suggested_rewrite": "A concrete rewrite of the weak portion showing how to fix it",
+      "principle": "The writing principle being violated (1 sentence)"
+    }
+  ],
+  "overall_pattern": "What recurring weakness pattern you see across these samples (1-2 sentences)",
+  "priority_fix": "The single most impactful change the author should make (1 sentence)"
+}`,
+      text, 'weaknessAnalysis');
   },
 
   // ========================

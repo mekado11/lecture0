@@ -35,7 +35,9 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .topbar-l{display:flex;align-items:center;gap:.6rem}
 .leaf-sm{font-size:1rem}.brand{color:var(--gold-l);font-size:.95rem;font-family:'Lora',serif}
 .status-pill{font-size:.68rem;color:var(--muted);background:var(--surface2);padding:.12rem .5rem;border-radius:10px}
-.topbar-c{color:var(--muted)}.topbar-r{display:flex;align-items:center;gap:.6rem}
+.topbar-c{color:var(--muted);display:flex;align-items:center;gap:.5rem}.topbar-r{display:flex;align-items:center;gap:.6rem}
+.genre-override{background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:.65rem;padding:.15rem .3rem;border-radius:4px;font-family:Inter,sans-serif;cursor:pointer;max-width:100px}
+.genre-override:focus{outline:none;border-color:var(--gold-d)}
 .wc{color:var(--muted);font-size:.78rem}
 .tb-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:.2rem .6rem;border-radius:var(--rs);font-size:.72rem;cursor:pointer;font-family:inherit}
 
@@ -242,11 +244,21 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .pv-device-frame{display:flex;justify-content:center;flex:1;overflow:hidden;padding:.4rem;position:relative}
 /* Kindle */
 .pv-device-frame.kindle .pv-screen{width:100%;max-width:600px;height:calc(100vh - 180px);background:#f5f0e6;color:#1a1a1a;padding:2rem 1.8rem;overflow-y:auto;border:8px solid #444;border-radius:4px;box-shadow:inset 0 0 12px rgba(0,0,0,.04),0 4px 20px rgba(0,0,0,.3);font-family:'Lora','Georgia',serif;font-size:17px;line-height:1.55;text-align:justify}
+.pv-device-frame.kindle .pv-screen{padding-bottom:3.5rem}
+.pv-device-frame.kindle .pv-nav{position:sticky;bottom:0;background:#f5f0e6;border-top:1px solid #d8d0c0;padding:.5rem 0 .3rem;display:flex;justify-content:center;gap:2rem;font-family:'Inter',sans-serif}
+.pv-device-frame.kindle .pv-nav button{background:none;border:none;color:#666;font-size:.6rem;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.2rem .5rem}
+.pv-device-frame.kindle .pv-nav button:hover{color:#333}
+.pv-device-frame.kindle .pv-nav .nav-icon{font-size:1rem}
 .pv-device-frame.kindle::after{content:'kindle';position:absolute;bottom:6px;left:50%;transform:translateX(-50%);font-size:.5rem;color:#555;letter-spacing:3px;text-transform:uppercase;font-family:'Inter',sans-serif}
 /* iPad */
-.pv-device-frame.ipad .pv-screen{width:100%;max-width:680px;height:calc(100vh - 180px);background:#fff;color:#222;padding:2.5rem 2.2rem;overflow-y:auto;border:2px solid #c0c0c0;border-radius:20px;box-shadow:0 8px 30px rgba(0,0,0,.2);font-family:-apple-system,'Helvetica Neue',sans-serif;font-size:16px;line-height:1.5}
+.pv-device-frame.ipad .pv-screen{width:100%;max-width:680px;height:calc(100vh - 180px);background:#fff;color:#222;padding:2.5rem 2.2rem;overflow-y:auto;border:2px solid #c0c0c0;border-radius:20px;box-shadow:0 8px 30px rgba(0,0,0,.2);font-family:-apple-system,'Helvetica Neue',sans-serif;font-size:16px;line-height:1.5;padding-bottom:3.5rem}
+.pv-device-frame.ipad .pv-nav{position:sticky;bottom:0;background:#fff;border-top:1px solid #e0e0e0;padding:.4rem 0 .2rem;display:flex;justify-content:center;gap:2.5rem}
+.pv-device-frame.ipad .pv-nav button{background:none;border:none;color:#007AFF;font-size:.6rem;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.12rem;padding:.2rem .5rem}
+.pv-device-frame.ipad .pv-nav button:hover{opacity:.7}
+.pv-device-frame.ipad .pv-nav .nav-icon{font-size:1.1rem}
 /* Paperback 6x9 */
-.pv-device-frame.paperback .pv-screen{width:100%;max-width:540px;height:calc(100vh - 180px);background:#faf6ee;color:#1a1a1a;padding:54px 45px 54px 63px;overflow-y:auto;border:1px solid #d0c8b8;box-shadow:4px 4px 12px rgba(0,0,0,.15),-2px 0 6px rgba(0,0,0,.04);font-family:'Lora','Georgia',serif;font-size:12pt;line-height:1.5;text-align:justify}
+.pv-device-frame.paperback .pv-screen{width:100%;max-width:540px;height:calc(100vh - 180px);background:#faf6ee;color:#1a1a1a;padding:54px 45px 54px 63px;overflow-y:auto;border:1px solid #d0c8b8;box-shadow:4px 4px 12px rgba(0,0,0,.15),-2px 0 6px rgba(0,0,0,.04);font-family:'Lora','Georgia',serif;font-size:12pt;line-height:1.5;text-align:justify;padding-bottom:3rem}
+.pv-device-frame.paperback .pv-nav{position:sticky;bottom:0;background:#faf6ee;border-top:1px solid #d8d0c0;padding:.4rem 0 .15rem;display:flex;justify-content:center;font-family:'Lora',serif;font-size:.7rem;color:#999}
 /* Shared paragraph */
 .pv-para{text-indent:1.5em;margin:0;padding:0;cursor:pointer;transition:background .15s}
 .pv-para:first-child{text-indent:0}

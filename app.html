@@ -62,8 +62,8 @@
   <div id="editor-view" class="editor-view hidden">
     <!-- TOP BAR -->
     <header class="topbar">
-      <div class="topbar-l"><a href="index.html" style="text-decoration:none;display:flex;align-items:center;gap:.5rem"><span class="leaf-sm">&#127807;</span><strong class="brand">AuthorScrolls</strong></a><span class="status-pill" id="top-status">Analyzing...</span></div>
-      <div class="topbar-c"><span id="top-filename">Untitled</span></div>
+      <div class="topbar-l"><a href="#" id="back-to-upload" style="text-decoration:none;display:flex;align-items:center;gap:.5rem" title="Back to upload"><span style="font-size:.85rem;color:var(--muted)">&larr;</span><span class="leaf-sm">&#127807;</span><strong class="brand">AuthorScrolls</strong></a><span class="status-pill" id="top-status">Analyzing...</span></div>
+      <div class="topbar-c"><span id="top-filename">Untitled</span><select id="genre-override" class="genre-override" title="Change genre"><option value="">Auto-detect</option><optgroup label="Fiction"><option value="scifi">Sci-Fi</option><option value="fantasy">Fantasy</option><option value="romance">Romance</option><option value="thriller">Thriller</option><option value="mystery">Mystery</option><option value="horror">Horror</option><option value="historical">Historical</option><option value="dystopian">Dystopian</option><option value="ya">YA</option><option value="literary">Literary</option><option value="romantasy">Romantasy</option><option value="cozyMystery">Cozy Mystery</option><option value="adventure">Adventure</option><option value="western">Western</option></optgroup><optgroup label="Non-Fiction"><option value="memoir">Memoir</option><option value="selfHelp">Self-Help</option><option value="biography">Biography</option><option value="historyNF">History</option><option value="trueCrime">True Crime</option><option value="philosophy">Philosophy</option></optgroup></select></div>
       <div class="topbar-r"><span class="live-score">LIVE SCORE: <b id="top-score">0</b> <span id="top-delta" class="delta"></span></span><span class="wc">Words: <b id="top-wc">0</b></span><button class="tb-btn" id="export-btn">&#8681; Export</button><button class="tb-btn" id="new-btn">&#8634; New</button></div>
     </header>
 
@@ -234,12 +234,21 @@
       appId: "1:420138585851:web:09c683cf202c9dde50aa5e"
     };
     firebase.initializeApp(firebaseConfig);
+    // Admin emails — unlimited AI access
+    const ADMIN_EMAILS = ['admin@authorscrolls.com'];
+    window.__isAdmin = false;
     // Auth gate: redirect to landing if not signed in
     firebase.auth().onAuthStateChanged(user => {
       if (!user) { window.location.href = 'index.html'; return; }
+      window.__isAdmin = ADMIN_EMAILS.includes((user.email||'').toLowerCase());
       // Show user name in top bar
       const brand = document.querySelector('.brand');
       if (brand) brand.textContent = 'AuthorScrolls';
+      // Admin badge
+      if (window.__isAdmin) {
+        const pill = document.getElementById('top-status');
+        if (pill) pill.insertAdjacentHTML('afterend','<span style="font-size:.6rem;background:var(--gold-d);color:#fff;padding:.1rem .4rem;border-radius:3px;margin-left:.3rem;font-family:Inter,sans-serif">ADMIN</span>');
+      }
       // Add sign out button
       const topRight = document.querySelector('.topbar-r');
       if (topRight && !document.getElementById('signout-btn')) {

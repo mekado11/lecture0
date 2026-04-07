@@ -68,12 +68,18 @@ function renderAll(){
   }else{deltaEl.textContent='';deltaEl.className='delta'}
   previousScore=r.overall;
 
-  // Apply manual genre override if selected
+  // Apply manual genre override if selected (from upload or editor topbar)
+  const genreLabels={scifi:'Science Fiction',fantasy:'Fantasy',romance:'Romance',thriller:'Thriller/Suspense',mystery:'Mystery/Crime',horror:'Horror/Paranormal',historical:'Historical Fiction',dystopian:'Dystopian',ya:'Young Adult',literary:'Literary Fiction',romantasy:'Romantasy',cozyMystery:'Cozy Mystery',adventure:'Adventure',western:'Western',memoir:'Memoir/Autobiography',selfHelp:'Self-Help',biography:'Biography',historyNF:'History',trueCrime:'True Crime',philosophy:'Philosophy/Religion'};
   const genreSelect=$('genre-select');
-  if(genreSelect&&genreSelect.value){
-    const genreLabels={scifi:'Science Fiction',fantasy:'Fantasy',romance:'Romance',thriller:'Thriller/Suspense',mystery:'Mystery/Crime',horror:'Horror/Paranormal',historical:'Historical Fiction',dystopian:'Dystopian',ya:'Young Adult',literary:'Literary Fiction',romantasy:'Romantasy',cozyMystery:'Cozy Mystery',adventure:'Adventure',western:'Western',memoir:'Memoir/Autobiography',selfHelp:'Self-Help',biography:'Biography',historyNF:'History',trueCrime:'True Crime',philosophy:'Philosophy/Religion'};
-    r.genre.primary=genreSelect.value;
-    r.genre.label=genreLabels[genreSelect.value]||genreSelect.value;
+  const genreOverride=$('genre-override');
+  const activeGenre=(genreOverride&&genreOverride.value)?genreOverride.value:(genreSelect&&genreSelect.value)?genreSelect.value:'';
+  if(activeGenre){
+    r.genre.primary=activeGenre;
+    r.genre.label=genreLabels[activeGenre]||activeGenre;
+  }
+  // Sync the editor genre dropdown to current genre
+  if(genreOverride){
+    if(!genreOverride.value&&r.genre.primary){genreOverride.value=r.genre.primary}
   }
 
   renderSceneIntel(r);
@@ -419,15 +425,17 @@ function renderLeft(r){
 
 // RIGHT SIDEBAR
 function renderRight(r){
+  const stIssues=r.showTell&&r.showTell.issues?r.showTell.issues.length:(r.issueCounts?r.issueCounts['show-tell']:0)||0;
+  const cpIssues=r.issues?r.issues.length:0;
   const cats=[
     {k:'plot',name:'Plot Structure',score:r.scores.plot,issues:0},
-    {k:'clarity',name:'Clarity',score:r.readerPerspective.clarityScore,issues:r.issueCounts.passive},
-    {k:'pacing',name:'Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),issues:r.issueCounts['sentence-length'],badge:r.readerPerspective.pacingFeel.includes('Rushed')?'Rushed':null},
-    {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:r.issueCounts.adverb},
-    {k:'style',name:'Style & Voice',score:r.scores.style,issues:r.issueCounts['weak-verb']},
+    {k:'clarity',name:'Clarity',score:r.readerPerspective.clarityScore,issues:r.issueCounts?r.issueCounts.passive:0},
+    {k:'pacing',name:'Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),issues:r.issueCounts?r.issueCounts['sentence-length']:0,badge:r.readerPerspective.pacingFeel.includes('Rushed')?'Rushed':null},
+    {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:r.issueCounts?r.issueCounts.adverb:0},
+    {k:'style',name:'Style & Voice',score:r.scores.style,issues:r.issueCounts?r.issueCounts['weak-verb']:0},
     {k:'dialogue',name:'Dialogue',score:r.scores.dialogue,issues:0},
-    {k:'showTell',name:'Show vs Tell',score:r.scores.showTell,issues:r.showTell.issues.length},
-    {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:r.issues.length}
+    {k:'showTell',name:'Show vs Tell',score:r.scores.showTell,issues:stIssues},
+    {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:cpIssues}
   ];
   const container=$('rp-scores');
   container.innerHTML=cats.map(c=>{
@@ -509,9 +517,9 @@ function renderDetailed(r){
   else{plotRows.push(sr('Climax',r.plot.hasClimax?'Yes':'Weak'));plotRows.push(sr('Resolution',r.plot.hasResolution?'Yes':'Weak'))}
   plotRows.push(sr('Mode',r.manuscriptMode.label+' (~'+r.manuscriptMode.estPages+' pages)'));
   plotRows.push(sr('Issues/1K words',r.issuesPerK));
-  h+=sec(plotLabel,r.scores.plot,plotRows);
-  h+=sec('Transitions',r.scores.transitions,[r.transitions.smoothRate+'% smooth',sr('Transition Words',r.transitions.transitionsUsed),sr('Smooth',r.transitions.smoothTransitions+'/'+(r.transitions.totalParagraphs-1))]);
-  h+=sec('Copy Editing',r.scores.copy,[r.issues.length+' issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell'])]);
+  h+=secWithTip(plotLabel,r.scores.plot,plotRows,'plot');
+  h+=secWithTip('Transitions',r.scores.transitions,[r.transitions.smoothRate+'% smooth',sr('Transition Words',r.transitions.transitionsUsed),sr('Smooth',r.transitions.smoothTransitions+'/'+(r.transitions.totalParagraphs-1))],'transitions');
+  h+=secWithTip('Copy Editing',r.scores.copy,[r.issues.length+' issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell'])],'copy');
   // Line Editing (true stylistic editing, not just readability)
   const le=r.lineEditing;
   const lineRows=['Stylistic editing: tone, flow, precision, pacing, POV, extraneous language'];
@@ -532,7 +540,7 @@ function renderDetailed(r){
   }
   lineRows.push(sr('Readability Grade',r.readability.grade));
   lineRows.push(sr('Flesch Ease',r.readability.ease+'/100'));
-  h+=sec('Line Editing',r.scores.line,lineRows);
+  h+=secWithTip('Line Editing',r.scores.line,lineRows,'line');
   h+=sec('Style & Voice',r.scores.style,[sr('POV',r.style.pov),sr('Lexical Diversity',r.style.lexicalDiversity+'/100'),sr('Unique Words',r.style.uniqueWords.toLocaleString())]);
   // Dialogue (deep analysis)
   const dl=r.dialogue;
@@ -617,6 +625,44 @@ function renderDetailed(r){
 function sec(t,s,items){return '<div class="a-sec"><h3>'+t+' <span style="color:'+sc(s)+'">'+s+'/100</span></h3>'+items.filter(Boolean).map(i=>typeof i==='string'?(i?'<p>'+i+'</p>':''):i).join('')+'</div>'}
 function sr(l,v){return '<div class="sr"><span class="sr-l">'+l+'</span><span class="sr-v">'+v+'</span></div>'}
 
+// Improvement suggestions for low-scoring areas
+const improveTips={
+  plot:{
+    low:'Your plot feels flat. Add a clear inciting incident early, raise the stakes in the middle, and build to a decisive climax. Every scene should either advance the plot or reveal character — cut anything that does neither.',
+    mid:'Your plot has structure but needs sharpening. Ensure each act has a clear turning point. Check if your climax delivers on the promises made in the setup.'
+  },
+  transitions:{
+    low:'Transitions between paragraphs feel abrupt. Use bridging phrases ("Meanwhile", "Later that day"), echo the last image of one paragraph in the first line of the next, or connect scenes through a character\'s emotional state.',
+    mid:'Some transitions work, but others jar the reader. Read each paragraph break aloud — if the shift feels sudden, add a beat or re-order the paragraphs.'
+  },
+  copy:{
+    low:'Heavy copy editing issues. Focus on: (1) Convert passive voice to active ("was opened" → "opened"), (2) Cut adverbs after strong verbs ("ran quickly" → "sprinted"), (3) Replace cliches with original imagery, (4) Split sentences over 30 words.',
+    mid:'Good foundation, but tighten further. Search for "was/were" + past participle and rewrite. Audit every -ly adverb — keep only those that change meaning.'
+  },
+  line:{
+    low:'Line editing needs work. Focus on: varying sentence length (mix 5-word punches with 20-word flowing sentences), cutting filter words ("she felt", "he noticed"), and ensuring each paragraph has a clear energy direction.',
+    mid:'Prose is functional but could be more musical. Try reading difficult sections aloud. Where you stumble, rewrite. Where you rush, slow down with sensory detail.'
+  },
+  style:{
+    low:'Style feels generic. Develop a distinctive voice by: (1) choosing unusual but precise words, (2) developing a consistent rhythm, (3) finding metaphors unique to your world/character. Read authors with strong voice (Chandler, Morrison, Pratchett) and notice HOW they sound different.',
+    mid:'Voice is emerging but inconsistent. Identify your 5 strongest paragraphs and analyze what makes them work — then apply those patterns to the weaker sections.'
+  },
+  dialogue:{
+    low:'Dialogue needs significant work. Rules: (1) Every line should either advance plot or reveal character, (2) Cut small talk, (3) Each character should sound different, (4) "Said" is invisible — don\'t replace it with fancy tags, (5) Show subtext — what characters DON\'T say matters more.',
+    mid:'Dialogue is serviceable but could be sharper. Read each exchange and ask: "Would a real person actually say this?" Cut any line that\'s just delivering information the reader already knows.'
+  },
+  showTell:{
+    low:'Heavy telling instead of showing. Replace "She felt angry" with physical cues: "Her jaw clenched. She set down the glass too hard." Let readers INFER emotions from behavior, body language, and dialogue — don\'t name the emotion directly.',
+    mid:'Some telling remains. Search for "felt", "was [emotion]", "seemed", "obviously" — each one is an opportunity to show through action instead.'
+  }
+};
+function secWithTip(t,s,items,key){
+  let tip='';
+  if(s<50&&improveTips[key]){tip='<div style="background:var(--surface2);border-left:3px solid var(--gold);border-radius:0 var(--rs) var(--rs) 0;padding:.5rem .65rem;margin-top:.4rem"><div style="font-size:.68rem;font-weight:600;color:var(--gold-l);margin-bottom:.2rem">How to Improve</div><div style="font-size:.72rem;color:var(--text);line-height:1.5">'+improveTips[key].low+'</div></div>'}
+  else if(s<70&&improveTips[key]){tip='<div style="background:var(--surface2);border-left:3px solid var(--gold);border-radius:0 var(--rs) var(--rs) 0;padding:.5rem .65rem;margin-top:.4rem"><div style="font-size:.68rem;font-weight:600;color:var(--gold-l);margin-bottom:.2rem">How to Improve</div><div style="font-size:.72rem;color:var(--text);line-height:1.5">'+improveTips[key].mid+'</div></div>'}
+  return '<div class="a-sec"><h3>'+t+' <span style="color:'+sc(s)+'">'+s+'/100</span></h3>'+items.filter(Boolean).map(i=>typeof i==='string'?(i?'<p>'+i+'</p>':''):i).join('')+tip+'</div>';
+}
+
 // READER VIEW
 function renderReader(r){
   const d=$('ed-reader');d.className='ms-page dark-page';const rp=r.readerPerspective;
@@ -664,6 +710,8 @@ function renderReader(r){
       });
       h+='</div>';
     }
+    // AI Diagnosis button (paid users only)
+    h+='<div style="margin-top:.6rem;padding-top:.5rem;border-top:1px solid var(--border)"><button class="btn-gold ai-diagnose-btn" style="width:100%;font-size:.78rem;padding:.5rem">&#9889; Diagnose Weak Passages with AI</button><div id="ai-weakness-result" style="margin-top:.5rem"></div></div>';
     // Context warning
     if(dnf.context_warning){h+='<div style="font-size:.65rem;color:var(--dim);font-style:italic;padding-top:.3rem;border-top:1px solid var(--border)">'+esc(dnf.context_warning)+'</div>'}
     h+='</div>';
@@ -703,6 +751,45 @@ function renderReader(r){
   h+='</div>';
   if(rp.immersionBreakers.length>0){h+='<div class="a-sec"><h3>Immersion Breakers ('+rp.immersionBreakers.length+')</h3>';rp.immersionBreakers.forEach(b=>{h+='<div style="padding:.35rem .5rem;border-left:3px solid var(--yellow);margin-bottom:.3rem;font-size:.78rem;background:var(--surface2);border-radius:0 var(--rs) var(--rs) 0"><div>'+esc(b.reason)+'</div><div style="font-size:.65rem;color:var(--muted)">'+esc(b.location)+'</div></div>'});h+='</div>'}
   d.innerHTML=h;
+  // AI Weakness Diagnosis handler
+  const diagBtn=d.querySelector('.ai-diagnose-btn');
+  if(diagBtn){diagBtn.addEventListener('click',async()=>{
+    const user=typeof firebase!=='undefined'?firebase.auth().currentUser:null;
+    if(!user){alert('Please sign in first');return}
+    const isAdmin=window.__isAdmin||false;
+    if(!isAdmin){
+      // Check if paid (for now, show upgrade prompt for free users)
+      diagBtn.textContent='Analyzing...';diagBtn.disabled=true;
+    }
+    try{
+      diagBtn.textContent='&#9889; AI analyzing weak passages...';diagBtn.disabled=true;
+      const result=await AIEngine.analyzeWeaknesses(null,extractedText,analysisResult);
+      const container=$('ai-weakness-result');
+      if(!container)return;
+      if(result.parseError){container.innerHTML='<p style="color:var(--red);font-size:.75rem">AI analysis failed. Try again.</p>';diagBtn.disabled=false;diagBtn.textContent='&#9889; Retry AI Diagnosis';return}
+      let wh='';
+      if(result.overall_pattern){wh+='<div style="background:var(--surface2);border-radius:var(--rs);padding:.5rem .65rem;margin-bottom:.5rem;border-left:3px solid var(--yellow)"><div style="font-size:.68rem;font-weight:600;color:var(--yellow);margin-bottom:.15rem">Pattern Detected</div><div style="font-size:.75rem;color:var(--text)">'+esc(result.overall_pattern)+'</div></div>'}
+      if(result.priority_fix){wh+='<div style="background:var(--surface2);border-radius:var(--rs);padding:.5rem .65rem;margin-bottom:.5rem;border-left:3px solid var(--green)"><div style="font-size:.68rem;font-weight:600;color:var(--green);margin-bottom:.15rem">Priority Fix</div><div style="font-size:.75rem;color:var(--text)">'+esc(result.priority_fix)+'</div></div>'}
+      if(result.paragraphs&&result.paragraphs.length>0){
+        result.paragraphs.forEach(p=>{
+          const sevCol=p.severity==='high'?'var(--red)':p.severity==='medium'?'var(--yellow)':'var(--muted)';
+          wh+='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:.6rem;margin-bottom:.4rem;border-left:3px solid '+sevCol+'">';
+          wh+='<div style="display:flex;justify-content:space-between;margin-bottom:.3rem"><span style="font-size:.7rem;font-weight:600;color:'+sevCol+'">'+esc(p.category).toUpperCase()+'</span><span style="font-size:.6rem;color:var(--dim)">Para '+p.paragraph_number+'</span></div>';
+          wh+='<div style="font-size:.72rem;color:var(--text);margin-bottom:.3rem">'+esc(p.problem)+'</div>';
+          if(p.original_snippet){wh+='<div style="font-size:.7rem;color:var(--muted);background:var(--surface2);padding:.3rem .5rem;border-radius:3px;margin-bottom:.3rem;font-style:italic;border-left:2px solid var(--red)">\u201C'+esc(p.original_snippet)+'\u201D</div>'}
+          if(p.suggested_rewrite){wh+='<div style="font-size:.7rem;color:var(--green);background:var(--surface2);padding:.3rem .5rem;border-radius:3px;margin-bottom:.2rem;border-left:2px solid var(--green)">\u2192 '+esc(p.suggested_rewrite)+'</div>'}
+          if(p.principle){wh+='<div style="font-size:.62rem;color:var(--dim);font-style:italic;margin-top:.2rem">Principle: '+esc(p.principle)+'</div>'}
+          wh+='</div>';
+        });
+      }
+      container.innerHTML=wh;
+      diagBtn.textContent='&#9889; Re-diagnose with AI';diagBtn.disabled=false;
+    }catch(e){
+      diagBtn.textContent='&#9889; Diagnose Weak Passages with AI';diagBtn.disabled=false;
+      const container=$('ai-weakness-result');
+      if(container)container.innerHTML='<p style="color:var(--red);font-size:.75rem">'+esc(e.message)+'</p>';
+    }
+  })}
 }
 function rc(t,s,c,desc){return '<div class="rdr-card"><h4>'+t+'</h4><div class="rdr-big" style="color:'+c+'">'+s+'/100</div><div class="rdr-bar"><div class="rdr-fill" style="width:'+s+'%;background:'+c+'"></div></div><div class="rdr-lbl">'+desc+'</div></div>'}
 
@@ -757,11 +844,32 @@ function renderBookPreview(r){
     return '<div class="pv-para'+(emo?' emo-tagged':'')+'" data-para="'+(i+1)+'">'+(emo?'<span class="pv-emo-inline">'+emo.emoji+'</span>':'')+esc(p)+'</div>';
   }).join('');
 
+  // Add device-specific nav bars
+  function addDeviceNav(device){
+    const existing=frame.querySelector('.pv-nav');
+    if(existing)existing.remove();
+    const screen=frame.querySelector('.pv-screen');
+    if(!screen)return;
+    const nav=document.createElement('div');nav.className='pv-nav';
+    const totalParas=paragraphs.length;
+    const pageNum=Math.max(1,Math.ceil(totalParas/15));
+    if(device==='kindle'){
+      nav.innerHTML='<button><span class="nav-icon">&#9776;</span><span>Menu</span></button><button><span class="nav-icon">&#128269;</span><span>Search</span></button><button><span class="nav-icon">Aa</span><span>Font</span></button><button><span class="nav-icon">&#128278;</span><span>Notes</span></button><button><span class="nav-icon">&#8634;</span><span>Sync</span></button>';
+    }else if(device==='ipad'){
+      nav.innerHTML='<button><span class="nav-icon">&#128218;</span><span>Library</span></button><button><span class="nav-icon">&#128269;</span><span>Search</span></button><button><span class="nav-icon">Aa</span><span>Display</span></button><button><span class="nav-icon">&#128278;</span><span>Notes</span></button>';
+    }else{
+      nav.innerHTML='<span>— '+pageNum+' —</span>';
+    }
+    screen.appendChild(nav);
+  }
+  addDeviceNav('kindle');
+
   // Device switcher
   document.querySelectorAll('.pv-dev').forEach(btn=>{btn.addEventListener('click',()=>{
     document.querySelectorAll('.pv-dev').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     frame.className='pv-device-frame '+btn.dataset.dev;
+    addDeviceNav(btn.dataset.dev);
   })});
 
   // Click paragraph to navigate
@@ -1004,8 +1112,50 @@ function renderVersions(){const c=$('ed-versions');if(!c)return;c.className='ms-
 if(vs.length>=2){const f=vs[0],l=vs[vs.length-1],d=l.overall-f.overall;h+='<div class="v-sum"><h4>Progress</h4>'+sr('Score',(d>=0?'+':'')+d)+sr('Issues',(l.totalIssues-f.totalIssues>=0?'+':'')+(l.totalIssues-f.totalIssues))+sr('Versions',vs.length)+'</div>'}
 c.innerHTML=h;c.querySelector('#clr-v')?.addEventListener('click',()=>{if(confirm('Clear?')){AIEngine.clearVersionHistory();renderVersions()}})}
 
-// EXPORT
-$('export-btn')?.addEventListener('click',()=>{if(!analysisResult)return;const r=analysisResult;const l=['AuthorScrolls Report','='.repeat(30),'','File: '+uploadedFile.name,'Genre: '+r.genre.label,'Words: '+r.totalWords,'Overall: '+r.overall+'/100','','Plot: '+r.scores.plot+'/100','Copy: '+r.scores.copy+'/100','Style: '+r.scores.style+'/100','Dialogue: '+r.scores.dialogue+'/100','Show/Tell: '+r.scores.showTell+'/100','','Engagement: '+r.readerPerspective.engagementScore+'/100','Hook: '+r.readerPerspective.hookStrength+'/100','DNF Risk: '+r.readerPerspective.dnfRisk+'/100','Clarity: '+r.readerPerspective.clarityScore+'/100','','Issues: '+r.issues.length];r.issues.slice(0,20).forEach((i,n)=>{l.push((n+1)+'. ['+i.type+'] '+i.message)});const b=new Blob([l.join('\n')],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=uploadedFile.name.replace(/\.\w+$/,'')+'-report.txt';a.click()});
+// EXPORT to Word (.doc) with colored issue highlights
+$('export-btn')?.addEventListener('click',()=>{
+  if(!analysisResult||!extractedText)return;
+  const r=analysisResult;
+  const issueColors={passive:'#FFD700','weak-verb':'#FFA500',adverb:'#87CEEB',cliche:'#FF6347',wordy:'#DDA0DD','show-tell':'#98FB98',repetition:'#F0E68C','sentence-length':'#FFC0CB'};
+  const issueLabels={passive:'Passive Voice','weak-verb':'Weak Verb',adverb:'Adverb',cliche:'Cliché',wordy:'Wordy','show-tell':'Show vs Tell',repetition:'Repetition','sentence-length':'Long Sentence'};
+
+  // Build annotated HTML
+  const sorted=[...r.issues].sort((a,b)=>a.index-b.index);
+  const noOverlap=[];let lastEnd=-1;
+  for(const i of sorted){if(i.index>=lastEnd){noOverlap.push(i);lastEnd=i.index+i.length}}
+
+  let body='';let pos=0;
+  for(const i of noOverlap){
+    if(i.index>pos)body+=esc(extractedText.substring(pos,i.index)).replace(/\n\n/g,'</p><p>');
+    const col=issueColors[i.type]||'#FFD700';
+    body+='<span style="background:'+col+';padding:1px 2px" title="'+esc(i.message)+'">'+esc(extractedText.substring(i.index,i.index+i.length))+'</span>';
+    if(i.suggestion)body+='<span style="color:#2E8B57;font-size:9pt"> ['+esc(i.suggestion)+']</span>';
+    pos=i.index+i.length;
+  }
+  if(pos<extractedText.length)body+=esc(extractedText.substring(pos)).replace(/\n\n/g,'</p><p>');
+
+  // Build legend
+  let legend='<table style="border-collapse:collapse;margin-bottom:20px">';
+  Object.entries(issueColors).forEach(([k,c])=>{
+    const count=r.issueCounts[k]||0;
+    if(count>0)legend+='<tr><td style="background:'+c+';padding:3px 10px;border:1px solid #ccc">'+issueLabels[k]+'</td><td style="padding:3px 10px;border:1px solid #ccc">'+count+' issues</td></tr>';
+  });
+  legend+='</table>';
+
+  // Score summary
+  let scores='<h2 style="color:#8B4513">AuthorScrolls Analysis Report</h2>';
+  scores+='<p><b>File:</b> '+esc(uploadedFile.name)+' | <b>Genre:</b> '+esc(r.genre.label)+' | <b>Words:</b> '+r.totalWords.toLocaleString()+'</p>';
+  scores+='<p><b>Overall Score: '+r.overall+'/100</b></p>';
+  scores+='<table style="border-collapse:collapse;margin-bottom:15px"><tr><td style="padding:4px 12px;border:1px solid #ccc"><b>Plot</b><br>'+r.scores.plot+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Copy</b><br>'+r.scores.copy+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Style</b><br>'+r.scores.style+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Dialogue</b><br>'+r.scores.dialogue+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Show/Tell</b><br>'+r.scores.showTell+'</td></tr></table>';
+
+  const html='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><style>body{font-family:Cambria,Georgia,serif;font-size:12pt;line-height:1.8;max-width:6.5in;margin:1in}p{text-indent:0.5in;margin:0 0 6pt 0}h1,h2{font-family:Calibri,sans-serif;text-indent:0}table{font-family:Calibri,sans-serif;font-size:10pt}</style></head><body>'+scores+legend+'<h2 style="color:#8B4513">Manuscript with Highlights</h2><p>'+body+'</p><hr><p style="text-indent:0;font-size:9pt;color:#999">Generated by AuthorScrolls &middot; '+new Date().toLocaleDateString()+'</p></body></html>';
+
+  const blob=new Blob([html],{type:'application/msword'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=uploadedFile.name.replace(/\.\w+$/,'')+'-AuthorScrolls.doc';
+  a.click();
+});
 
 // SAVE / LOAD
 async function saveAnalysis(){
@@ -1145,7 +1295,16 @@ loadAutoSave();
 loadSavedAnalyses();
 
 // NEW
-$('new-btn')?.addEventListener('click',()=>{$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.add('hidden');$('file-info').classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value='';loadSavedAnalyses()});
+// Genre override in editor topbar — re-analyze with new genre
+$('genre-override')?.addEventListener('change',()=>{
+  if(!extractedText||!analysisResult)return;
+  analysisResult=Analyzer.analyze(extractedText);
+  renderAll();
+});
+
+function goToUpload(){$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.add('hidden');$('file-info').classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value='';loadSavedAnalyses()}
+$('new-btn')?.addEventListener('click',goToUpload);
+$('back-to-upload')?.addEventListener('click',e=>{e.preventDefault();goToUpload()});
 
 // Formatting toolbar
 document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{

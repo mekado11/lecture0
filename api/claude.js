@@ -11,7 +11,12 @@ const DEV_LIMIT = 9999;     // Developer: unlimited
 
 // Developer admin UIDs (your Firebase UID — unlimited access)
 const DEV_UIDS = new Set([
-  'REPLACE_WITH_YOUR_FIREBASE_UID' // Get this from Firebase Console > Authentication > Users
+  // Add your Firebase UID here after first sign-in
+]);
+
+// Admin emails — these get dev-tier access regardless of UID
+const ADMIN_EMAILS = new Set([
+  'admin@authorscrolls.com'
 ]);
 
 module.exports = async (req, res) => {
@@ -31,10 +36,11 @@ module.exports = async (req, res) => {
 
   // Rate limiting
   const userId = req.headers['x-user-id'] || 'anonymous';
+  const userEmail = (req.headers['x-user-email'] || '').toLowerCase().trim();
   const today = new Date().toISOString().split('T')[0];
   const key = userId + ':' + today;
   const current = rateLimitMap.get(key) || 0;
-  const isDev = DEV_UIDS.has(userId);
+  const isDev = DEV_UIDS.has(userId) || ADMIN_EMAILS.has(userEmail);
   // TODO: check Firestore for user tier. For now, all non-dev users are free.
   const userTier = isDev ? 'dev' : 'free';
   const limitMap = { dev: DEV_LIMIT, premium: PREMIUM_AI_LIMIT, starter: STARTER_AI_LIMIT, free: FREE_AI_LIMIT };
