@@ -49,8 +49,10 @@ const AIEngine = {
   // ========================
   // CORE API CALL (with caching headers)
   // ========================
-  // Server proxy endpoint for production (API key lives on your server)
-  // Set this to your backend route, e.g. '/api/claude'
+  // API endpoint - auto-detects environment:
+  // Firebase Hosting: /api/claude (rewrite to Cloud Function)
+  // Local dev: /api/claude (Express server)
+  // Both work with the same path
   API_ENDPOINT: '/api/claude',
 
   async _callClaude(apiKey, systemPrompt, userPrompt, manuscriptText, feature) {

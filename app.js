@@ -45,8 +45,10 @@ function drawRing(canvas,score,size){
   ctx.beginPath();ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+(score/100)*Math.PI*2);ctx.lineWidth=3;ctx.strokeStyle=scHex(score);ctx.lineCap='round';ctx.stroke();
 }
 
-// Track ignored issues
+// Track state
 let ignoredIssues=new Set();
+let previousScore=null;
+let autoSaveTimer=null;
 
 function renderAll(){
   const r=analysisResult;
@@ -54,9 +56,134 @@ function renderAll(){
   $('top-wc').textContent=r.totalWords.toLocaleString();
   $('top-status').textContent=r.genre.label+(r.genre.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+r.manuscriptMode.label;
   drawGauge(r.overall);
+
+  // Live score + delta tracking
+  $('top-score').textContent=r.overall;
+  const deltaEl=$('top-delta');
+  if(previousScore!==null){
+    const delta=r.overall-previousScore;
+    if(delta>0){deltaEl.textContent='\u2191 +'+delta;deltaEl.className='delta up'}
+    else if(delta<0){deltaEl.textContent='\u2193 '+delta;deltaEl.className='delta down'}
+    else{deltaEl.textContent='\u2194 0';deltaEl.className='delta same'}
+  }else{deltaEl.textContent='';deltaEl.className='delta'}
+  previousScore=r.overall;
+
+  renderGoalBar(r);
+  renderSceneIntel(r);
   renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderBlurbs(r);renderVersions();
-  // Save version
-  AIEngine.saveVersion(uploadedFile.name,analysisResult,null);
+  // Auto-save
+  autoSave();
+}
+
+// AUTO-SAVE (debounced, saves to localStorage every 10s of inactivity)
+function autoSave(){
+  if(!analysisResult||!uploadedFile)return;
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer=setTimeout(()=>{
+    const saveData={fileName:uploadedFile.name,text:extractedText,result:analysisResult,savedAt:new Date().toISOString()};
+    localStorage.setItem('ml_autosave',JSON.stringify(saveData));
+    AIEngine.saveVersion(uploadedFile.name,analysisResult,null);
+  },3000);
+}
+// Load autosave on startup
+function loadAutoSave(){
+  const save=localStorage.getItem('ml_autosave');
+  if(!save)return false;
+  try{
+    const data=JSON.parse(save);
+    if(data.text&&data.result){
+      // Show restore option
+      const card=document.querySelector('.upload-card');
+      if(!card)return false;
+      let el=card.querySelector('.autosave-restore');
+      if(el)el.remove();
+      const div=document.createElement('div');
+      div.className='autosave-restore';
+      div.style.cssText='margin-top:.75rem;padding:.6rem;background:var(--surface2);border:1px solid var(--gold-d);border-radius:var(--rs)';
+      div.innerHTML='<div style="font-size:.78rem;font-weight:600;color:var(--gold-l);margin-bottom:.3rem">Unsaved work found</div><div style="font-size:.7rem;color:var(--muted);margin-bottom:.4rem">'+data.fileName+' &middot; Score: '+data.result.overall+'/100 &middot; '+new Date(data.savedAt).toLocaleString()+'</div><div style="display:flex;gap:.3rem"><button class="btn-gold" id="restore-btn" style="width:auto;padding:.3rem .8rem;font-size:.72rem">Restore</button><button class="btn-dark" id="dismiss-btn" style="font-size:.72rem;padding:.3rem .6rem">Dismiss</button></div>';
+      card.appendChild(div);
+      $('restore-btn')?.addEventListener('click',()=>{extractedText=data.text;analysisResult=data.result;uploadedFile={name:data.fileName,size:0};$('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');renderAll()});
+      $('dismiss-btn')?.addEventListener('click',()=>{div.remove();localStorage.removeItem('ml_autosave')});
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
+
+// GOAL PILLS BAR
+function renderGoalBar(r){
+  const bar=$('goal-bar');if(!bar)return;
+  const rp=r.readerPerspective;
+  const goals=[
+    {id:'opening',icon:'\uD83D\uDEAB',label:'Improve Opening',score:rp.hookStrength,action:()=>showOpeningCoach()},
+    {id:'clarity',icon:'\u2705',label:'Fix Clarity',score:rp.clarityScore,action:()=>{showDetail('clarity')}},
+    {id:'dialogue',icon:'\uD83D\uDCAC',label:'Boost Dialogue',score:r.scores.dialogue,action:()=>{showDetail('dialogue')}},
+    {id:'hook',icon:'\u26A1',label:'Strengthen Hook',score:rp.hookStrength,action:()=>showOpeningCoach()},
+    {id:'pacing',icon:'\uD83C\uDFC3',label:'Fix Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),action:()=>{showDetail('pacing')}},
+    {id:'showTell',icon:'\uD83D\uDC41',label:'Show Don\'t Tell',score:r.scores.showTell,action:()=>{showDetail('showTell')}}
+  ];
+  // Only show goals where score < 70 (things that need work)
+  const needsWork=goals.filter(g=>g.score<70).sort((a,b)=>a.score-b.score).slice(0,4);
+  bar.innerHTML=needsWork.map(g=>'<button class="goal-pill" data-goal="'+g.id+'"><span class="gp-icon">'+g.icon+'</span> '+esc(g.label)+'</button>').join('');
+  bar.querySelectorAll('.goal-pill').forEach((pill,i)=>{pill.addEventListener('click',()=>{needsWork[i].action();pill.classList.add('active')})});
+}
+
+// SCENE INTELLIGENCE
+function renderSceneIntel(r){
+  const el=$('scene-intel');if(!el)return;
+  const rp=r.readerPerspective;
+  // Detect scene type
+  const dialogueRatio=r.dialogue.ratio;
+  const actionDensity=r.pacing.segments.filter(s=>s.type==='action').length/Math.max(r.pacing.segments.length,1)*100;
+  let sceneType='Exposition Heavy';
+  if(dialogueRatio>30)sceneType='Dialogue Heavy';
+  else if(actionDensity>40)sceneType='Action Sequence';
+  else if(dialogueRatio>15&&actionDensity>20)sceneType='Balanced';
+  else if(r.pacing.segments.filter(s=>s.type==='description').length>r.pacing.segments.length*0.5)sceneType='Descriptive';
+  // Energy level
+  const energy=r.writingQuality.engagementScore>70?'High':r.writingQuality.engagementScore>40?'Medium':'Low';
+  // Tension
+  const tensionQuarters=r.plot.quarters||[];
+  const lastTension=tensionQuarters.length>0?tensionQuarters[tensionQuarters.length-1].tension:0;
+  const prevTension=tensionQuarters.length>1?tensionQuarters[tensionQuarters.length-2].tension:0;
+  const tensionDir=lastTension>prevTension?'Rising \uD83D\uDD3A':lastTension<prevTension?'Falling \uD83D\uDD3B':'Steady \u27A1';
+  // Goals checklist
+  const goalChecks=[
+    {label:'Hook reader fast',done:rp.hookStrength>50},
+    {label:'Build tension',done:r.plot.hasRisingAction},
+    {label:'Emotional depth',done:rp.emotionalConnection>30},
+    {label:'Fast pacing',done:!rp.pacingFeel.includes('Slow')},
+    {label:'Strong dialogue',done:r.dialogue.count>0&&r.scores.dialogue>50}
+  ];
+  let h='';
+  // Goals
+  h+='<div class="si-section"><h4>\u2728 Goal</h4>';
+  goalChecks.forEach(g=>{h+='<div class="si-check '+(g.done?'done':'todo')+'">'+esc(g.label)+'</div>'});
+  h+='</div>';
+  // Scene Intelligence
+  h+='<div class="si-section"><h4>Scene Intelligence</h4>';
+  h+='<div class="si-row"><span class="si-label">Scene Type:</span><span class="si-val">'+sceneType+'</span></div>';
+  h+='<div class="si-row"><span class="si-label">Energy:</span><span class="si-val">'+energy+'</span></div>';
+  h+='<div class="si-row"><span class="si-label">Tension:</span><span class="si-val">'+tensionDir+'</span></div>';
+  h+='</div>';
+  // Focus Mode + Simulate Reader
+  h+='<div class="focus-toggle" id="focus-toggle">Focus Mode <span class="focus-badge off">OFF</span></div>';
+  h+='<button class="sim-btn" id="sim-reader-btn">\uD83D\uDC41 Simulate Reader Experience</button>';
+  el.innerHTML=h;
+  // Focus mode: hides sidebars
+  $('focus-toggle')?.addEventListener('click',()=>{
+    const lp=$('left-panel'),rp2=$('right-panel'),badge=document.querySelector('.focus-badge');
+    if(lp.style.display==='none'){lp.style.display='';rp2.style.display='';badge.textContent='OFF';badge.className='focus-badge off'}
+    else{lp.style.display='none';rp2.style.display='none';badge.textContent='ON';badge.className='focus-badge'}
+  });
+  // Simulate reader: switch to reader view
+  $('sim-reader-btn')?.addEventListener('click',()=>{
+    document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
+    const readerBtn=document.querySelector('.btab[data-p="reader"]');
+    if(readerBtn)readerBtn.classList.add('active');
+    $('ed-reader')?.classList.add('active');
+  });
 }
 
 // REPLACE & FIX: actually replace the text with a proper fix
@@ -689,15 +816,15 @@ document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{
 // AI
 $('run-ai-btn')?.addEventListener('click',async()=>{
   if(!analysisResult)return;
-  // Try server proxy first (no API key needed - your server handles it)
-  // If server proxy not available, show modal for dev/testing mode
+  // Try server proxy first
   try{
     const test=await fetch(AIEngine.API_ENDPOINT,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({test:true})});
-    if(test.ok||test.status===400){runAI(null);return}
-  }catch(e){}
-  // Server proxy not available - fall back to dev mode modal
+    if(test.ok){runAI(null);return}
+  }catch(e){console.log('Server proxy not available:',e.message)}
+  // Fallback: check session key
   const k=sessionStorage.getItem('ml_claude_key');
   if(k){runAI(k);return}
+  // Last resort: show modal
   $('api-modal').classList.remove('hidden');
 });
 $('modal-x')?.addEventListener('click',()=>$('api-modal').classList.add('hidden'));
@@ -774,6 +901,7 @@ function loadSavedAnalyses(){
 $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="save-btn">&#128190; Save</button>');
 $('save-btn')?.addEventListener('click',saveAnalysis);
 // Load saved analyses on startup
+loadAutoSave();
 loadSavedAnalyses();
 
 // NEW

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ManuscriptLens - Welcome to Writing, Engineered.</title>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#1a1410;--surface:#252019;--border:#3a3330;--text:#e8dfd4;--muted:#9c9085;--gold:#c8956c;--gold-l:#dbb08a;--gold-d:#8a6548;--parchment:#f0e6cc;--ink:#2c2418}
+    body{font-family:'Lora',serif;background:var(--bg);color:var(--text);overflow-x:hidden}
+    /* STICKY NAV */
+    .nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(17,16,16,.9);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);padding:.6rem 2rem;display:flex;justify-content:space-between;align-items:center}
+    .nav-brand{display:flex;align-items:center;gap:.5rem;font-size:1.1rem;font-weight:700;color:var(--gold-l)}
+    .nav-brand span{font-size:1.3rem}
+    .nav-cta{padding:.5rem 1.5rem;background:linear-gradient(135deg,var(--gold),var(--gold-d));color:#fff;border:none;border-radius:6px;font-size:.85rem;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:none}
+    .nav-cta:hover{opacity:.9}
+    /* SCROLL CONTAINER */
+    .scroll-container{position:relative}
+    /* PARCHMENT SECTION */
+    .parchment-section{position:relative;max-width:800px;margin:0 auto;padding:0 2rem}
+    /* ROLLERS */
+    .roller{width:100%;height:60px;background:linear-gradient(180deg,#8b7355 0%,#6b5840 20%,#8b7355 40%,#a08868 60%,#6b5840 80%,#8b7355 100%);border-radius:8px;position:relative;z-index:2;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+    .roller::before,.roller::after{content:'';position:absolute;top:5px;width:40px;height:50px;background:linear-gradient(180deg,#9c8868,#6b5840,#8b7355);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+    .roller::before{left:-10px}.roller::after{right:-10px}
+    .roller-knob{position:absolute;top:-8px;width:30px;height:76px;background:linear-gradient(180deg,#b8a080,#8b7355,#6b5840);border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+    .roller-knob.l{left:-5px}.roller-knob.r{right:-5px}
+    .roller-top .roller-knob{top:-8px}.roller-bottom .roller-knob{bottom:-8px;top:auto}
+    /* PARCHMENT PAPER */
+    .parchment{background:var(--parchment);color:var(--ink);padding:4rem 3rem;position:relative;box-shadow:inset 0 0 40px rgba(0,0,0,.08);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.4' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='.06'/%3E%3C/svg%3E")}
+    .parchment h1{font-size:2.8rem;font-weight:700;line-height:1.2;margin-bottom:1rem;color:var(--ink)}
+    .parchment h2{font-size:1.8rem;font-weight:700;margin:2rem 0 1rem;color:var(--ink)}
+    .parchment p{font-size:1.1rem;line-height:1.8;color:#4a3828;margin-bottom:1rem}
+    .parchment .subtitle{font-size:1.15rem;color:#6b5840;font-style:italic;margin-bottom:2rem}
+    .divider{width:60px;height:2px;background:var(--gold);margin:1.5rem auto}
+    /* HERO */
+    .hero-section{text-align:center;padding-top:6rem}
+    .hero-buttons{display:flex;gap:1rem;justify-content:center;margin:2rem 0}
+    .btn-gold-lg{padding:.75rem 2rem;background:linear-gradient(135deg,var(--gold),var(--gold-d));color:#fff;border:none;border-radius:6px;font-size:1rem;font-weight:600;cursor:pointer;font-family:'Lora',serif;text-decoration:none}
+    .btn-outline{padding:.75rem 2rem;background:transparent;color:var(--ink);border:2px solid var(--gold-d);border-radius:6px;font-size:1rem;cursor:pointer;font-family:'Lora',serif;text-decoration:none}
+    /* TAGLINE */
+    .tagline-section{text-align:center;padding:3rem 0}
+    .tagline-big{font-size:1.6rem;font-weight:700;color:var(--ink);line-height:1.4;margin-bottom:.5rem}
+    .tagline-small{font-size:1.3rem;font-weight:400;color:#6b5840}
+    /* APP SCREENSHOT */
+    .screenshot-wrap{background:var(--bg);border-radius:12px;padding:1rem;margin:2rem auto;max-width:700px;box-shadow:0 8px 32px rgba(0,0,0,.3)}
+    .screenshot-bar{display:flex;justify-content:space-between;align-items:center;padding:.4rem .75rem;background:#1c1917;border-radius:8px 8px 0 0;font-size:.7rem;color:var(--muted)}
+    .screenshot-body{background:#1c1917;border-radius:0 0 8px 8px;padding:1rem;display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+    .sc-card{background:#252220;border:1px solid #3a3330;border-radius:8px;padding:.75rem}
+    .sc-card h4{font-size:.75rem;color:var(--gold-l);margin-bottom:.35rem}
+    .sc-score{font-size:1.8rem;font-weight:800;display:inline-block}
+    .sc-sub{font-size:.65rem;color:var(--muted)}
+    .sc-bar{height:4px;background:#302b28;border-radius:2px;margin-top:.4rem;overflow:hidden}
+    .sc-fill{height:100%;border-radius:2px}
+    /* FEATURES */
+    .features{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;padding:2rem 0}
+    .feature{text-align:center}
+    .feature-icon{font-size:2rem;margin-bottom:.5rem}
+    .feature h3{font-size:1rem;margin-bottom:.3rem;color:var(--ink)}
+    .feature p{font-size:.9rem;color:#6b5840}
+    /* FINAL CTA */
+    .final-cta{text-align:center;padding:2rem 0 3rem}
+    /* DARK SECTION */
+    .dark-section{background:var(--bg);padding:4rem 2rem;text-align:center}
+    .dark-section h2{font-size:2rem;color:var(--gold-l);margin-bottom:1rem;font-family:'Lora',serif}
+    .dark-section p{color:var(--muted);font-size:1rem;max-width:600px;margin:0 auto}
+    /* FOOTER */
+    .footer{background:var(--bg);padding:2rem;text-align:center;color:var(--muted);font-size:.8rem;border-top:1px solid var(--border)}
+    /* ANIMATION */
+    .fade-in{opacity:0;transform:translateY(30px);transition:opacity .8s,transform .8s}
+    .fade-in.visible{opacity:1;transform:translateY(0)}
+    @media(max-width:600px){.parchment h1{font-size:1.8rem}.parchment{padding:2rem 1.5rem}.features{grid-template-columns:1fr}.screenshot-body{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <!-- NAV -->
+  <nav class="nav">
+    <div class="nav-brand"><span>&#127807;</span> ManuscriptLens</div>
+    <a href="index.html" class="nav-cta">Start Writing</a>
+  </nav>
+
+  <div class="scroll-container">
+    <!-- TOP ROLLER -->
+    <div style="max-width:800px;margin:80px auto 0;padding:0 2rem">
+      <div class="roller roller-top"><div class="roller-knob l"></div><div class="roller-knob r"></div></div>
+    </div>
+
+    <div class="parchment-section">
+      <div class="parchment">
+        <!-- HERO -->
+        <div class="hero-section fade-in">
+          <h1>Welcome to Writing, Engineered.</h1>
+          <p class="subtitle">Turn your words into precision-crafted storytelling<br>with real-time intelligence, not guesswork.</p>
+          <div class="hero-buttons">
+            <a href="index.html" class="btn-gold-lg">Start Writing</a>
+            <a href="#how" class="btn-outline">See How It Works</a>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- TAGLINE -->
+        <div class="tagline-section fade-in" id="how">
+          <p class="tagline-big">Most tools fix grammar.</p>
+          <p class="tagline-big">None tell you if your story works.</p>
+          <div class="divider"></div>
+          <p class="tagline-small">Measure How Your Writing Performs</p>
+        </div>
+
+        <!-- SCREENSHOT -->
+        <div class="screenshot-wrap fade-in">
+          <div class="screenshot-bar">
+            <span>&#127807; ManuscriptLens &nbsp; &#9889; 512</span>
+            <span>LIVE SCORE: <b style="color:#dbb08a">52</b> &#8593; &nbsp; &#8635; +12</span>
+          </div>
+          <div class="screenshot-body">
+            <div class="sc-card">
+              <div style="display:flex;align-items:center;gap:.5rem">
+                <div class="sc-score" style="color:#c45c4a">37</div>
+                <div><h4>Engagement</h4><div class="sc-sub">Plays transitions</div></div>
+              </div>
+              <div class="sc-bar"><div class="sc-fill" style="width:37%;background:#c45c4a"></div></div>
+              <div style="margin-top:.4rem;font-size:.65rem;color:var(--gold);cursor:pointer">+ Improve Opening</div>
+            </div>
+            <div class="sc-card">
+              <div style="display:flex;align-items:center;gap:.5rem">
+                <div class="sc-score" style="color:#d4a855">57</div>
+                <div><h4>Pacing</h4><div class="sc-sub">382 issues</div></div>
+              </div>
+              <div class="sc-bar"><div class="sc-fill" style="width:57%;background:#d4a855"></div></div>
+            </div>
+            <div class="sc-card">
+              <div style="display:flex;align-items:center;gap:.5rem">
+                <div class="sc-score" style="color:#5dba7d">73</div>
+                <div><h4>Clarity</h4><div class="sc-sub">Weak transitions</div></div>
+              </div>
+              <div class="sc-bar"><div class="sc-fill" style="width:73%;background:#5dba7d"></div></div>
+            </div>
+            <div class="sc-card">
+              <div style="display:flex;align-items:center;gap:.5rem">
+                <div class="sc-score" style="color:#d4a855">63</div>
+                <div><h4>DNF Risk</h4><div class="sc-sub">Mid paced</div></div>
+              </div>
+              <div class="sc-bar"><div class="sc-fill" style="width:63%;background:#d4a855"></div></div>
+              <div style="display:flex;justify-content:space-between;font-size:.55rem;color:var(--muted);margin-top:.2rem"><span>Safe</span><span>At Risk</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- FEATURES -->
+        <div class="features fade-in">
+          <div class="feature">
+            <div class="feature-icon">&#127811;</div>
+            <h3>See exactly what's working &mdash; or not</h3>
+            <p>Every sentence scored for clarity, pacing, engagement, and reader impact.</p>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">&#127811;</div>
+            <h3>Fix issues with a click, tailored to your story goals</h3>
+            <p>Replace & Fix rewrites weak verbs, splits long sentences, and removes filler automatically.</p>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">&#128065;</div>
+            <h3>Know how readers will respond before they read</h3>
+            <p>DNF Risk, engagement score, hook strength, and emotional journey mapping.</p>
+          </div>
+        </div>
+
+        <!-- FINAL CTA -->
+        <div class="final-cta fade-in">
+          <a href="index.html" class="btn-gold-lg" style="font-size:1.1rem;padding:.85rem 2.5rem">Start Writing Better Today &rsaquo;</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM ROLLER -->
+    <div style="max-width:800px;margin:0 auto;padding:0 2rem">
+      <div class="roller roller-bottom"><div class="roller-knob l"></div><div class="roller-knob r"></div></div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <p>ManuscriptLens &middot; Author's Best Buddy &middot; Writing, Engineered.</p>
+  </div>
+
+  <script>
+    // Scroll fade-in animation
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible') });
+    }, { threshold: 0.1 });
+    document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

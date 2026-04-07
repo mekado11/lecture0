@@ -33,9 +33,11 @@
     <header class="topbar">
       <div class="topbar-l"><span class="leaf-sm">&#127807;</span><strong class="brand">ManuscriptLens</strong><span class="status-pill" id="top-status">Analyzing...</span></div>
       <div class="topbar-c"><span id="top-filename">Untitled</span></div>
-      <div class="topbar-r"><span class="wc">Words: <b id="top-wc">0</b></span><button class="tb-btn" id="export-btn">&#8681; Export</button><button class="tb-btn" id="new-btn">&#8634; New</button></div>
+      <div class="topbar-r"><span class="live-score">LIVE SCORE: <b id="top-score">0</b> <span id="top-delta" class="delta"></span></span><span class="wc">Words: <b id="top-wc">0</b></span><button class="tb-btn" id="export-btn">&#8681; Export</button><button class="tb-btn" id="new-btn">&#8634; New</button></div>
     </header>
 
+    <!-- Goal Pills Bar -->
+    <div class="goal-bar" id="goal-bar"></div>
     <div class="panels">
       <!-- LEFT: Document Health -->
       <aside class="left-panel" id="left-panel">
@@ -47,6 +49,8 @@
         </div>
         <div class="gauge-cats" id="gauge-cats">Plot &middot; Clarity &middot; Pacing &middot; Dialogue</div>
         <div class="lp-cards" id="lp-cards"></div>
+        <!-- Scene Intelligence -->
+        <div id="scene-intel" class="scene-intel"></div>
       </aside>
 
       <!-- CENTER: Manuscript -->
