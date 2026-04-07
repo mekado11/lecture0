@@ -1253,14 +1253,16 @@ document.querySelectorAll('.btab').forEach(t=>{t.addEventListener('click',()=>{
   const target=$('ed-'+t.dataset.p);
   if(target){
     target.classList.add('active');
-    // Ensure non-parchment tabs have dark-page class
     if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page')){target.classList.add('dark-page')}
   }
+  // Chapter nav only visible on Detailed (annotated) tab
+  const chNav=$('chapter-nav');
+  if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';
 })});
 // Bottom-icon buttons
 (function(){
   const tabs=Array.from(document.querySelectorAll('.btab'));
-  function activateTab(t){tabs.forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}}
+  function activateTab(t){tabs.forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}const chNav=$('chapter-nav');if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';}
   $('bi-prev-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur>0)activateTab(tabs[cur-1])});
   $('bi-next-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur<tabs.length-1)activateTab(tabs[cur+1])});
   $('bi-fullscreen')?.addEventListener('click',()=>{
