@@ -655,28 +655,29 @@ function renderReader(r){
 }
 function rc(t,s,c,desc){return '<div class="rdr-card"><h4>'+t+'</h4><div class="rdr-big" style="color:'+c+'">'+s+'/100</div><div class="rdr-bar"><div class="rdr-fill" style="width:'+s+'%;background:'+c+'"></div></div><div class="rdr-lbl">'+desc+'</div></div>'}
 
-// BOOK PREVIEW + DEVICE SIMULATOR + SCENE EMOTIONS
+// BOOK PREVIEW + DEVICE SIMULATOR
 function renderBookPreview(r){
   const pvEmotions=$('pv-emotions');const pvText=$('pv-text');const frame=$('pv-device-frame');
   if(!pvEmotions||!pvText||!frame)return;
   const paragraphs=extractedText.split(/\n\s*\n/).filter(p=>p.trim().length>0);
   const emotions=r.sceneEmotions||{scenes:[],total:0};
-
-  // Set default device
   frame.className='pv-device-frame kindle';
 
-  // Emotion tags
+  // Subtle emotion summary
   const emotionMap={};
   emotions.scenes.forEach(s=>{if(!emotionMap[s.emotion])emotionMap[s.emotion]={...s,count:0};emotionMap[s.emotion].count++});
   pvEmotions.innerHTML=Object.values(emotionMap).map(e=>
-    '<span class="pv-emo-tag" style="background:'+e.color+'20;color:'+e.color+';border-color:'+e.color+'40">'+e.emoji+' '+e.label+' ('+e.count+')</span>'
-  ).join('')||'<span style="font-size:.7rem;color:var(--muted)">No scene emotions detected</span>';
+    '<span class="pv-emo-tag" style="background:'+e.color+'15;color:'+e.color+'">'+e.emoji+' '+e.label+' ('+e.count+')</span>'
+  ).join('');
 
-  // Render text with emotion markers
+  // Render paragraphs with book-style formatting
   const emotionByPara={};
   emotions.scenes.forEach(s=>{emotionByPara[s.paragraph]=s});
   pvText.innerHTML=paragraphs.map((p,i)=>{
     const emo=emotionByPara[i+1];
+    // Check if it's a chapter heading
+    const isChapter=/^(chapter|part)\s+/i.test(p.trim());
+    if(isChapter)return '<div class="pv-para" data-para="'+(i+1)+'" style="text-indent:0;text-align:center;font-weight:600;margin:1.5em 0 .5em;font-size:1.1em">'+esc(p)+'</div>';
     return '<div class="pv-para'+(emo?' emo-tagged':'')+'" data-para="'+(i+1)+'">'+(emo?'<span class="pv-emo-inline">'+emo.emoji+'</span>':'')+esc(p)+'</div>';
   }).join('');
 
@@ -693,11 +694,10 @@ function renderBookPreview(r){
     document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
     document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
     $('ed-annotated')?.classList.add('active');
-    const paraText=paragraphs[parseInt(el.dataset.para)-1]?.substring(0,30);
-    if(paraText){const page=$('ed-annotated');for(const node of page.childNodes){if(node.textContent?.includes(paraText)){node.scrollIntoView?.({behavior:'smooth',block:'center'});break}}}
+    const pt=paragraphs[parseInt(el.dataset.para)-1]?.substring(0,30);
+    if(pt){const pg=$('ed-annotated');for(const n of pg.childNodes){if(n.textContent?.includes(pt)){n.scrollIntoView?.({behavior:'smooth',block:'center'});break}}}
   })});
 
-  // Collapse toggle
   $('pv-toggle')?.addEventListener('click',()=>{const p=$('preview-panel');p.classList.toggle('collapsed');$('pv-toggle').textContent=p.classList.contains('collapsed')?'\u00BB':'\u00AB'});
 }
 
