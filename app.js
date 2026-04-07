@@ -76,7 +76,6 @@ function renderAll(){
     r.genre.label=genreLabels[genreSelect.value]||genreSelect.value;
   }
 
-  renderGoalBar(r);
   renderSceneIntel(r);
   renderBookPreview(r);
   renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderBlurbs(r);renderVersions();
@@ -181,9 +180,17 @@ function renderSceneIntel(r){
   el.innerHTML=h;
   // Focus mode: hides sidebars
   $('focus-toggle')?.addEventListener('click',()=>{
-    const lp=$('left-panel'),rp2=$('right-panel'),badge=document.querySelector('.focus-badge');
-    if(lp.style.display==='none'){lp.style.display='';rp2.style.display='';badge.textContent='OFF';badge.className='focus-badge off'}
-    else{lp.style.display='none';rp2.style.display='none';badge.textContent='ON';badge.className='focus-badge'}
+    const lp=$('left-panel'),rp2=$('right-panel'),pp=$('preview-panel'),gb=$('goal-bar'),badge=document.querySelector('.focus-badge');
+    const isOn=badge.textContent==='ON';
+    if(isOn){
+      // Turn OFF focus mode — restore all panels
+      if(lp)lp.style.display='';if(rp2)rp2.style.display='';if(pp)pp.style.display='';if(gb)gb.style.display='';
+      badge.textContent='OFF';badge.className='focus-badge off';
+    }else{
+      // Turn ON focus mode — hide all panels
+      if(lp)lp.style.display='none';if(rp2)rp2.style.display='none';if(pp)pp.style.display='none';if(gb)gb.style.display='none';
+      badge.textContent='ON';badge.className='focus-badge';
+    }
   });
   // Simulate reader: switch to reader view
   $('sim-reader-btn')?.addEventListener('click',()=>{
@@ -648,60 +655,50 @@ function renderReader(r){
 }
 function rc(t,s,c,desc){return '<div class="rdr-card"><h4>'+t+'</h4><div class="rdr-big" style="color:'+c+'">'+s+'/100</div><div class="rdr-bar"><div class="rdr-fill" style="width:'+s+'%;background:'+c+'"></div></div><div class="rdr-lbl">'+desc+'</div></div>'}
 
-// BOOK PREVIEW + SCENE EMOTIONS
+// BOOK PREVIEW + DEVICE SIMULATOR + SCENE EMOTIONS
 function renderBookPreview(r){
-  const pvContent=$('pv-content');const pvEmotions=$('pv-emotions');const pvText=$('pv-text');
-  if(!pvContent||!pvEmotions||!pvText)return;
+  const pvEmotions=$('pv-emotions');const pvText=$('pv-text');const frame=$('pv-device-frame');
+  if(!pvEmotions||!pvText||!frame)return;
   const paragraphs=extractedText.split(/\n\s*\n/).filter(p=>p.trim().length>0);
   const emotions=r.sceneEmotions||{scenes:[],total:0};
 
-  // Emotion tags at top
+  // Set default device
+  frame.className='pv-device-frame kindle';
+
+  // Emotion tags
   const emotionMap={};
   emotions.scenes.forEach(s=>{if(!emotionMap[s.emotion])emotionMap[s.emotion]={...s,count:0};emotionMap[s.emotion].count++});
   pvEmotions.innerHTML=Object.values(emotionMap).map(e=>
     '<span class="pv-emo-tag" style="background:'+e.color+'20;color:'+e.color+';border-color:'+e.color+'40">'+e.emoji+' '+e.label+' ('+e.count+')</span>'
-  ).join('')||'<span style="font-size:.7rem;color:var(--muted)">No strong scene emotions detected</span>';
+  ).join('')||'<span style="font-size:.7rem;color:var(--muted)">No scene emotions detected</span>';
 
-  // Paragraphs with emotion markers
+  // Render text with emotion markers
   const emotionByPara={};
   emotions.scenes.forEach(s=>{emotionByPara[s.paragraph]=s});
-
   pvText.innerHTML=paragraphs.map((p,i)=>{
     const emo=emotionByPara[i+1];
-    const preview=p.substring(0,120)+(p.length>120?'...':'');
-    return '<div class="pv-para'+(emo?' emo-tagged':'')+'" data-para="'+(i+1)+'" style="'+(emo?'border-left-color:'+emo.color:'')+'">'+
-      (emo?'<span class="pv-emo-inline" title="'+emo.label+'">'+emo.emoji+'</span>':'')+
-      esc(preview)+'</div>';
+    return '<div class="pv-para'+(emo?' emo-tagged':'')+'" data-para="'+(i+1)+'">'+(emo?'<span class="pv-emo-inline">'+emo.emoji+'</span>':'')+esc(p)+'</div>';
   }).join('');
 
-  // Click to navigate
+  // Device switcher
+  document.querySelectorAll('.pv-dev').forEach(btn=>{btn.addEventListener('click',()=>{
+    document.querySelectorAll('.pv-dev').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    frame.className='pv-device-frame '+btn.dataset.dev;
+  })});
+
+  // Click paragraph to navigate
   pvText.querySelectorAll('.pv-para').forEach(el=>{el.addEventListener('click',()=>{
-    // Switch to annotated and scroll
     document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
     document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
     document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
     $('ed-annotated')?.classList.add('active');
-    // Scroll to paragraph
-    const paraIdx=parseInt(el.dataset.para)-1;
-    const page=$('ed-annotated');
-    const textNodes=page.childNodes;
-    let charCount=0;
-    for(const node of textNodes){
-      if(node.textContent&&node.textContent.includes(extractedText.split(/\n\s*\n/)[paraIdx]?.substring(0,30))){
-        node.scrollIntoView?.({behavior:'smooth',block:'center'});
-        if(node.style)node.style.outline='2px solid var(--gold)';
-        setTimeout(()=>{if(node.style)node.style.outline=''},2000);
-        break;
-      }
-    }
+    const paraText=paragraphs[parseInt(el.dataset.para)-1]?.substring(0,30);
+    if(paraText){const page=$('ed-annotated');for(const node of page.childNodes){if(node.textContent?.includes(paraText)){node.scrollIntoView?.({behavior:'smooth',block:'center'});break}}}
   })});
 
-  // Toggle collapse
-  $('pv-toggle')?.addEventListener('click',()=>{
-    const panel=$('preview-panel');
-    panel.classList.toggle('collapsed');
-    $('pv-toggle').textContent=panel.classList.contains('collapsed')?'\u00BB':'\u00AB';
-  });
+  // Collapse toggle
+  $('pv-toggle')?.addEventListener('click',()=>{const p=$('preview-panel');p.classList.toggle('collapsed');$('pv-toggle').textContent=p.classList.contains('collapsed')?'\u00BB':'\u00AB'});
 }
 
 // OPENING COACH

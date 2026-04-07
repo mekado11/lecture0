@@ -66,8 +66,7 @@
       <div class="topbar-r"><span class="live-score">LIVE SCORE: <b id="top-score">0</b> <span id="top-delta" class="delta"></span></span><span class="wc">Words: <b id="top-wc">0</b></span><button class="tb-btn" id="export-btn">&#8681; Export</button><button class="tb-btn" id="new-btn">&#8634; New</button></div>
     </header>
 
-    <!-- Goal Pills Bar -->
-    <div class="goal-bar" id="goal-bar"></div>
+    <!-- Goal bar removed - actions already in sidebar -->
     <div class="panels">
       <!-- LEFT: Document Health -->
       <aside class="left-panel" id="left-panel">
@@ -110,12 +109,24 @@
         </div>
       </main>
 
-      <!-- BOOK PREVIEW (30%, collapsible) -->
+      <!-- BOOK PREVIEW (30%, collapsible) - Device Simulator -->
       <aside class="preview-panel" id="preview-panel">
-        <div class="pv-head"><span class="pv-title">Book Preview</span><button class="pv-toggle" id="pv-toggle">&laquo;</button></div>
+        <div class="pv-head">
+          <span class="pv-title">Book Preview</span>
+          <div class="pv-devices">
+            <button class="pv-dev active" data-dev="kindle" title="Kindle Paperwhite">&#128214;</button>
+            <button class="pv-dev" data-dev="ipad" title="iPad">&#128241;</button>
+            <button class="pv-dev" data-dev="phone" title="Phone">&#128242;</button>
+          </div>
+          <button class="pv-toggle" id="pv-toggle">&laquo;</button>
+        </div>
         <div class="pv-content" id="pv-content">
           <div id="pv-emotions" class="pv-emotions"></div>
-          <div id="pv-text" class="pv-text"></div>
+          <div class="pv-device-frame" id="pv-device-frame">
+            <div class="pv-screen" id="pv-screen">
+              <div id="pv-text" class="pv-text"></div>
+            </div>
+          </div>
         </div>
       </aside>
 
