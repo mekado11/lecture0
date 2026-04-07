@@ -1287,6 +1287,46 @@ $('rp-collapse-btn')?.addEventListener('click',()=>{
 });
 
 // ============================================================
+// DRAG-TO-RESIZE PANELS
+// ============================================================
+(function initPanelResize(){
+  const panels=$('left-panel')?.parentElement; // .panels container
+  if(!panels)return;
+  const pp=$('preview-panel');
+  const cp=document.querySelector('.center-panel');
+  if(!pp||!cp)return;
+
+  // Resize handle between center and preview (right side of center)
+  const rHandle=document.createElement('div');
+  rHandle.className='panel-resize resize-right';
+  rHandle.title='Drag to resize';
+  cp.style.position='relative';
+  cp.appendChild(rHandle);
+
+  let dragging=false,startX=0,startW=0;
+  rHandle.addEventListener('mousedown',e=>{
+    e.preventDefault();
+    dragging=true;startX=e.clientX;startW=pp.offsetWidth;
+    rHandle.classList.add('dragging');
+    document.body.style.cursor='col-resize';
+    document.body.style.userSelect='none';
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!dragging)return;
+    const dx=startX-e.clientX;
+    const newW=Math.max(150,Math.min(600,startW+dx));
+    pp.style.width=newW+'px';pp.style.minWidth=newW+'px';
+  });
+  document.addEventListener('mouseup',()=>{
+    if(!dragging)return;
+    dragging=false;
+    rHandle.classList.remove('dragging');
+    document.body.style.cursor='';
+    document.body.style.userSelect='';
+  });
+})();
+
+// ============================================================
 // TYPOGRAPHY CONTROLS — font family, size, line spacing
 // ============================================================
 $('fmt-font')?.addEventListener('change',e=>{
@@ -2116,7 +2156,7 @@ $('genre-override')?.addEventListener('change',()=>{
 
 function goToLibrary(){$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-modal')?.classList.add('hidden');$('upload-loading')?.classList.add('hidden');$('analyze-btn')?.classList.add('hidden');$('file-info')?.classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value='';Storage._currentManuscriptId=null;document.body.classList.add('lib-mode');renderLibrary()}
 $('new-btn')?.addEventListener('click',goToLibrary);
-$('back-to-upload')?.addEventListener('click',e=>{e.preventDefault();goToLibrary()});
+// Back arrow removed — Library button handles navigation
 
 // Formatting toolbar
 document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{

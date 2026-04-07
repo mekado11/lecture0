@@ -117,7 +117,7 @@
   <div id="editor-view" class="editor-view hidden">
     <!-- TOP BAR -->
     <header class="topbar">
-      <div class="topbar-l"><a href="#" id="back-to-upload" style="text-decoration:none;display:flex;align-items:center;gap:.5rem" title="Back to upload"><span style="font-size:.85rem;color:var(--muted)">&larr;</span><span class="leaf-sm">&#127807;</span><strong class="brand">AuthorScrolls</strong></a><span class="status-pill" id="top-status">Analyzing...</span></div>
+      <div class="topbar-l"><span class="leaf-sm">&#127807;</span><strong class="brand">AuthorScrolls</strong><span class="status-pill" id="top-status">Analyzing...</span></div>
       <div class="topbar-c"><span id="top-filename">Untitled</span><select id="genre-override" class="genre-override" title="Change genre"><option value="">Auto-detect</option><optgroup label="Fiction"><option value="scifi">Sci-Fi</option><option value="fantasy">Fantasy</option><option value="romance">Romance</option><option value="thriller">Thriller</option><option value="mystery">Mystery</option><option value="horror">Horror</option><option value="historical">Historical</option><option value="dystopian">Dystopian</option><option value="ya">YA</option><option value="literary">Literary</option><option value="romantasy">Romantasy</option><option value="cozyMystery">Cozy Mystery</option><option value="adventure">Adventure</option><option value="western">Western</option></optgroup><optgroup label="Non-Fiction"><option value="memoir">Memoir</option><option value="selfHelp">Self-Help</option><option value="biography">Biography</option><option value="historyNF">History</option><option value="trueCrime">True Crime</option><option value="philosophy">Philosophy</option></optgroup></select></div>
       <div class="topbar-r"><span class="live-score">LIVE SCORE: <b id="top-score">0</b> <span id="top-delta" class="delta"></span></span><span class="wc">Words: <b id="top-wc">0</b></span><button class="tb-btn" id="export-btn">&#8681; Export</button><button class="tb-btn" id="new-btn">&#128218; Library</button></div>
     </header>
@@ -281,8 +281,8 @@
         </div><!-- /ms-workspace -->
         <div class="center-bottom">
           <div class="bottom-tabs">
-            <button class="btab active" data-p="annotated">&#9675; Detailed</button>
-            <button class="btab" data-p="detailed">Annotated</button>
+            <button class="btab active" data-p="annotated">&#9675; Annotated</button>
+            <button class="btab" data-p="detailed">Detailed</button>
             <button class="btab" data-p="reader">Reader View</button>
             <button class="btab" data-p="ai">Smartalysis</button>
             <button class="btab" data-p="writing">Writing &amp; Block</button>
