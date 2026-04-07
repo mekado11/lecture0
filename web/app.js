@@ -102,11 +102,18 @@ function autoSave(){
   if(!analysisResult||!uploadedFile)return;
   clearTimeout(autoSaveTimer);
   autoSaveTimer=setTimeout(async()=>{
-    // Save to Firestore
     if(Storage.userId){
       try{
         if(!Storage._currentManuscriptId){
-          Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
+          // Before creating a new doc, check if one already exists for this filename
+          const existing=await Storage.getManuscripts();
+          const match=existing.find(m=>(m.fileName||'').toLowerCase()===uploadedFile.name.toLowerCase());
+          if(match){
+            Storage._currentManuscriptId=match.id;
+            await Storage.updateManuscript(match.id,extractedText,analysisResult);
+          }else{
+            Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
+          }
           await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
         }else{
           await Storage.updateManuscript(Storage._currentManuscriptId,extractedText,analysisResult);
@@ -114,7 +121,6 @@ function autoSave(){
         }
       }catch(e){console.warn('Cloud save error:',e.message)}
     }
-    // Also localStorage fallback
     localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}));
   },5000);
 }
@@ -1386,6 +1392,20 @@ async function renderLibrary(){
     const all=[...shelf,...saves];
     manuscripts=all.map((s,i)=>({id:null,fileName:s.fileName,overall:s.result?.overall||s.overall||0,wordCount:s.result?.totalWords||s.totalWords||0,genre:s.result?.genre?.label||s.genre||'',updatedAt:{toDate:()=>new Date(s.savedAt||Date.now())},text:s.text,_local:true,_data:s}));
   }
+
+  // Deduplicate by fileName — keep the most recently updated entry
+  const seen=new Map();
+  for(const m of manuscripts){
+    const key=(m.fileName||'').toLowerCase().trim();
+    if(!seen.has(key)){seen.set(key,m)}else{
+      const prev=seen.get(key);
+      const prevDate=prev.updatedAt?.toDate?prev.updatedAt.toDate():new Date(0);
+      const currDate=m.updatedAt?.toDate?m.updatedAt.toDate():new Date(0);
+      if(currDate>prevDate)seen.set(key,m);
+    }
+  }
+  manuscripts=Array.from(seen.values());
+
   _libManuscripts=manuscripts;
   if(loading)loading.classList.add('hidden');
 
