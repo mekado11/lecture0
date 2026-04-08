@@ -1479,6 +1479,8 @@ function updateChapterNavOnScroll(){
 function renderAnnotatedAsPages(text,issues){
   const p=$('ed-annotated');
   p.className='ms-page active parchment';
+  // Force parchment styles inline as fallback — guarantees cream background + black text
+  p.style.cssText='background:#faf6ee !important;color:#000 !important';
   p.setAttribute('contenteditable','true');
   p.setAttribute('spellcheck','false');
   p.addEventListener('input',()=>{addReanalyzeButton();syncPreview()});
