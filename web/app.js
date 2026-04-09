@@ -1956,34 +1956,30 @@ function _wireLibraryEvents(){
     });
   });
 
-  // "Back to Editor" button — show if there's a last-opened manuscript
+  // "Back to Editor" button — only show if the manuscript actually exists in library
   const backBtn=$('lib-back-editor');
   if(backBtn){
     const lastOpen=JSON.parse(localStorage.getItem('ml_last_open')||'null');
-    if(lastOpen&&lastOpen.fileName){
+    // Only show if we have a manuscriptId AND it exists in the library list
+    const backManuscriptExists=lastOpen?.manuscriptId&&_libManuscripts.some(m=>m.id===lastOpen.manuscriptId);
+    if(lastOpen&&lastOpen.fileName&&backManuscriptExists){
       backBtn.classList.remove('hidden');
       backBtn.textContent='↩ Back to "'+lastOpen.fileName.replace(/\.\w+$/,'')+'"';
       backBtn.onclick=async()=>{
-        if(lastOpen.manuscriptId&&Storage.userId){
-          const full=await Storage.getManuscript(lastOpen.manuscriptId).catch(()=>null);
-          if(full){
-            extractedText=full.text;uploadedFile={name:full.fileName,size:0};
-            analysisResult=Analyzer.analyze(extractedText);Storage._currentManuscriptId=full.id;
-            $('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');
-            document.body.classList.remove('lib-mode');renderAll();return;
-          }
-        }
-        // Fallback to autosave
-        const save=JSON.parse(localStorage.getItem('ml_autosave')||'null');
-        if(save&&save.text&&save.result){
-          extractedText=save.text;analysisResult=save.result;uploadedFile={name:save.fileName,size:0};
-          Storage._currentManuscriptId=save.manuscriptId||null;
+        const full=await Storage.getManuscript(lastOpen.manuscriptId).catch(()=>null);
+        if(full&&full.text){
+          extractedText=full.text;uploadedFile={name:full.fileName,size:0};
+          analysisResult=Analyzer.analyze(extractedText);Storage._currentManuscriptId=full.id;
           $('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');
           document.body.classList.remove('lib-mode');renderAll();
         }
       };
     }else{
       backBtn.classList.add('hidden');
+      // Clean up stale references
+      if(lastOpen&&!backManuscriptExists){
+        localStorage.removeItem('ml_last_open');
+      }
     }
   }
 
@@ -2062,6 +2058,12 @@ function _showContextMenu(anchor,idx){
     if(!confirm('Delete "'+m.fileName+'"?'))return;
     if(m.id&&Storage.userId){
       await Storage.deleteManuscript(m.id);
+      // Clear stale session data if the deleted manuscript was the active one
+      const lastOpen=JSON.parse(localStorage.getItem('ml_last_open')||'null');
+      if(lastOpen?.manuscriptId===m.id){
+        localStorage.removeItem('ml_last_open');
+        localStorage.removeItem('ml_autosave');
+      }
     }
     renderLibrary();
   });
@@ -2130,6 +2132,22 @@ loadAutoSave();
 Storage.whenReady().then(async user=>{
   if(!user){renderLibrary();return}
 
+  // Fetch all manuscripts once — used for validation and fallback
+  let manuscripts=[];
+  try{manuscripts=await Storage.getManuscripts()}catch(e){console.warn('Could not fetch manuscripts:',e.message)}
+  const shelf=JSON.parse(localStorage.getItem('ml_bookshelf')||'[]');
+  const saves=JSON.parse(localStorage.getItem('ml_saves')||'[]');
+  const hasAnyManuscripts=manuscripts.length>0||shelf.length>0||saves.length>0;
+
+  // If no manuscripts anywhere, clear stale session data and show blank library
+  if(!hasAnyManuscripts){
+    localStorage.removeItem('ml_autosave');
+    localStorage.removeItem('ml_last_open');
+    renderLibrary();
+    maybeShowWizard();
+    return;
+  }
+
   // Try to restore the last opened manuscript
   const lastOpen=JSON.parse(localStorage.getItem('ml_last_open')||'null');
   const autosave=JSON.parse(localStorage.getItem('ml_autosave')||'null');
@@ -2152,30 +2170,31 @@ Storage.whenReady().then(async user=>{
     }catch(e){console.warn('Could not restore last manuscript:',e.message)}
   }
 
-  // Attempt 2: autosave in localStorage
-  if(autosave?.text&&autosave?.result){
-    extractedText=autosave.text;
-    analysisResult=autosave.result;
-    uploadedFile={name:autosave.fileName||'Untitled',size:0};
-    Storage._currentManuscriptId=autosave.manuscriptId||null;
-    $('upload-view').classList.add('hidden');
-    $('editor-view').classList.remove('hidden');
-    document.body.classList.remove('lib-mode');
-    renderAll();
-    return;
+  // Attempt 2: autosave — only if it matches a known manuscript in library
+  if(autosave?.text&&autosave?.result&&autosave.manuscriptId){
+    const match=manuscripts.find(m=>m.id===autosave.manuscriptId);
+    if(match){
+      extractedText=autosave.text;
+      analysisResult=autosave.result;
+      uploadedFile={name:autosave.fileName||'Untitled',size:0};
+      Storage._currentManuscriptId=autosave.manuscriptId;
+      $('upload-view').classList.add('hidden');
+      $('editor-view').classList.remove('hidden');
+      document.body.classList.remove('lib-mode');
+      renderAll();
+      return;
+    }
   }
 
   // Attempt 3: any manuscript in Firestore (pick most recent)
-  try{
-    const manuscripts=await Storage.getManuscripts();
-    if(manuscripts.length>0){
-      // Sort by updatedAt desc, pick first
-      const sorted=manuscripts.slice().sort((a,b)=>{
-        const ad=a.updatedAt?.toDate?a.updatedAt.toDate():new Date(0);
-        const bd=b.updatedAt?.toDate?b.updatedAt.toDate():new Date(0);
-        return bd-ad;
-      });
-      const m=sorted[0];
+  if(manuscripts.length>0){
+    const sorted=manuscripts.slice().sort((a,b)=>{
+      const ad=a.updatedAt?.toDate?a.updatedAt.toDate():new Date(0);
+      const bd=b.updatedAt?.toDate?b.updatedAt.toDate():new Date(0);
+      return bd-ad;
+    });
+    const m=sorted[0];
+    try{
       const full=await Storage.getManuscript(m.id);
       if(full&&full.text){
         extractedText=full.text;
@@ -2189,10 +2208,12 @@ Storage.whenReady().then(async user=>{
         renderAll();
         return;
       }
-    }
-  }catch(e){console.warn('Could not fetch manuscripts:',e.message)}
+    }catch(e){console.warn('Could not load manuscript:',e.message)}
+  }
 
-  // No manuscript found — show library and prompt to upload
+  // No manuscript could be loaded — clear stale data, show library
+  localStorage.removeItem('ml_autosave');
+  localStorage.removeItem('ml_last_open');
   renderLibrary();
   maybeShowWizard();
 });
