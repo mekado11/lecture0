@@ -895,7 +895,7 @@ const Analyzer = {
   // ========================
   // READER'S PERSPECTIVE
   // ========================
-  analyzeReaderPerspective(text, mode) {
+  analyzeReaderPerspective(text, mode, allIssues = []) {
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const totalWords = text.split(/\s+/).length;
     const lower = text.toLowerCase();
@@ -2468,7 +2468,7 @@ const Analyzer = {
     const sentenceVariety = this.analyzeSentenceVariety(text);
     const readability = this.fleschKincaid(text);
     const genre = this.detectGenre(text);
-    const readerPerspective = this.analyzeReaderPerspective(text, mode);
+    const readerPerspective = this.analyzeReaderPerspective(text, mode, allIssues);
     const dnfAnalysis = this.analyzeDNF(text, manuscriptMode);
     // Backfill readerPerspective.dnfRisk from new engine for backward compat
     readerPerspective.dnfRisk = dnfAnalysis.dnf_risk;
