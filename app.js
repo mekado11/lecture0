@@ -129,18 +129,19 @@ function _updateUndoBtn(){
 }
 // Keyboard shortcuts: Ctrl+Z=undo, Ctrl+R=redo, Ctrl+S=save
 // Ctrl+X/C/V (cut/copy/paste) handled natively by contenteditable
-document.addEventListener('keydown',e=>{
+// Use capture:true so we intercept before browser default actions
+window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase();
   if((e.ctrlKey||e.metaKey)&&k==='z'&&!e.shiftKey){
-    if(_undoStack.length>0){e.preventDefault();undoLastFix()}
+    if(_undoStack.length>0){e.preventDefault();e.stopPropagation();undoLastFix()}
   }else if((e.ctrlKey||e.metaKey)&&k==='r'){
-    e.preventDefault(); // prevent page reload
+    e.preventDefault();e.stopImmediatePropagation(); // block reload
     if(_redoStack.length>0){redoLastFix()}
   }else if((e.ctrlKey||e.metaKey)&&k==='s'){
-    e.preventDefault(); // prevent browser save dialog
+    e.preventDefault();e.stopPropagation();
     saveAnalysis();
   }
-});
+},true);
 
 function renderAll(){
   const r=analysisResult;
@@ -409,9 +410,9 @@ function pickContextSynonym(hlElement,candidates){
   return choice;
 }
 
-// REPLACE & FIX: actually replace the text with a proper fix
+// REPLACE & FIX: select the highlight text and use execCommand to replace
+// This works with native undo (Ctrl+Z) and properly updates the DOM
 function replaceAndFix(hlElement){
-  const page=$('ed-annotated');
   const type=hlElement.dataset.t;
   const suggestion=hlElement.dataset.s||'';
   const original=hlElement.textContent;
@@ -425,22 +426,7 @@ function replaceAndFix(hlElement){
   const aiMatch=suggestion.match(/Replace with:\s*"(.+?)"/);
   if(aiMatch&&aiMatch[1]&&aiMatch[1]!==original){
     replacement=aiMatch[1];
-    // Apply replacement directly — skip regex-based logic
-    const span=document.createElement('span');
-    span.className='fix-applied';
-    span.textContent=replacement;
-    span.style.color='#2d6b45';span.style.fontWeight='600';
-    hlElement.replaceWith(span);
-    // Update extractedText by replacing only the matched portion
-    extractedText=extractedText.replace(original,replacement);
-    $('tip').classList.remove('on');
-    span.style.outline='2px solid var(--green)';span.style.outlineOffset='2px';
-    setTimeout(()=>{span.style.outline=''},1500);
-    scheduleReanalyze();syncPreview();
-    return;
-  }
-
-  if(type==='weak-verb'){
+  }else if(type==='weak-verb'){
     const m=suggestion.match(/Try:\s*(.+)/i);
     if(m){
       const alts=m[1].split(',').map(s=>s.trim()).filter(Boolean);
@@ -559,31 +545,31 @@ function replaceAndFix(hlElement){
     }
   }
 
-  // Apply the replacement
-  const span=document.createElement('span');
-  span.className='fix-applied';
+  // Apply: select the highlight's text range, then use insertText to replace
+  // This works with native undo and properly updates contenteditable
   if(replacement===original){
-    // Truly can't fix - but still useful, highlight it for the writer
-    span.innerHTML='<span style="outline:2px dashed var(--gold);outline-offset:2px;padding:1px 2px">'+esc(original)+'</span>';
-    span.title='This needs a manual rewrite - click to edit directly';
-  }else if(mode==='remove'||replacement===''){
-    span.textContent=''; // just remove it
-  }else{
-    // Show the replacement directly (clean, no strikethrough clutter)
-    span.textContent=replacement;
-    span.style.color='#2d6b45';span.style.fontWeight='600';
+    // Can't auto-fix — select text for user to edit manually
+    $('tip').classList.remove('on');
+    const sel=window.getSelection();
+    const range=document.createRange();
+    range.selectNodeContents(hlElement);
+    sel.removeAllRanges();sel.addRange(range);
+    hlElement.focus();
+    return;
   }
-  hlElement.replaceWith(span);
-  // Update extractedText by replacing only the matched portion (not page.textContent which loses structure)
-  if(mode==='remove'||replacement===''){
-    extractedText=extractedText.replace(original,'');
-  }else{
-    extractedText=extractedText.replace(original,replacement);
-  }
+
+  // Select the highlight span's content
+  const sel=window.getSelection();
+  const range=document.createRange();
+  range.selectNodeContents(hlElement);
+  sel.removeAllRanges();sel.addRange(range);
+
+  // Use insertText — integrates with native undo, updates DOM cleanly
+  const newText=(mode==='remove')?'':replacement;
+  document.execCommand('insertText',false,newText);
+
   $('tip').classList.remove('on');
-  // Flash confirmation
-  span.style.outline='2px solid var(--green)';span.style.outlineOffset='2px';
-  setTimeout(()=>{span.style.outline=''},1500);
+  // Auto-reanalyze will pick up the change and update scores/highlights
   scheduleReanalyze();
   syncPreview();
 }
