@@ -15,7 +15,7 @@
   <div id="upload-view" class="library-view">
     <!-- Library Nav -->
     <nav class="lib-nav">
-      <div class="lib-nav-l"><span class="leaf">&#127807;</span><strong class="lib-brand">AuthorScrolls</strong></div>
+      <div class="lib-nav-l"><a href="index.html" style="text-decoration:none;display:flex;align-items:center;gap:.4rem"><span class="leaf">&#127807;</span><strong class="lib-brand">AuthorScrolls</strong></a></div>
       <div class="lib-nav-r">
         <div class="lib-search-wrap">
           <svg class="lib-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -117,7 +117,7 @@
   <div id="editor-view" class="editor-view hidden">
     <!-- TOP BAR -->
     <header class="topbar">
-      <div class="topbar-l"><span class="leaf-sm">&#127807;</span><strong class="brand">AuthorScrolls</strong><span class="status-pill" id="top-status">Analyzing...</span></div>
+      <div class="topbar-l"><a href="index.html" style="text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:.3rem" title="Go to homepage"><span class="leaf-sm">&#127807;</span><strong class="brand">AuthorScrolls</strong></a><span class="status-pill" id="top-status">Analyzing...</span></div>
       <div class="topbar-c"><span id="top-filename">Untitled</span><select id="genre-override" class="genre-override" title="Change genre"><option value="">Auto-detect</option><optgroup label="Fiction"><option value="scifi">Sci-Fi</option><option value="fantasy">Fantasy</option><option value="romance">Romance</option><option value="thriller">Thriller</option><option value="mystery">Mystery</option><option value="horror">Horror</option><option value="historical">Historical</option><option value="dystopian">Dystopian</option><option value="ya">YA</option><option value="literary">Literary</option><option value="romantasy">Romantasy</option><option value="cozyMystery">Cozy Mystery</option><option value="adventure">Adventure</option><option value="western">Western</option></optgroup><optgroup label="Non-Fiction"><option value="memoir">Memoir</option><option value="selfHelp">Self-Help</option><option value="biography">Biography</option><option value="historyNF">History</option><option value="trueCrime">True Crime</option><option value="philosophy">Philosophy</option></optgroup></select></div>
       <div class="topbar-r"><span class="live-score">LIVE SCORE: <b id="top-score">0</b> <span id="top-delta" class="delta"></span></span><span class="wc">Words: <b id="top-wc">0</b></span><button class="tb-btn" id="export-btn">&#8681; Export</button><button class="tb-btn" id="new-btn">&#128218; Library</button></div>
     </header>
@@ -185,7 +185,8 @@
               <option value="2">2x</option>
               <option value="2.5">2.5x</option>
             </select>
-            <button class="fmt-btn" data-cmd="undo" title="Undo (Ctrl+Z)">&#8592;</button>
+            <button class="fmt-btn undo-fix-btn" id="undo-fix-btn" title="Undo Replace &amp; Fix" style="display:none;color:#c45c4a;font-weight:700">&#8630; Undo</button>
+            <button class="fmt-btn" data-cmd="undo" title="Undo typing (Ctrl+Z)">&#8592;</button>
             <button class="fmt-btn" data-cmd="redo" title="Redo (Ctrl+Y)">&#8635;</button>
           </div>
         </div>

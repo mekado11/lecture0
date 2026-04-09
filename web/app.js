@@ -21,7 +21,8 @@ $('analyze-btn').addEventListener('click',async()=>{
     $('loader-text').textContent='Extracting...';
     extractedText=await ext(uploadedFile);
     $('loader-text').textContent='Analyzing...';
-    await new Promise(r=>setTimeout(r,80));
+    // Yield to UI so spinner renders before blocking analysis
+    await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
     analysisResult=Analyzer.analyze(extractedText);
     if(analysisResult.error){alert(analysisResult.error);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
     // Save immediately to Firestore/localStorage so it appears in library
@@ -85,6 +86,37 @@ function drawRing(canvas,score,size){
 let ignoredIssues=new Set();
 let previousScore=null;
 let autoSaveTimer=null;
+
+// Undo stack for Replace & Fix operations
+const _undoStack=[];
+const MAX_UNDO=30;
+function pushUndo(){
+  const page=$('ed-annotated');
+  if(!page)return;
+  _undoStack.push({html:page.innerHTML,text:extractedText});
+  if(_undoStack.length>MAX_UNDO)_undoStack.shift();
+  const btn=$('undo-fix-btn');
+  if(btn)btn.style.display='';
+}
+function undoLastFix(){
+  if(_undoStack.length===0)return;
+  const state=_undoStack.pop();
+  const page=$('ed-annotated');
+  if(!page)return;
+  page.innerHTML=state.html;
+  extractedText=state.text;
+  syncPreview();
+  // Re-wire tooltip click handlers on restored highlights
+  _rewireHighlightClicks(page);
+  if(_undoStack.length===0){
+    const btn=$('undo-fix-btn');
+    if(btn)btn.style.display='none';
+  }
+}
+function _rewireHighlightClicks(page){
+  const tip=$('tip');
+  page.addEventListener('click',e=>{const hl=e.target.closest('.hl');if(hl&&!hl.classList.contains('off')){const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};tip.innerHTML='<div class="tip-cat">'+(labels[hl.dataset.t]||hl.dataset.t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+hl.dataset.s+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">Replace &amp; Fix</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';tip.classList.add('on');const rect=hl.getBoundingClientRect();tip.style.top=(rect.bottom+8)+'px';tip.style.left=Math.min(rect.left,window.innerWidth-360)+'px';$('tip-fix-btn').onclick=()=>{replaceAndFix(hl)};$('tip-ign-btn').onclick=()=>{hl.classList.add('off');tip.classList.remove('on')}}else if(!e.target.closest('.tip')){tip.classList.remove('on')}});
+}
 
 function renderAll(){
   const r=analysisResult;
@@ -300,6 +332,9 @@ function replaceAndFix(hlElement){
   let replacement='';
   let mode='replace'; // 'replace', 'remove', 'split'
 
+  // Save undo state BEFORE any changes
+  pushUndo();
+
   // Priority: use AI-generated replacement if available (from SmartScan)
   const aiMatch=suggestion.match(/Replace with:\s*"(.+?)"/);
   if(aiMatch&&aiMatch[1]&&aiMatch[1]!==original){
@@ -310,7 +345,8 @@ function replaceAndFix(hlElement){
     span.textContent=replacement;
     span.style.color='#2d6b45';span.style.fontWeight='600';
     hlElement.replaceWith(span);
-    extractedText=page.textContent;
+    // Update extractedText by replacing only the matched portion
+    extractedText=extractedText.replace(original,replacement);
     $('tip').classList.remove('on');
     span.style.outline='2px solid var(--green)';span.style.outlineOffset='2px';
     setTimeout(()=>{span.style.outline=''},1500);
@@ -449,8 +485,12 @@ function replaceAndFix(hlElement){
     span.style.color='#2d6b45';span.style.fontWeight='600';
   }
   hlElement.replaceWith(span);
-  // Update text reference
-  extractedText=page.textContent;
+  // Update extractedText by replacing only the matched portion (not page.textContent which loses structure)
+  if(mode==='remove'||replacement===''){
+    extractedText=extractedText.replace(original,'');
+  }else{
+    extractedText=extractedText.replace(original,replacement);
+  }
   $('tip').classList.remove('on');
   // Flash confirmation
   span.style.outline='2px solid var(--green)';span.style.outlineOffset='2px';
@@ -1534,46 +1574,48 @@ function renderAnnotatedAsPages(text,issues){
   p.setAttribute('spellcheck','false');
   p.addEventListener('input',()=>{addReanalyzeButton();syncPreview()});
 
-  // Split text into paragraphs
-  const paragraphs=text.split(/\n\s*\n/);
   const chapterRe=/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*|part\s+\d+[^\n]*|part\s+[a-z]+[^\n]*|prologue[^\n]*|epilogue[^\n]*)/i;
   const sceneBreakRe=/^\s*(\*\s*\*\s*\*|#\s*#\s*#|---+|~~~+|\* \* \*)\s*$/;
 
-  // Build highlighted HTML with proper structure
+  // Build non-overlapping issues sorted by position
   const sorted=[...issues].sort((a,b)=>a.index-b.index);
   const noOverlap=[];let lastEnd=-1;
   for(const i of sorted){if(i.index>=lastEnd){noOverlap.push(i);lastEnd=i.index+i.length}}
 
-  // Build full annotated HTML first
-  let fullHtml='',pos=0;
-  for(const i of noOverlap){
-    if(i.index>pos)fullHtml+=esc(text.substring(pos,i.index));
-    fullHtml+='<span class="hl" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'">'+esc(text.substring(i.index,i.index+i.length))+'</span>';
-    pos=i.index+i.length;
+  // Split text into paragraphs using regex to track exact positions
+  const paraBounds=[];
+  const splitter=/\n\s*\n/g;
+  let lastIdx=0,splitMatch;
+  while((splitMatch=splitter.exec(text))!==null){
+    const chunk=text.substring(lastIdx,splitMatch.index);
+    if(chunk.trim().length>0){
+      // Find the trimmed content's exact position within the chunk
+      const leadingWS=chunk.length-chunk.trimStart().length;
+      const trimmed=chunk.trim();
+      paraBounds.push({start:lastIdx+leadingWS,end:lastIdx+leadingWS+trimmed.length,text:trimmed});
+    }
+    lastIdx=splitMatch.index+splitMatch[0].length;
   }
-  if(pos<text.length)fullHtml+=esc(text.substring(pos));
+  // Handle last paragraph
+  if(lastIdx<text.length){
+    const chunk=text.substring(lastIdx);
+    if(chunk.trim().length>0){
+      const leadingWS=chunk.length-chunk.trimStart().length;
+      const trimmed=chunk.trim();
+      paraBounds.push({start:lastIdx+leadingWS,end:lastIdx+leadingWS+trimmed.length,text:trimmed});
+    }
+  }
 
-  // Now wrap paragraphs with proper tags
+  // Build structured HTML with correct positions
   let structured='';
-  let charPos=0;
-  for(let pi=0;pi<paragraphs.length;pi++){
-    const para=paragraphs[pi].trim();
-    if(!para){charPos+=2;continue}
-
-    // Find this paragraph's annotated content from fullHtml
-    const paraStart=text.indexOf(para,Math.max(0,charPos-5));
-    const paraEnd=paraStart>=0?paraStart+para.length:charPos+para.length;
-
-    if(chapterRe.test(para)){
-      // Chapter heading
-      const level=para.match(/^part\s/i)?'h1':'h1';
-      structured+='<'+level+'>'+getAnnotatedSlice(text,paraStart,paraEnd,noOverlap)+'</'+level+'>';
-    }else if(sceneBreakRe.test(para)){
+  for(const pb of paraBounds){
+    if(chapterRe.test(pb.text)){
+      structured+='<h1>'+getAnnotatedSlice(text,pb.start,pb.end,noOverlap)+'</h1>';
+    }else if(sceneBreakRe.test(pb.text)){
       structured+='<div class="scene-break">* * *</div>';
     }else{
-      structured+='<p>'+getAnnotatedSlice(text,paraStart,paraEnd,noOverlap)+'</p>';
+      structured+='<p>'+getAnnotatedSlice(text,pb.start,pb.end,noOverlap)+'</p>';
     }
-    charPos=paraEnd+2; // +2 for the \n\n separator
   }
 
   // Add page number footer
@@ -2251,6 +2293,9 @@ document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{
     addReanalyzeButton();syncPreview();
   });
 });
+
+// Wire undo-fix button
+$('undo-fix-btn')?.addEventListener('click',undoLastFix);
 
 // (Bookshelf replaced by Library dashboard)
 

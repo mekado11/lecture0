@@ -222,32 +222,45 @@ const Analyzer = {
   // ========================
   findRepetitions(text) {
     const issues = [];
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    const lower = text.toLowerCase();
+    const sentenceRegex = /[^.!?]*[.!?]+/g;
+    const sentBounds = [];
+    let sm;
+    while ((sm = sentenceRegex.exec(text)) !== null) {
+      sentBounds.push({ start: sm.index, end: sm.index + sm[0].length, raw: sm[0] });
+    }
+    // Handle trailing text without punctuation
+    if (sentBounds.length === 0) return issues;
+
     const stopWords = new Set(['the','a','an','and','or','but','in','on','at','to','for','of','with',
       'by','from','is','it','its','was','were','are','be','been','being','have','has','had',
       'do','does','did','will','would','could','should','may','might','shall','can','that',
       'this','these','those','i','you','he','she','we','they','me','him','her','us','them',
       'my','your','his','our','their','not','no','so','as','if','then','than','into','up',
       'out','about','just','very','all','also','how','what','when','where','which','who']);
-    for (let i = 0; i < sentences.length - 1; i++) {
-      const words1 = sentences[i].toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
-      const words2 = sentences[i + 1].toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+    const synMap={said:['stated','replied','remarked','noted','added'],looked:['glanced','gazed','peered','watched','studied'],walked:['strode','moved','paced','strolled','crossed'],made:['created','crafted','formed','produced','built'],came:['arrived','appeared','emerged','approached','entered'],went:['headed','moved','traveled','crossed','departed'],turned:['pivoted','shifted','swung','rotated','spun'],stood:['rose','remained','lingered','waited','stayed'],knew:['understood','recognized','realized','sensed','grasped'],thought:['considered','wondered','reflected','believed','imagined'],felt:['sensed','experienced','noticed','detected','perceived'],took:['grabbed','seized','claimed','accepted','retrieved'],gave:['offered','handed','presented','provided','delivered'],started:['began','initiated','launched','commenced','opened'],seemed:['appeared','looked','sounded','suggested','indicated'],told:['informed','explained','revealed','instructed','described'],asked:['questioned','inquired','wondered','requested','demanded'],eyes:['gaze','stare','glance','look','vision'],face:['expression','features','countenance','visage','look'],hand:['grip','palm','fingers','fist','grasp'],head:['mind','thoughts','skull','brow','temple'],voice:['tone','words','speech','whisper','sound'],door:['entrance','doorway','threshold','entry','gate'],room:['chamber','space','quarters','hall','area'],time:['moment','occasion','instance','period','while'],back:['spine','rear','return','retreat','behind'],long:['extended','prolonged','lengthy','enduring','sustained'],dark:['dim','shadowed','unlit','gloomy','murky'],small:['little','slight','tiny','compact','modest'],found:['discovered','located','uncovered','encountered','spotted'],called:['named','summoned','addressed','hailed','dubbed'],people:['individuals','figures','crowd','group','folk'],world:['realm','domain','land','sphere','landscape'],place:['location','spot','position','site','area'],still:['motionless','calm','quiet','unmoving','yet'],words:['speech','language','phrases','remarks','terms'],thing:['object','matter','item','element','detail'],woman:['figure','lady','person','character','she'],before:['earlier','previously','prior','ahead','formerly'],every:['each','all','entire','whole','total'],never:['rarely','seldom','hardly','not once','at no point'],always:['constantly','perpetually','inevitably','forever','endlessly'],around:['surrounding','about','nearby','encircling','throughout']};
+    const seen = new Set();
+
+    for (let i = 0; i < sentBounds.length - 1; i++) {
+      const s1 = sentBounds[i], s2 = sentBounds[i + 1];
+      const words1 = s1.raw.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+      const words2 = s2.raw.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
       const set1 = new Set(words1.filter(w => !stopWords.has(w)));
       for (const word of words2) {
         if (set1.has(word) && !stopWords.has(word)) {
-          const sentStart = text.indexOf(sentences[i + 1]);
-          const wordIdx = text.toLowerCase().indexOf(word, sentStart);
-          if (wordIdx !== -1) {
-            const synMap={said:['stated','replied','remarked','noted','added'],looked:['glanced','gazed','peered','watched','studied'],walked:['strode','moved','paced','strolled','crossed'],made:['created','crafted','formed','produced','built'],came:['arrived','appeared','emerged','approached','entered'],went:['headed','moved','traveled','crossed','departed'],turned:['pivoted','shifted','swung','rotated','spun'],stood:['rose','remained','lingered','waited','stayed'],knew:['understood','recognized','realized','sensed','grasped'],thought:['considered','wondered','reflected','believed','imagined'],felt:['sensed','experienced','noticed','detected','perceived'],took:['grabbed','seized','claimed','accepted','retrieved'],gave:['offered','handed','presented','provided','delivered'],started:['began','initiated','launched','commenced','opened'],seemed:['appeared','looked','sounded','suggested','indicated'],told:['informed','explained','revealed','instructed','described'],asked:['questioned','inquired','wondered','requested','demanded'],eyes:['gaze','stare','glance','look','vision'],face:['expression','features','countenance','visage','look'],hand:['grip','palm','fingers','fist','grasp'],head:['mind','thoughts','skull','brow','temple'],voice:['tone','words','speech','whisper','sound'],door:['entrance','doorway','threshold','entry','gate'],room:['chamber','space','quarters','hall','area'],time:['moment','occasion','instance','period','while'],back:['spine','rear','return','retreat','behind'],long:['extended','prolonged','lengthy','enduring','sustained'],dark:['dim','shadowed','unlit','gloomy','murky'],small:['little','slight','tiny','compact','modest'],found:['discovered','located','uncovered','encountered','spotted'],called:['named','summoned','addressed','hailed','dubbed'],people:['individuals','figures','crowd','group','folk'],world:['realm','domain','land','sphere','landscape'],place:['location','spot','position','site','area'],still:['motionless','calm','quiet','unmoving','yet'],words:['speech','language','phrases','remarks','terms'],thing:['object','matter','item','element','detail'],woman:['figure','lady','person','character','she'],before:['earlier','previously','prior','ahead','formerly'],every:['each','all','entire','whole','total'],never:['rarely','seldom','hardly','not once','at no point'],always:['constantly','perpetually','inevitably','forever','endlessly'],around:['surrounding','about','nearby','encircling','throughout']};
-            const lo=word.toLowerCase();
-            const alts=synMap[lo];
-            const sugText=alts?'Try: '+alts.slice(0,3).join(', '):'Vary your word choice — try a synonym or restructure the sentence.';
-            issues.push({
-              type: 'repetition', text: word, index: wordIdx, length: word.length,
-              severity: 'low', message: `"${word}" repeated in consecutive sentences.`,
-              suggestion: sugText
-            });
-          }
+          // Find the word position within the second sentence's known bounds
+          const wordIdx = lower.indexOf(word, s2.start);
+          if (wordIdx === -1 || wordIdx >= s2.end) continue;
+          const key = word + ':' + wordIdx;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const alts = synMap[word];
+          const sugText = alts ? 'Try: ' + alts.slice(0, 3).join(', ') : 'Vary your word choice — try a synonym or restructure the sentence.';
+          issues.push({
+            type: 'repetition', text: word, index: wordIdx, length: word.length,
+            severity: 'low', message: `"${word}" repeated in consecutive sentences.`,
+            suggestion: sugText
+          });
         }
       }
     }
