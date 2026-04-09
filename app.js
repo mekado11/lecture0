@@ -127,12 +127,18 @@ function _updateUndoBtn(){
   const btn=$('undo-fix-btn');
   if(btn)btn.style.display=_undoStack.length>0?'':'none';
 }
-// Keyboard: Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo
+// Keyboard shortcuts: Ctrl+Z=undo, Ctrl+R=redo, Ctrl+S=save
+// Ctrl+X/C/V (cut/copy/paste) handled natively by contenteditable
 document.addEventListener('keydown',e=>{
-  if((e.ctrlKey||e.metaKey)&&e.key==='z'&&!e.shiftKey){
+  const k=e.key.toLowerCase();
+  if((e.ctrlKey||e.metaKey)&&k==='z'&&!e.shiftKey){
     if(_undoStack.length>0){e.preventDefault();undoLastFix()}
-  }else if((e.ctrlKey||e.metaKey)&&(e.key==='y'||(e.key==='z'&&e.shiftKey))){
-    if(_redoStack.length>0){e.preventDefault();redoLastFix()}
+  }else if((e.ctrlKey||e.metaKey)&&k==='r'){
+    e.preventDefault(); // prevent page reload
+    if(_redoStack.length>0){redoLastFix()}
+  }else if((e.ctrlKey||e.metaKey)&&k==='s'){
+    e.preventDefault(); // prevent browser save dialog
+    saveAnalysis();
   }
 });
 
@@ -584,12 +590,26 @@ function replaceAndFix(hlElement){
 
 // AUTO RE-ANALYZE: debounced — runs automatically after any edit
 let _reanalyzeTimer=null;
+// Extract text from contenteditable preserving paragraph/heading structure as \n\n
+function extractTextFromEditor(){
+  const page=$('ed-annotated');
+  if(!page)return extractedText||'';
+  const parts=[];
+  for(const child of page.children){
+    const tag=child.tagName;
+    const txt=(child.textContent||'').trim();
+    if(!txt)continue;
+    parts.push(txt);
+  }
+  return parts.join('\n\n');
+}
+
 function scheduleReanalyze(){
   clearTimeout(_reanalyzeTimer);
   _reanalyzeTimer=setTimeout(()=>{
     const page=$('ed-annotated');
     if(!page)return;
-    extractedText=page.textContent;
+    extractedText=extractTextFromEditor();
     const newResult=Analyzer.analyze(extractedText);
     if(!newResult.error){
       analysisResult=newResult;
@@ -1546,23 +1566,41 @@ document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{
 // ============================================================
 function buildChapterNav(){
   const list=$('chn-list');if(!list)return;
+  const page=$('ed-annotated');
   const text=extractedText||'';
   if(!text){list.innerHTML='<div style="padding:.5rem .7rem;font-size:.7rem;color:var(--dim)">No manuscript loaded</div>';return}
 
-  // Detect chapters and sections
-  const chapterRe=/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*|part\s+\d+[^\n]*|part\s+[a-z]+[^\n]*|prologue[^\n]*|epilogue[^\n]*)/gim;
-  const sectionRe=/^(section\s+\d+[^\n]*|scene\s+\d+[^\n]*)/gim;
   const entries=[];
-  let m;
 
-  while((m=chapterRe.exec(text))!==null){
-    entries.push({title:m[1].trim(),index:m.index,level:1});
+  // Method 1: Scan DOM for H1/H2 elements (most reliable after user edits)
+  if(page){
+    let charPos=0;
+    for(const child of page.children){
+      const tag=child.tagName;
+      const txt=(child.textContent||'').trim();
+      if(!txt){charPos+=2;continue}
+      if(tag==='H1'){
+        entries.push({title:txt,index:charPos,level:1,el:child});
+      }else if(tag==='H2'){
+        entries.push({title:txt,index:charPos,level:2,el:child});
+      }
+      charPos+=txt.length+2;
+    }
   }
-  while((m=sectionRe.exec(text))!==null){
-    entries.push({title:m[1].trim(),index:m.index,level:2});
+
+  // Method 2: Regex fallback on plain text (catches chapters not yet formatted as H1)
+  if(entries.length===0){
+    const chapterRe=/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*|part\s+\d+[^\n]*|part\s+[a-z]+[^\n]*|prologue[^\n]*|epilogue[^\n]*)/gim;
+    const sectionRe=/^(section\s+\d+[^\n]*|scene\s+\d+[^\n]*)/gim;
+    let m;
+    while((m=chapterRe.exec(text))!==null){
+      entries.push({title:m[1].trim(),index:m.index,level:1});
+    }
+    while((m=sectionRe.exec(text))!==null){
+      entries.push({title:m[1].trim(),index:m.index,level:2});
+    }
+    entries.sort((a,b)=>a.index-b.index);
   }
-  // Sort by position in text
-  entries.sort((a,b)=>a.index-b.index);
 
   if(entries.length===0){
     list.innerHTML='<div style="padding:.5rem .7rem;font-size:.7rem;color:var(--dim)">No chapters detected</div>';
@@ -1574,13 +1612,19 @@ function buildChapterNav(){
     return '<div class="chn-item'+(e.level===2?' chn-h2':'')+'" data-ch-idx="'+i+'" data-ch-offset="'+e.index+'" title="'+escA(e.title)+'">'+esc(label)+'</div>';
   }).join('');
 
-  // Click to scroll
-  list.querySelectorAll('.chn-item').forEach(item=>{
+  // Click to scroll — use DOM element reference when available
+  const _navEntries=entries;
+  list.querySelectorAll('.chn-item').forEach((item,i)=>{
     item.addEventListener('click',()=>{
       list.querySelectorAll('.chn-item').forEach(c=>c.classList.remove('active'));
       item.classList.add('active');
-      const offset=parseInt(item.dataset.chOffset);
-      scrollToTextOffset(offset);
+      const entry=_navEntries[i];
+      if(entry&&entry.el){
+        entry.el.scrollIntoView({behavior:'smooth',block:'center'});
+      }else{
+        const offset=parseInt(item.dataset.chOffset);
+        scrollToTextOffset(offset);
+      }
     });
   });
 
@@ -1654,7 +1698,7 @@ function renderAnnotatedAsPages(text,issues){
   p.setAttribute('spellcheck','false');
   p.addEventListener('input',()=>{scheduleReanalyze();syncPreview();});
 
-  const chapterRe=/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*|part\s+\d+[^\n]*|part\s+[a-z]+[^\n]*|prologue[^\n]*|epilogue[^\n]*)/i;
+  const chapterRe=/^(chapter\s+\d+\s*:?[^\n]*|chapter\s+[a-z]+\s*:?[^\n]*|part\s+\d+\s*:?[^\n]*|part\s+[a-z]+\s*:?[^\n]*|prologue\s*:?[^\n]*|epilogue\s*:?[^\n]*)/i;
   const sceneBreakRe=/^\s*(\*\s*\*\s*\*|#\s*#\s*#|---+|~~~+|\* \* \*)\s*$/;
 
   // Build non-overlapping issues sorted by position
@@ -1776,7 +1820,7 @@ function getAnnotatedSlice(fullText,start,end,issues){
     const node=sel.anchorNode;
     if(!node)return;
     const lineText=(node.textContent||'').trim();
-    const chapterRe=/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*|part\s+\d+[^\n]*|part\s+[a-z]+[^\n]*|prologue[^\n]*|epilogue[^\n]*)$/i;
+    const chapterRe=/^(chapter\s+\d+\s*:?[^\n]*|chapter\s+[a-z]+\s*:?[^\n]*|part\s+\d+\s*:?[^\n]*|part\s+[a-z]+\s*:?[^\n]*|prologue\s*:?[^\n]*|epilogue\s*:?[^\n]*)$/i;
     if(chapterRe.test(lineText)){
       // Convert the current block to H1
       const parentBlock=node.parentElement?.closest('p,div,h1,h2,h3')||node.parentElement;
@@ -1910,6 +1954,12 @@ $('export-btn')?.addEventListener('click',()=>{
 });
 
 // SAVE / LOAD
+function _showSaveToast(msg){
+  let toast=document.getElementById('save-toast');
+  if(!toast){toast=document.createElement('div');toast.id='save-toast';toast.style.cssText='position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:#1e1812;border:1px solid rgba(200,149,108,.3);color:var(--gold-l);padding:.4rem 1rem;border-radius:6px;font-size:.78rem;z-index:999;opacity:0;transition:opacity .3s;font-family:Inter,sans-serif';document.body.appendChild(toast)}
+  toast.textContent=msg;toast.style.opacity='1';
+  clearTimeout(toast._t);toast._t=setTimeout(()=>{toast.style.opacity='0'},2000);
+}
 async function saveAnalysis(){
   if(!analysisResult||!uploadedFile)return;
   // Save to Firestore
@@ -1921,7 +1971,7 @@ async function saveAnalysis(){
         await Storage.updateManuscript(Storage._currentManuscriptId,extractedText,analysisResult);
       }
       await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
-      alert('Saved to cloud! Your manuscript is stored securely.');
+      _showSaveToast('Saved to cloud');
       return;
     }catch(e){console.warn('Cloud save error:',e.message)}
   }
@@ -1930,7 +1980,7 @@ async function saveAnalysis(){
   saves.push({fileName:uploadedFile.name,text:extractedText,result:analysisResult,savedAt:new Date().toISOString()});
   if(saves.length>10)saves.splice(0,saves.length-10);
   localStorage.setItem('ml_saves',JSON.stringify(saves));
-  alert('Saved locally. Sign in to save to cloud.');
+  _showSaveToast('Saved locally');
 }
 
 // ============================================================
