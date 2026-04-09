@@ -575,7 +575,12 @@ function replaceAndFix(hlElement){
 }
 
 // AUTO RE-ANALYZE: debounced — runs automatically after any edit
+// CRITICAL: only updates scores/sidebar/issue panel — NEVER re-renders the editor content
+// This prevents cursor loss, selection wipe, and DOM corruption during editing
 let _reanalyzeTimer=null;
+let _issuesResolved=0;
+let _initialIssueCount=null;
+
 // Extract text from contenteditable preserving paragraph/heading structure as \n\n
 function extractTextFromEditor(){
   const page=$('ed-annotated');
@@ -597,11 +602,47 @@ function scheduleReanalyze(){
     if(!page)return;
     extractedText=extractTextFromEditor();
     const newResult=Analyzer.analyze(extractedText);
-    if(!newResult.error){
-      analysisResult=newResult;
-      renderAll();
-    }
-  },2000); // 2 second debounce — gives user time to finish typing
+    if(newResult.error)return;
+
+    // Track resolved issues
+    if(_initialIssueCount===null)_initialIssueCount=newResult.issues.length;
+    const prevCount=analysisResult?analysisResult.issues.length:_initialIssueCount;
+    const newCount=newResult.issues.length;
+    if(newCount<prevCount)_issuesResolved+=(prevCount-newCount);
+
+    analysisResult=newResult;
+    // Only update scores, sidebar, gauge — NOT the editor content
+    updateScoresOnly(newResult);
+  },2000);
+}
+
+// Lightweight update: refresh scores, sidebar, issue panel without touching the editor
+function updateScoresOnly(r){
+  // Topbar
+  $('top-wc').textContent=r.totalWords.toLocaleString();
+  $('top-status').textContent=r.genre.label+(r.genre.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+r.manuscriptMode.label;
+  drawGauge(r.overall);
+  $('top-score').textContent=r.overall;
+
+  // Score delta
+  const deltaEl=$('top-delta');
+  if(previousScore!==null){
+    const delta=r.overall-previousScore;
+    if(delta>0){deltaEl.textContent='\u2191 +'+delta;deltaEl.className='delta up'}
+    else if(delta<0){deltaEl.textContent='\u2193 '+delta;deltaEl.className='delta down'}
+    else{deltaEl.textContent='';deltaEl.className='delta'}
+  }
+  previousScore=r.overall;
+
+  // Sidebar scores + issue panel
+  renderLeft(r);
+  renderRight(r);
+  // Chapter nav rebuild
+  buildChapterNav();
+  // Preview sync
+  syncPreview();
+  // Auto-save
+  autoSave();
 }
 
 // LEFT SIDEBAR
@@ -631,20 +672,25 @@ function renderLeft(r){
 function renderRight(r){
   const stIssues=r.showTell&&r.showTell.issues?r.showTell.issues.length:(r.issueCounts?r.issueCounts['show-tell']:0)||0;
   const cpIssues=r.issues?r.issues.length:0;
+  // Count high-severity issues per type for honest issue display
+  const highSev=type=>r.issues.filter(i=>i.type===type&&i.severity==='high').length;
+  const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
   const cats=[
-    {k:'plot',name:'Plot Structure',score:r.scores.plot,issues:0},
-    {k:'clarity',name:'Clarity',score:r.readerPerspective.clarityScore,issues:r.issueCounts?r.issueCounts.passive:0},
-    {k:'pacing',name:'Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),issues:r.issueCounts?r.issueCounts['sentence-length']:0,badge:r.readerPerspective.pacingFeel.includes('Rushed')?'Rushed':null},
-    {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:r.issueCounts?r.issueCounts.adverb:0},
-    {k:'style',name:'Style & Voice',score:r.scores.style,issues:r.issueCounts?r.issueCounts['weak-verb']:0},
-    {k:'dialogue',name:'Dialogue',score:r.scores.dialogue,issues:0},
-    {k:'showTell',name:'Show vs Tell',score:r.scores.showTell,issues:stIssues},
-    {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:cpIssues}
+    {k:'plot',name:'Plot Structure',score:r.scores.plot,issues:0,weight:'10%'},
+    {k:'clarity',name:'Clarity',score:r.readerPerspective.clarityScore,issues:countType('passive'),weight:'10%'},
+    {k:'pacing',name:'Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),issues:countType('sentence-length'),badge:r.readerPerspective.pacingFeel.includes('Rushed')?'Rushed':null,weight:'8%'},
+    {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:countType('adverb'),weight:'7%'},
+    {k:'style',name:'Style & Voice',score:r.scores.style,issues:countType('weak-verb'),weight:'8%'},
+    {k:'dialogue',name:'Dialogue',score:r.scores.dialogue,issues:0,weight:'7%'},
+    {k:'showTell',name:'Show vs Tell',score:r.scores.showTell,issues:stIssues,weight:'8%'},
+    {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:cpIssues,weight:'12%'}
   ];
   const container=$('rp-scores');
   container.innerHTML=cats.map(c=>{
     const col=scHex(c.score);const id='rsc-'+Math.random().toString(36).substr(2,5);
-    return '<div class="rsc" data-cat="'+c.k+'"><div class="rsc-ring"><canvas id="'+id+'" width="34" height="34"></canvas><span class="rsc-n" style="color:'+col+'">'+c.score+'</span></div><div class="rsc-info"><div class="rsc-name">'+c.name+'</div><div class="rsc-sub">'+c.issues+' Issues</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="rsc-val" style="color:'+col+'">'+c.score+'</span>')+'</div>';
+    const issueLabel=c.issues>0?c.issues+' issue'+(c.issues===1?'':'s'):'Clean';
+    const issueColor=c.issues>10?'var(--red)':c.issues>3?'var(--yellow)':'var(--green)';
+    return '<div class="rsc" data-cat="'+c.k+'"><div class="rsc-ring"><canvas id="'+id+'" width="34" height="34"></canvas><span class="rsc-n" style="color:'+col+'">'+c.score+'</span></div><div class="rsc-info"><div class="rsc-name">'+c.name+'<span style="font-size:.55rem;color:var(--dim);margin-left:4px">'+c.weight+'</span></div><div class="rsc-sub" style="color:'+issueColor+'">'+issueLabel+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="rsc-val" style="color:'+col+'">'+c.score+'</span>')+'</div>';
   }).join('');
   // Draw rings
   cats.forEach((c,i)=>{const cvs=container.querySelectorAll('.rsc-ring canvas')[i];if(cvs)drawRing(cvs,c.score,34)});
@@ -654,34 +700,97 @@ function renderRight(r){
   if(cats.length)showDetail(cats[0].k);
 }
 
+// WHY explanations per issue type — helps writers understand the impact, not just the rule
+const _issueWhy={
+  passive:'Passive voice distances the reader. Active voice creates immediacy and clarity.',
+  adverb:'Adverbs often signal a weak verb. A stronger verb eliminates the need for modification.',
+  cliche:'Cliches signal unoriginal writing to agents and editors. They pull readers out of your unique voice.',
+  'weak-verb':'Generic verbs ("made", "went", "got") miss an opportunity to create vivid, specific imagery.',
+  'show-tell':'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',
+  wordy:'Extra words slow pacing and dilute impact. Tight prose holds attention.',
+  repetition:'Repeated words in close proximity suggest limited vocabulary and can feel monotonous to readers.',
+  'sentence-length':'Long sentences tax working memory. Varying length creates rhythm and controls pacing.'
+};
+
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
   const typeMap={plot:null,clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:null,showTell:'show-tell',copy:null};
   const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing'};
-  const typeLabels={passive:'Passive Voice Detected',adverb:'Adverb Overuse',cliche:'Cliche Detected','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence'};
+  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence'};
   const t=typeMap[cat];
-  const issues=t?r.issues.filter(i=>i.type===t).slice(0,5):r.issues.slice(0,5);
-  d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+titles[cat]+'</span><span>&#9660;</span></div>'+
-    (issues.length===0?'<p style="color:var(--muted);font-size:.78rem">No issues in this category.</p>':
-    issues.map((iss,idx)=>'<div class="rpd-issue" data-issue-text="'+escA(iss.text)+'" data-issue-sug="'+escA(iss.suggestion)+'"><div class="rpd-issue-head">'+(typeLabels[iss.type]||iss.type)+'</div><div class="rpd-desc">'+esc(iss.suggestion)+'</div><div class="rpd-quote rpd-navigate" style="cursor:pointer" title="Click to jump to this text">\u2018'+esc(iss.text.substring(0,60))+'\u2019</div><div class="rpd-btns"><button class="tip-fix rpd-fix-btn">Replace &amp; Fix</button><button class="tip-ign rpd-ign-btn">Ignore</button></div></div>').join(''));
-  // Click quote to navigate to text in manuscript
+
+  // Sort by severity: high first, then medium, then low
+  const sevOrder={high:0,medium:1,low:2};
+  let issues=t?r.issues.filter(i=>i.type===t):r.issues.slice();
+  issues.sort((a,b)=>(sevOrder[a.severity]||2)-(sevOrder[b.severity]||2));
+  const totalForCat=issues.length;
+  const shown=issues.slice(0,8);
+
+  // Determine if suggestion has a concrete replacement
+  function hasConcreteFix(iss){
+    return !!iss.suggestion.match(/Replace with:\s*".+?"/)||!!iss.suggestion.match(/Try:\s*.+/i)||iss.type==='adverb'||iss.type==='passive'||iss.type==='wordy'||iss.type==='cliche';
+  }
+
+  // Progress indicator
+  const progressHtml=_issuesResolved>0?'<div style="padding:.3rem .7rem;font-size:.7rem;color:var(--green);background:rgba(93,186,125,.08);border-radius:4px;margin-bottom:.5rem">'+_issuesResolved+' issue'+ (_issuesResolved===1?'':'s')+' resolved this session</div>':'';
+
+  d.innerHTML=progressHtml+
+    '<div class="rpd-title"><span style="font-size:1.1rem">'+titles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">'+totalForCat+' issue'+(totalForCat===1?'':'s')+'</span></div>'+
+    (_issueWhy[t]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+_issueWhy[t]+'</div>':'')+
+    (shown.length===0?'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No issues in this category. Nice work!</p>':
+    shown.map((iss,idx)=>{
+      const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Accept Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
+      const sevColor=iss.severity==='high'?'var(--red)':iss.severity==='medium'?'var(--yellow)':'var(--muted)';
+      return '<div class="rpd-issue" data-issue-text="'+escA(iss.text)+'" data-issue-sug="'+escA(iss.suggestion)+'" data-has-fix="'+(hasConcreteFix(iss)?'1':'0')+'">'+
+        '<div class="rpd-issue-head"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+sevColor+';margin-right:5px"></span>'+(typeLabels[iss.type]||iss.type)+'</div>'+
+        '<div class="rpd-desc">'+esc(iss.suggestion)+'</div>'+
+        '<div class="rpd-quote rpd-navigate" style="cursor:pointer" title="Click to jump to this text">\u2018'+esc(iss.text.substring(0,60))+'\u2019</div>'+
+        '<div class="rpd-btns">'+fixBtn+'<button class="tip-ign rpd-ign-btn">Dismiss</button></div></div>';
+    }).join(''))+
+    (totalForCat>8?'<div style="padding:.4rem .7rem;font-size:.7rem;color:var(--muted);text-align:center">Showing top 8 of '+totalForCat+' — fix these first for the biggest impact</div>':'');
+
+  // Wire events
   d.querySelectorAll('.rpd-navigate').forEach(q=>{q.addEventListener('click',()=>{
     const card=q.closest('.rpd-issue');const issueText=card.dataset.issueText;
-    // Switch to annotated tab
     document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
     document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
     const annotatedBtn=document.querySelector('.btab[data-p="annotated"]');
     if(annotatedBtn)annotatedBtn.classList.add('active');
     $('ed-annotated')?.classList.add('active');
-    // Find and scroll to the highlight
     const page=$('ed-annotated');
     const searchQ=issueText.substring(0,60).replace(/"/g,'&quot;');
     const hl=page.querySelector('.hl[data-q="'+searchQ+'"]');
     if(hl){hl.scrollIntoView({behavior:'smooth',block:'center'});hl.style.outline='3px solid var(--gold)';hl.style.outlineOffset='3px';setTimeout(()=>{hl.style.outline=''},3000)}
   })});
-  // Bind right-sidebar Replace & Fix
-  d.querySelectorAll('.rpd-fix-btn').forEach(btn=>{btn.addEventListener('click',()=>{const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;const page=$('ed-annotated');const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');if(hl){replaceAndFix(hl)}card.style.opacity='.3';card.style.pointerEvents='none'})});
-  d.querySelectorAll('.rpd-ign-btn').forEach(btn=>{btn.addEventListener('click',()=>{const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;const page=$('ed-annotated');const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');if(hl)hl.classList.add('off');card.remove()})});
+  d.querySelectorAll('.rpd-fix-btn').forEach(btn=>{btn.addEventListener('click',()=>{
+    const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;
+    const page=$('ed-annotated');
+    const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');
+    if(!hl)return;
+    // Switch to annotated view
+    document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
+    document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
+    $('ed-annotated')?.classList.add('active');
+    if(card.dataset.hasFix==='1'){
+      replaceAndFix(hl);
+      card.style.opacity='.3';card.style.pointerEvents='none';
+    }else{
+      // No auto-fix — scroll to it and select for editing
+      hl.scrollIntoView({behavior:'smooth',block:'center'});
+      setTimeout(()=>{
+        const sel=window.getSelection();const range=document.createRange();
+        range.selectNodeContents(hl);sel.removeAllRanges();sel.addRange(range);
+      },400);
+    }
+  })});
+  d.querySelectorAll('.rpd-ign-btn').forEach(btn=>{btn.addEventListener('click',()=>{
+    const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;
+    const page=$('ed-annotated');
+    const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');
+    if(hl)hl.classList.add('off');
+    card.remove();
+  })});
 }
 
 // ANNOTATED TEXT — now uses structured page-based rendering
