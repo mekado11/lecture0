@@ -54,6 +54,14 @@ const Analyzer = {
   PASSIVE_PATTERNS: [
     /\b(was|were|is|are|been|being|be)\s+(being\s+)?([\w]+ed|[\w]+en|built|caught|chosen|cut|done|drawn|driven|eaten|fallen|felt|found|forgotten|fought|given|gone|grown|heard|held|hidden|hit|hung|hurt|kept|known|laid|led|left|lent|let|lost|made|meant|met|paid|put|read|rid|run|said|sat|seen|sent|set|shot|shown|shut|sold|spent|spoken|stood|stuck|struck|sung|sworn|taken|taught|thought|thrown|told|torn|understood|woken|won|worn|written)\b/gi
   ],
+  // Non-passive -ed words that look passive but aren't (adjectives)
+  PASSIVE_EXCEPTIONS: new Set([
+    'interested','excited','bored','tired','married','worried','surprised',
+    'pleased','satisfied','determined','experienced','advanced','complicated',
+    'dedicated','detailed','distinguished','educated','exhausted','fascinated',
+    'frightened','frustrated','motivated','organized','overwhelmed','relaxed',
+    'reserved','skilled','stressed','talented','thrilled','touched','troubled'
+  ]),
 
   // ========================
   // ADVERB DETECTION
@@ -62,18 +70,50 @@ const Analyzer = {
     const issues = [];
     const regex = /\b(\w+ly)\b/gi;
     let match;
-    const exceptions = new Set(['only','family','early','daily','holy','lonely','friendly',
-      'likely','ugly','supply','rally','belly','bully','fly','july','apply','reply',
-      'multiply','ally','italy','lily','folly','jolly','tally','assembly','anomaly']);
+    // Comprehensive exceptions: -ly words that are NOT adverbs (adjectives, nouns, verbs)
+    const exceptions = new Set([
+      // Adjectives ending in -ly
+      'only','early','daily','holy','lonely','friendly','likely','ugly','costly',
+      'deadly','elderly','ghostly','ghastly','goodly','heavenly','homely','jolly',
+      'kindly','leisurely','lively','lonely','lovely','manly','measly','melancholy',
+      'oily','orderly','scholarly','shapely','silly','sly','smelly','surly','timely',
+      'unruly','woolly','worldly','comely','cowardly','curly','burly','grisly','hilly',
+      'princely','seemly','sickly','stately','steely','wily','womanly','beastly',
+      'bristly','bubbly','chilly','cleanly','clumsy','comely','costly','crinkly',
+      'crumbly','cuddly','curly','dastardly','dimply','drizzly','fatherly','flimsy',
+      'frilly','frizzly','gangly','gently','giggly','gnarly','godly','grisly','grizzly',
+      'grumbly','homely','jangly','jiggly','kingly','knightly','knobby','lowly',
+      'matronly','motherly','neighborly','northerly','paunchy','pearly','pebble',
+      'pimply','portly','prickly','priestly','queenly','rascally','rumply','scaly',
+      'sisterly','slovenly','southerly','sparkly','spindly','sprightly','squiggly',
+      'stately','straggly','ungainly','unlikelyy','unmanly','unsightly','wiggly',
+      'wrinkly',
+      // Nouns ending in -ly
+      'family','supply','rally','belly','bully','fly','july','apply','reply',
+      'multiply','ally','italy','lily','folly','tally','assembly','anomaly',
+      'jelly','bully','gully','holly','monopoly','poly','trolley'
+    ]);
     while ((match = regex.exec(text)) !== null) {
-      if (!exceptions.has(match[1].toLowerCase())) {
-        issues.push({
-          type: 'adverb', text: match[1], index: match.index, length: match[1].length,
-          severity: 'low',
-          message: `Adverb "${match[1]}" - consider using a stronger verb instead.`,
-          suggestion: `Replace "${match[1]} + verb" with a more vivid single verb.`
-        });
-      }
+      const word = match[1].toLowerCase();
+      if (exceptions.has(word)) continue;
+      // Verify the match is actually an adverb by checking surrounding context
+      // True adverbs typically modify verbs: "[adverb] [verb]" or "[verb] [adverb]"
+      const before = text.substring(Math.max(0, match.index - 30), match.index).toLowerCase();
+      const after = text.substring(match.index + match[1].length, Math.min(text.length, match.index + match[1].length + 30)).toLowerCase();
+      // Confidence: higher if it appears next to a verb pattern
+      let confidence = 0.7; // base confidence for -ly words
+      if (/\b(was|were|is|are|had|have|has|did|could|would|should|will|might|can)\s*$/.test(before)) confidence = 0.5; // likely adjective after linking verb
+      if (/^\s*(the|a|an|this|that|his|her|its|their|our|my|your)\b/.test(after)) confidence = 0.4; // before determiner = likely not adverb
+      if (/\b(very|too|so|quite|rather|extremely)\s*$/.test(before)) confidence = 0.3; // "very quickly" — "quickly" IS an adverb but "very clumsy" — "clumsy" is not
+      if (/^\s*[,.]/.test(after) && /\b(is|was|were|are|been|being|seem|look|feel|appear|become)\b/.test(before)) confidence = 0.3; // predicate adjective
+      if (confidence < 0.6) continue; // skip low confidence
+
+      issues.push({
+        type: 'adverb', text: match[1], index: match.index, length: match[1].length,
+        severity: 'low', confidence,
+        message: `Adverb "${match[1]}" — consider a stronger verb that doesn't need modification.`,
+        suggestion: `Remove "${match[1]}" and strengthen the verb it modifies.`
+      });
     }
     return issues;
   },
@@ -119,8 +159,8 @@ const Analyzer = {
       while (idx !== -1) {
         issues.push({
           type: 'cliche', text: text.substring(idx, idx + cliche.length),
-          index: idx, length: cliche.length, severity: 'medium',
-          message: `Cliche: "${cliche}" - this expression is overused.`,
+          index: idx, length: cliche.length, severity: 'medium', confidence: 0.95,
+          message: `Cliche: "${cliche}" — overused expression that weakens your voice.`,
           suggestion: 'Replace with original phrasing that fits your voice.'
         });
         idx = lower.indexOf(cliche, idx + 1);
@@ -153,8 +193,8 @@ const Analyzer = {
       while ((match = regex.exec(text)) !== null) {
         issues.push({
           type: 'weak-verb', text: match[0], index: match.index, length: match[0].length,
-          severity: 'low',
-          message: `Weak verb "${match[0]}" - consider a more vivid alternative.`,
+          severity: 'low', confidence: 0.9,
+          message: `Weak verb "${match[0]}" — a more specific verb creates vivid imagery.`,
           suggestion: `Try: ${alternatives}`
         });
       }
@@ -187,7 +227,7 @@ const Analyzer = {
       while (idx !== -1) {
         issues.push({
           type: 'wordy', text: text.substring(idx, idx + phrase.length),
-          index: idx, length: phrase.length, severity: 'medium',
+          index: idx, length: phrase.length, severity: 'medium', confidence: 0.95,
           message: `Wordy phrase: "${phrase}"`,
           suggestion: `Replace with: "${replacement}"`
         });
@@ -206,9 +246,12 @@ const Analyzer = {
       let match;
       const regex = new RegExp(pattern.source, pattern.flags);
       while ((match = regex.exec(text)) !== null) {
+        // Skip passive-looking adjectives ("was interested", "was tired")
+        const lastWord = match[0].split(/\s+/).pop().toLowerCase();
+        if (this.PASSIVE_EXCEPTIONS.has(lastWord)) continue;
         issues.push({
           type: 'passive', text: match[0], index: match.index, length: match[0].length,
-          severity: 'medium',
+          severity: 'medium', confidence: 0.85,
           message: `Passive voice: "${match[0]}"`,
           suggestion: 'Rewrite in active voice for stronger prose.'
         });
@@ -258,7 +301,7 @@ const Analyzer = {
           const sugText = alts ? 'Try: ' + alts.slice(0, 3).join(', ') : 'Vary your word choice — try a synonym or restructure the sentence.';
           issues.push({
             type: 'repetition', text: word, index: wordIdx, length: word.length,
-            severity: 'low', message: `"${word}" repeated in consecutive sentences.`,
+            severity: 'low', confidence: 0.85, message: `"${word}" repeated in consecutive sentences.`,
             suggestion: sugText
           });
         }
@@ -281,7 +324,7 @@ const Analyzer = {
         issues.push({
           type: 'sentence-length',
           text: sentence,
-          index: match.index, length: sentence.length,
+          index: match.index, length: sentence.length, confidence: 0.95,
           severity: wordCount > 50 ? 'high' : 'medium',
           message: `Long sentence (${wordCount} words). Consider breaking it up.`,
           suggestion: 'Split into 2-3 shorter sentences for better readability.'
@@ -309,7 +352,7 @@ const Analyzer = {
       while ((match = r.exec(text)) !== null) {
         issues.push({
           type: 'show-tell', text: match[0], index: match.index, length: match[0].length,
-          severity: 'medium', message: `${msg}: "${match[0]}"`,
+          severity: 'medium', confidence: 0.85, message: `${msg}: "${match[0]}"`,
           suggestion: 'Show through action, dialogue, or sensory detail instead.'
         });
       }
@@ -2467,11 +2510,52 @@ const Analyzer = {
     const longSentenceIssues = this.findLongSentences(text);
     const showTellIssues = this.findShowVsTell(text);
 
-    const allIssues = [
+    const rawIssues = [
       ...passiveIssues, ...adverbIssues, ...clicheIssues,
       ...weakVerbIssues, ...wordyIssues, ...repetitionIssues,
       ...longSentenceIssues, ...showTellIssues
-    ].sort((a, b) => a.index - b.index);
+    ];
+
+    // ========================================================
+    // VALIDATION LAYER — verify every issue before accepting it
+    // ========================================================
+    const allIssues = rawIssues.filter(issue => {
+      // 1. Confidence threshold: skip low-confidence detections
+      if (issue.confidence !== undefined && issue.confidence < 0.6) return false;
+
+      // 2. Bounds check: issue must be within text range
+      if (issue.index < 0 || issue.index + issue.length > text.length) return false;
+
+      // 3. Text verification: the text at issue.index must match issue.text
+      const actualText = text.substring(issue.index, issue.index + issue.length);
+      if (actualText !== issue.text) {
+        // Try to find the correct position (text may have shifted)
+        const correctedIdx = text.indexOf(issue.text, Math.max(0, issue.index - 50));
+        if (correctedIdx !== -1 && Math.abs(correctedIdx - issue.index) < 100) {
+          issue.index = correctedIdx; // fix the position
+        } else {
+          return false; // can't locate this text — skip it
+        }
+      }
+
+      // 4. Word boundary check (for single-word issues like adverbs, repetitions, weak-verbs)
+      if (['adverb', 'weak-verb', 'repetition'].includes(issue.type)) {
+        const charBefore = issue.index > 0 ? text[issue.index - 1] : ' ';
+        const charAfter = issue.index + issue.length < text.length ? text[issue.index + issue.length] : ' ';
+        const isWordBoundary = ch => /[\s.,;:!?'"()\[\]{}\-—–\n\r\t]/.test(ch) || ch === undefined;
+        if (!isWordBoundary(charBefore) || !isWordBoundary(charAfter)) {
+          return false; // highlight would cut through a word — skip
+        }
+      }
+
+      // 5. Suggestion must reference actual text (not a template for a different word)
+      // For adverbs: verify the suggestion mentions the actual word
+      if (issue.type === 'adverb' && issue.suggestion && !issue.suggestion.toLowerCase().includes(issue.text.toLowerCase())) {
+        issue.suggestion = `Remove "${issue.text}" and strengthen the verb it modifies.`;
+      }
+
+      return true;
+    }).sort((a, b) => a.index - b.index);
 
     // Pass mode to mode-aware analyzers
     const plot = this.analyzePlot(text, mode);
