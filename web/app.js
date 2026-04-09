@@ -127,9 +127,52 @@ function renderAll(){
   setTimeout(()=>{
     trackSession('analyzing');
     _resetReminderTier();
-    // Prompt for push after first real analysis, with a short delay so it doesn't compete with UI
     setTimeout(maybePromptPush,8000);
   },1000);
+  // Smart Scan — one-time AI scan for paid/admin users
+  maybeRunSmartScan(r);
+}
+
+// AI-powered smart scan: runs once per manuscript for paid/admin users
+// Overlays Claude's context-aware suggestions onto the regex-based issues
+let _smartScanDone=false;
+async function maybeRunSmartScan(r){
+  if(_smartScanDone)return;
+  // Only for admin or paid users
+  const isPaid=window.__isAdmin||window.__userPlan==='starter'||window.__userPlan==='premium';
+  if(!isPaid)return;
+  if(!r.issues||r.issues.length===0)return;
+
+  try{
+    const suggestions=await AIEngine.smartScan(null,extractedText,r.issues);
+    if(!suggestions||!suggestions.length)return;
+    _smartScanDone=true;
+
+    // Overlay AI suggestions onto existing issues
+    const byIndex=new Map();
+    suggestions.forEach(s=>{if(s.index!==undefined)byIndex.set(s.index,s)});
+
+    r.issues.forEach(issue=>{
+      const ai=byIndex.get(issue.index);
+      if(ai&&ai.replacement){
+        issue._aiSuggestion=ai.replacement;
+        issue._aiReason=ai.reason||'';
+        // Update the suggestion text to show the AI replacement
+        issue.suggestion='Replace with: "'+ai.replacement+'"'+(ai.reason?' — '+ai.reason:'');
+      }
+    });
+
+    // Re-render annotated view to show updated suggestions
+    renderAnnotated(extractedText,r.issues);
+    renderRight(r);
+
+    // Show a subtle toast
+    const toast=document.createElement('div');
+    toast.style.cssText='position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:#1e3320;border:1px solid #5dba7d;border-radius:8px;padding:.5rem 1rem;color:#5dba7d;font-size:.78rem;z-index:1001;font-family:Inter,sans-serif';
+    toast.textContent='AI scan complete — suggestions enhanced';
+    document.body.appendChild(toast);
+    setTimeout(()=>toast.remove(),4000);
+  }catch(e){console.warn('SmartScan failed:',e.message)}
 }
 
 // AUTO-SAVE (Firestore + localStorage fallback)
@@ -257,6 +300,24 @@ function replaceAndFix(hlElement){
   let replacement='';
   let mode='replace'; // 'replace', 'remove', 'split'
 
+  // Priority: use AI-generated replacement if available (from SmartScan)
+  const aiMatch=suggestion.match(/Replace with:\s*"(.+?)"/);
+  if(aiMatch&&aiMatch[1]&&aiMatch[1]!==original){
+    replacement=aiMatch[1];
+    // Apply replacement directly — skip regex-based logic
+    const span=document.createElement('span');
+    span.className='fix-applied';
+    span.textContent=replacement;
+    span.style.color='#2d6b45';span.style.fontWeight='600';
+    hlElement.replaceWith(span);
+    extractedText=page.textContent;
+    $('tip').classList.remove('on');
+    span.style.outline='2px solid var(--green)';span.style.outlineOffset='2px';
+    setTimeout(()=>{span.style.outline=''},1500);
+    addReanalyzeButton();syncPreview();
+    return;
+  }
+
   if(type==='weak-verb'){
     const m=suggestion.match(/Try:\s*(.+)/i);
     replacement=m?m[1].split(',')[0].trim():original;
@@ -306,31 +367,19 @@ function replaceAndFix(hlElement){
       replacement=original.replace(/\b(was|were|seemed|looked)\s+/i,'').trim();
     }
   }else if(type==='repetition'){
-    // Provide a synonym from a basic map
-    const synonyms={
-      'said':['stated','mentioned','noted','remarked'],
-      'looked':['glanced','peered','gazed','watched'],
-      'walked':['moved','strode','made their way','went'],
-      'made':['created','produced','crafted','formed'],
-      'came':['arrived','appeared','emerged','approached'],
-      'went':['headed','moved','traveled','proceeded'],
-      'here':['this place','this spot','nearby','in this location'],
-      'there':['that place','that spot','in that direction'],
-      'very':['extremely','remarkably','incredibly','deeply'],
-      'really':['truly','genuinely','absolutely','certainly'],
-      'just':['simply','merely','only','precisely'],
-      'back':['returned','again','behind','rear'],
-      'time':['moment','occasion','instance','period'],
-      'eyes':['gaze','stare','glance','look'],
-      'hand':['palm','grip','fingers','fist'],
-      'face':['expression','features','countenance','visage'],
-      'dark':['dim','shadowed','unlit','gloomy'],
-      'door':['entrance','doorway','threshold','entry']
-    };
-    const lo=original.toLowerCase().trim();
-    const syns=synonyms[lo];
-    if(syns){replacement=syns[Math.floor(Math.random()*syns.length)]}
-    else{replacement=original} // keep original, writer decides
+    // First try: extract synonym from the issue's suggestion ("Try: stated, replied, remarked")
+    const tryMatch=suggestion.match(/Try:\s*(.+)/i);
+    if(tryMatch){
+      const alts=tryMatch[1].split(',').map(s=>s.trim()).filter(Boolean);
+      replacement=alts[Math.floor(Math.random()*alts.length)]||original;
+    }else{
+      // Fallback: expanded synonym map
+      const synonyms={said:['stated','replied','remarked','noted','added'],looked:['glanced','gazed','peered','watched','studied'],walked:['strode','moved','paced','strolled','crossed'],made:['created','crafted','formed','produced','built'],came:['arrived','appeared','emerged','approached','entered'],went:['headed','moved','traveled','crossed','departed'],turned:['pivoted','shifted','swung','rotated','spun'],stood:['rose','remained','lingered','waited','stayed'],knew:['understood','recognized','realized','sensed','grasped'],thought:['considered','wondered','reflected','believed','imagined'],felt:['sensed','experienced','noticed','detected','perceived'],took:['grabbed','seized','claimed','accepted','retrieved'],gave:['offered','handed','presented','provided','delivered'],started:['began','initiated','launched','commenced','opened'],seemed:['appeared','looked','sounded','suggested','indicated'],told:['informed','explained','revealed','instructed','described'],asked:['questioned','inquired','wondered','requested','demanded'],eyes:['gaze','stare','glance','look','vision'],face:['expression','features','countenance','visage','look'],hand:['grip','palm','fingers','fist','grasp'],head:['mind','thoughts','skull','brow','temple'],voice:['tone','words','speech','whisper','sound'],door:['entrance','doorway','threshold','entry','gate'],room:['chamber','space','quarters','hall','area'],time:['moment','occasion','instance','period','while'],back:['spine','rear','return','retreat','behind'],long:['extended','prolonged','lengthy','enduring','sustained'],dark:['dim','shadowed','unlit','gloomy','murky'],small:['little','slight','tiny','compact','modest'],found:['discovered','located','uncovered','encountered','spotted'],called:['named','summoned','addressed','hailed','dubbed'],people:['individuals','figures','crowd','group','folk'],world:['realm','domain','land','sphere','landscape'],place:['location','spot','position','site','area'],still:['motionless','calm','quiet','unmoving','yet'],words:['speech','language','phrases','remarks','terms'],woman:['figure','lady','person','character','she'],never:['rarely','seldom','hardly','not once','at no point'],always:['constantly','perpetually','inevitably','forever','endlessly'],around:['surrounding','about','nearby','encircling','throughout'],before:['earlier','previously','prior','ahead','formerly'],every:['each','all','entire','whole','total'],mother:['parent','matriarch','her mother','mama','the woman'],taught:['instructed','showed','trained','guided','schooled'],knew:['understood','recognized','realized','grasped','comprehended']};
+      const lo=original.toLowerCase().trim();
+      const syns=synonyms[lo];
+      if(syns){replacement=syns[Math.floor(Math.random()*syns.length)]}
+      else{replacement=original}
+    }
   }else if(type==='sentence-length'){
     mode='split';
     let text=original;

@@ -408,6 +408,84 @@ Return JSON:
     localStorage.removeItem('ml_versions');
   },
 
+  // ========================
+  // SMART SCAN — one-time Claude scan on upload (paid/admin only)
+  // Sends the first ~12K words to Claude, gets back real per-issue suggestions.
+  // Results cached in Firestore so it's only called once per manuscript.
+  // ========================
+  async smartScan(apiKey, text, issues) {
+    // Check Firestore cache first
+    const manuscriptId = Storage._currentManuscriptId;
+    if (manuscriptId && Storage.userId) {
+      try {
+        const doc = await firebase.firestore()
+          .collection('users').doc(Storage.userId)
+          .collection('manuscripts').doc(manuscriptId)
+          .collection('aiScans').doc('smartScan').get();
+        if (doc.exists) {
+          const data = doc.data();
+          if (data.suggestions && Date.now() - (data.timestamp || 0) < 7 * 24 * 3600 * 1000) {
+            return data.suggestions; // Use cached scan (7 day TTL)
+          }
+        }
+      } catch (e) { console.warn('SmartScan cache read failed:', e.message); }
+    }
+
+    // Build a compact issue list for Claude to review
+    const issueSlice = issues.slice(0, 40).map(i => ({
+      type: i.type,
+      text: i.text.substring(0, 80),
+      index: i.index
+    }));
+
+    const result = await this._callClaude(apiKey,
+      'You are a professional manuscript editor. For each flagged issue below, provide a specific, context-aware replacement or improvement.',
+      `Here are ${issueSlice.length} writing issues found in this manuscript. For EACH one, provide a specific replacement word or phrase that improves the writing while preserving the author's voice and meaning.
+
+Issues:
+${JSON.stringify(issueSlice, null, 1)}
+
+Return JSON array:
+[
+  {"index": <original_index>, "replacement": "<specific replacement text>", "reason": "<brief explanation>"},
+  ...
+]
+
+Rules:
+- For repetitions: suggest a specific synonym that fits the sentence context
+- For passive voice: rewrite in active voice
+- For adverbs: suggest a stronger verb that eliminates the need for the adverb
+- For weak verbs: suggest a more vivid/precise verb
+- For cliches: suggest an original alternative
+- For show-don't-tell: rewrite to show through action/sensory detail
+- Keep replacements concise — prefer single words when replacing single words`,
+      text, 'smartScan'
+    );
+
+    // Parse and normalize results
+    let suggestions = [];
+    if (Array.isArray(result)) {
+      suggestions = result;
+    } else if (result.suggestions) {
+      suggestions = result.suggestions;
+    } else if (result.raw) {
+      try { suggestions = JSON.parse(result.raw); } catch (e) {}
+    }
+
+    // Cache to Firestore
+    if (manuscriptId && Storage.userId && suggestions.length > 0) {
+      try {
+        await firebase.firestore()
+          .collection('users').doc(Storage.userId)
+          .collection('manuscripts').doc(manuscriptId)
+          .collection('aiScans').doc('smartScan')
+          .set({ suggestions, timestamp: Date.now(), issueCount: issues.length });
+      } catch (e) { console.warn('SmartScan cache write failed:', e.message); }
+    }
+
+    return suggestions;
+  },
+
   getVersionComparison(v1, v2) {
     if (!v1 || !v2) return null;
     const diff = (a, b) => ({ from: a, to: b, delta: b - a, improved: b > a });

@@ -238,10 +238,14 @@ const Analyzer = {
           const sentStart = text.indexOf(sentences[i + 1]);
           const wordIdx = text.toLowerCase().indexOf(word, sentStart);
           if (wordIdx !== -1) {
+            const synMap={said:['stated','replied','remarked','noted','added'],looked:['glanced','gazed','peered','watched','studied'],walked:['strode','moved','paced','strolled','crossed'],made:['created','crafted','formed','produced','built'],came:['arrived','appeared','emerged','approached','entered'],went:['headed','moved','traveled','crossed','departed'],turned:['pivoted','shifted','swung','rotated','spun'],stood:['rose','remained','lingered','waited','stayed'],knew:['understood','recognized','realized','sensed','grasped'],thought:['considered','wondered','reflected','believed','imagined'],felt:['sensed','experienced','noticed','detected','perceived'],took:['grabbed','seized','claimed','accepted','retrieved'],gave:['offered','handed','presented','provided','delivered'],started:['began','initiated','launched','commenced','opened'],seemed:['appeared','looked','sounded','suggested','indicated'],told:['informed','explained','revealed','instructed','described'],asked:['questioned','inquired','wondered','requested','demanded'],eyes:['gaze','stare','glance','look','vision'],face:['expression','features','countenance','visage','look'],hand:['grip','palm','fingers','fist','grasp'],head:['mind','thoughts','skull','brow','temple'],voice:['tone','words','speech','whisper','sound'],door:['entrance','doorway','threshold','entry','gate'],room:['chamber','space','quarters','hall','area'],time:['moment','occasion','instance','period','while'],back:['spine','rear','return','retreat','behind'],long:['extended','prolonged','lengthy','enduring','sustained'],dark:['dim','shadowed','unlit','gloomy','murky'],small:['little','slight','tiny','compact','modest'],found:['discovered','located','uncovered','encountered','spotted'],called:['named','summoned','addressed','hailed','dubbed'],people:['individuals','figures','crowd','group','folk'],world:['realm','domain','land','sphere','landscape'],place:['location','spot','position','site','area'],still:['motionless','calm','quiet','unmoving','yet'],words:['speech','language','phrases','remarks','terms'],thing:['object','matter','item','element','detail'],woman:['figure','lady','person','character','she'],before:['earlier','previously','prior','ahead','formerly'],every:['each','all','entire','whole','total'],never:['rarely','seldom','hardly','not once','at no point'],always:['constantly','perpetually','inevitably','forever','endlessly'],around:['surrounding','about','nearby','encircling','throughout']};
+            const lo=word.toLowerCase();
+            const alts=synMap[lo];
+            const sugText=alts?'Try: '+alts.slice(0,3).join(', '):'Vary your word choice — try a synonym or restructure the sentence.';
             issues.push({
               type: 'repetition', text: word, index: wordIdx, length: word.length,
               severity: 'low', message: `"${word}" repeated in consecutive sentences.`,
-              suggestion: 'Vary your word choice to avoid repetition.'
+              suggestion: sugText
             });
           }
         }
@@ -896,15 +900,26 @@ const Analyzer = {
     const totalWords = text.split(/\s+/).length;
     const lower = text.toLowerCase();
 
-    // Hook strength - analyze first paragraph
+    // Hook strength - analyze first paragraph + factor in issue density
     const firstPara = paragraphs[0] || '';
     let hookStrength = 40;
-    if (firstPara.includes('?')) hookStrength += 10; // Question hook
-    if ((firstPara.match(/[""\u201C]/g) || []).length > 0) hookStrength += 10; // Opens with dialogue
-    if (firstPara.split(/\s+/).length < 50) hookStrength += 5; // Concise opening
+    if (firstPara.includes('?')) hookStrength += 10;
+    if ((firstPara.match(/[""\u201C]/g) || []).length > 0) hookStrength += 10;
+    if (firstPara.split(/\s+/).length < 50) hookStrength += 5;
     const tensionInOpening = (firstPara.toLowerCase().match(/\b(danger|fear|mystery|secret|death|blood|shadow|dark|strange|suddenly|never|always)\b/g) || []).length;
     if (tensionInOpening > 0) hookStrength += tensionInOpening * 5;
-    hookStrength = Math.min(100, hookStrength);
+    // Penalize for high issue density — a manuscript with many issues has a weaker hook
+    const issuesPerK_hook = allIssues.length / Math.max(totalWords / 1000, 1);
+    if (issuesPerK_hook > 20) hookStrength -= 25;
+    else if (issuesPerK_hook > 12) hookStrength -= 15;
+    else if (issuesPerK_hook > 6) hookStrength -= 8;
+    // Check first 3 paragraphs for passive voice and weak verbs (weakens hook)
+    const openingText = paragraphs.slice(0, 3).join(' ').toLowerCase();
+    const openingPassives = (openingText.match(/\b(was|were)\s+\w+ed\b/g) || []).length;
+    const openingAdverbs = (openingText.match(/\w+ly\b/g) || []).length;
+    if (openingPassives > 2) hookStrength -= 10;
+    if (openingAdverbs > 3) hookStrength -= 5;
+    hookStrength = Math.max(10, Math.min(100, hookStrength));
 
     // Emotional word density
     const emotionWords = (lower.match(/\b(love|hate|fear|anger|joy|sadness|grief|terror|hope|despair|rage|jealousy|shame|guilt|pride|longing|anxiety|excitement|dread|relief|sorrow|anguish|fury|bliss|agony|ecstasy|panic|horror)\b/g) || []).length;
