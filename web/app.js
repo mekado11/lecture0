@@ -611,9 +611,55 @@ function scheduleReanalyze(){
     if(newCount<prevCount)_issuesResolved+=(prevCount-newCount);
 
     analysisResult=newResult;
-    // Only update scores, sidebar, gauge — NOT the editor content
+    // Surgically remove resolved highlights from editor DOM
+    diffHighlights(newResult.issues);
+    // Update scores, sidebar, gauge — NOT the editor content
     updateScoresOnly(newResult);
   },2000);
+}
+
+// Surgical highlight diff: remove highlights for resolved issues without touching editor content
+// Only REMOVES resolved highlights (safe: unwrap span → text node). Never ADDS new ones mid-edit.
+function diffHighlights(newIssues){
+  const page=$('ed-annotated');
+  if(!page)return;
+
+  // Build lookup of current issues by key (type + first 60 chars of text)
+  const activeKeys=new Set();
+  for(const iss of newIssues){
+    activeKeys.add(iss.type+'|'+iss.text.substring(0,60));
+  }
+
+  // Walk all highlight spans in the editor
+  const highlights=page.querySelectorAll('.hl:not(.off)');
+  for(const hl of highlights){
+    const key=hl.dataset.t+'|'+(hl.dataset.q||'');
+    // Also check if user edited the text inside the highlight (content no longer matches data-q)
+    const currentText=hl.textContent.substring(0,60);
+    const originalQ=hl.dataset.q||'';
+    const wasEdited=currentText!==originalQ&&originalQ.length>0;
+    if(!activeKeys.has(key)||wasEdited){
+      // This issue was resolved — unwrap the span to a plain text node
+      // Save cursor position
+      const sel=window.getSelection();
+      const hadFocus=document.activeElement===page;
+      let savedRange=null;
+      if(hadFocus&&sel.rangeCount>0){
+        savedRange=sel.getRangeAt(0).cloneRange();
+      }
+
+      // Unwrap: replace span with its text content
+      const text=document.createTextNode(hl.textContent);
+      hl.parentNode.replaceChild(text,hl);
+      // Merge adjacent text nodes to keep DOM clean
+      text.parentNode.normalize();
+
+      // Restore cursor if we had focus
+      if(hadFocus&&savedRange){
+        try{sel.removeAllRanges();sel.addRange(savedRange)}catch(e){}
+      }
+    }
+  }
 }
 
 // Lightweight update: refresh scores, sidebar, issue panel without touching the editor
