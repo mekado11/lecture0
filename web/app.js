@@ -87,36 +87,54 @@ let ignoredIssues=new Set();
 let previousScore=null;
 let autoSaveTimer=null;
 
-// Undo stack for Replace & Fix operations
+// Undo/Redo stack for Replace & Fix operations
 const _undoStack=[];
+const _redoStack=[];
 const MAX_UNDO=30;
 function pushUndo(){
   const page=$('ed-annotated');
   if(!page)return;
   _undoStack.push({html:page.innerHTML,text:extractedText});
   if(_undoStack.length>MAX_UNDO)_undoStack.shift();
-  const btn=$('undo-fix-btn');
-  if(btn)btn.style.display='';
+  _redoStack.length=0; // clear redo on new action
+  _updateUndoBtn();
 }
 function undoLastFix(){
   if(_undoStack.length===0)return;
-  const state=_undoStack.pop();
   const page=$('ed-annotated');
   if(!page)return;
+  // Save current state to redo stack
+  _redoStack.push({html:page.innerHTML,text:extractedText});
+  const state=_undoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
-  syncPreview();
-  // Re-wire tooltip click handlers on restored highlights
-  _rewireHighlightClicks(page);
-  if(_undoStack.length===0){
-    const btn=$('undo-fix-btn');
-    if(btn)btn.style.display='none';
+  syncPreview();scheduleReanalyze();
+  _updateUndoBtn();
+}
+function redoLastFix(){
+  if(_redoStack.length===0)return;
+  const page=$('ed-annotated');
+  if(!page)return;
+  // Save current state to undo stack
+  _undoStack.push({html:page.innerHTML,text:extractedText});
+  const state=_redoStack.pop();
+  page.innerHTML=state.html;
+  extractedText=state.text;
+  syncPreview();scheduleReanalyze();
+  _updateUndoBtn();
+}
+function _updateUndoBtn(){
+  const btn=$('undo-fix-btn');
+  if(btn)btn.style.display=_undoStack.length>0?'':'none';
+}
+// Keyboard: Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key==='z'&&!e.shiftKey){
+    if(_undoStack.length>0){e.preventDefault();undoLastFix()}
+  }else if((e.ctrlKey||e.metaKey)&&(e.key==='y'||(e.key==='z'&&e.shiftKey))){
+    if(_redoStack.length>0){e.preventDefault();redoLastFix()}
   }
-}
-function _rewireHighlightClicks(page){
-  const tip=$('tip');
-  page.addEventListener('click',e=>{const hl=e.target.closest('.hl');if(hl&&!hl.classList.contains('off')){const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};tip.innerHTML='<div class="tip-cat">'+(labels[hl.dataset.t]||hl.dataset.t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+hl.dataset.s+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">Replace &amp; Fix</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';tip.classList.add('on');const rect=hl.getBoundingClientRect();tip.style.top=(rect.bottom+8)+'px';tip.style.left=Math.min(rect.left,window.innerWidth-360)+'px';$('tip-fix-btn').onclick=()=>{replaceAndFix(hl)};$('tip-ign-btn').onclick=()=>{hl.classList.add('off');tip.classList.remove('on')}}else if(!e.target.closest('.tip')){tip.classList.remove('on')}});
-}
+});
 
 function renderAll(){
   const r=analysisResult;
@@ -323,6 +341,68 @@ function renderSceneIntel(r){
   });
 }
 
+// Context-aware synonym picker: checks surrounding sentence for tense/capitalization fit
+function pickContextSynonym(hlElement,candidates){
+  if(!candidates||candidates.length===0)return null;
+  const original=hlElement.textContent;
+  const origLower=original.toLowerCase();
+
+  // Get surrounding sentence by walking DOM siblings
+  let sentText='';
+  let node=hlElement.parentNode;
+  if(node)sentText=node.textContent||'';
+
+  // Detect if word appears to be past tense in context (ended in -ed, or irregular past form)
+  const isPastContext=/\b(was|were|had|did)\b/i.test(sentText)||
+    (origLower.endsWith('ed'))||
+    /\b(said|looked|walked|made|came|went|turned|stood|knew|thought|felt|took|gave|started|seemed|told|asked|found|called)\b/.test(origLower);
+
+  // Filter candidates that match tense/form
+  const pastFormMap={
+    glance:'glanced',gaze:'gazed',peer:'peered',watch:'watched',study:'studied',
+    stride:'strode',move:'moved',pace:'paced',stroll:'strolled',cross:'crossed',
+    create:'created',craft:'crafted',form:'formed',produce:'produced',build:'built',
+    arrive:'arrived',appear:'appeared',emerge:'emerged',approach:'approached',enter:'entered',
+    head:'headed',travel:'traveled',depart:'departed',
+    pivot:'pivoted',shift:'shifted',swing:'swung',rotate:'rotated',spin:'spun',
+    rise:'rose',remain:'remained',linger:'lingered',wait:'waited',stay:'stayed',
+    understand:'understood',recognize:'recognized',realize:'realized',sense:'sensed',grasp:'grasped',
+    consider:'considered',wonder:'wondered',reflect:'reflected',believe:'believed',imagine:'imagined',
+    experience:'experienced',notice:'noticed',detect:'detected',perceive:'perceived',
+    grab:'grabbed',seize:'seized',claim:'claimed',accept:'accepted',retrieve:'retrieved',
+    offer:'offered',hand:'handed',present:'presented',provide:'provided',deliver:'delivered',
+    begin:'began',initiate:'initiated',launch:'launched',commence:'commenced',open:'opened',
+    sound:'sounded',suggest:'suggested',indicate:'indicated',
+    inform:'informed',explain:'explained',reveal:'revealed',instruct:'instructed',describe:'described',
+    question:'questioned',inquire:'inquired',request:'requested',demand:'demanded',
+    state:'stated',reply:'replied',remark:'remarked',note:'noted',add:'added',
+    discover:'discovered',locate:'located',uncover:'uncovered',encounter:'encountered',spot:'spotted',
+    name:'named',summon:'summoned',address:'addressed',hail:'hailed',dub:'dubbed'
+  };
+
+  let picked=candidates;
+  if(isPastContext){
+    // Try to convert candidates to past tense
+    picked=candidates.map(c=>{
+      const cl=c.toLowerCase().trim();
+      if(pastFormMap[cl])return pastFormMap[cl];
+      // If candidate already looks past tense, keep it
+      if(cl.endsWith('ed')||cl.endsWith('oke')||cl.endsWith('ode')||cl.endsWith('ung')||cl.endsWith('ew'))return c;
+      // Default: add -ed if it's a simple verb
+      if(cl.endsWith('e'))return cl+'d';
+      return cl+'ed';
+    });
+  }
+
+  // Preserve original capitalization
+  const choice=picked[Math.floor(Math.random()*picked.length)];
+  if(!choice)return candidates[0];
+  if(original[0]===original[0].toUpperCase()){
+    return choice.charAt(0).toUpperCase()+choice.slice(1);
+  }
+  return choice;
+}
+
 // REPLACE & FIX: actually replace the text with a proper fix
 function replaceAndFix(hlElement){
   const page=$('ed-annotated');
@@ -350,13 +430,16 @@ function replaceAndFix(hlElement){
     $('tip').classList.remove('on');
     span.style.outline='2px solid var(--green)';span.style.outlineOffset='2px';
     setTimeout(()=>{span.style.outline=''},1500);
-    addReanalyzeButton();syncPreview();
+    scheduleReanalyze();syncPreview();
     return;
   }
 
   if(type==='weak-verb'){
     const m=suggestion.match(/Try:\s*(.+)/i);
-    replacement=m?m[1].split(',')[0].trim():original;
+    if(m){
+      const alts=m[1].split(',').map(s=>s.trim()).filter(Boolean);
+      replacement=pickContextSynonym(hlElement,alts)||alts[0]||original;
+    }else{replacement=original}
   }else if(type==='wordy'){
     const m=suggestion.match(/Replace with:\s*"(.+?)"/i);
     replacement=m?m[1]:'';
@@ -407,13 +490,13 @@ function replaceAndFix(hlElement){
     const tryMatch=suggestion.match(/Try:\s*(.+)/i);
     if(tryMatch){
       const alts=tryMatch[1].split(',').map(s=>s.trim()).filter(Boolean);
-      replacement=alts[Math.floor(Math.random()*alts.length)]||original;
+      replacement=pickContextSynonym(hlElement,alts)||alts[0]||original;
     }else{
       // Fallback: expanded synonym map
       const synonyms={said:['stated','replied','remarked','noted','added'],looked:['glanced','gazed','peered','watched','studied'],walked:['strode','moved','paced','strolled','crossed'],made:['created','crafted','formed','produced','built'],came:['arrived','appeared','emerged','approached','entered'],went:['headed','moved','traveled','crossed','departed'],turned:['pivoted','shifted','swung','rotated','spun'],stood:['rose','remained','lingered','waited','stayed'],knew:['understood','recognized','realized','sensed','grasped'],thought:['considered','wondered','reflected','believed','imagined'],felt:['sensed','experienced','noticed','detected','perceived'],took:['grabbed','seized','claimed','accepted','retrieved'],gave:['offered','handed','presented','provided','delivered'],started:['began','initiated','launched','commenced','opened'],seemed:['appeared','looked','sounded','suggested','indicated'],told:['informed','explained','revealed','instructed','described'],asked:['questioned','inquired','wondered','requested','demanded'],eyes:['gaze','stare','glance','look','vision'],face:['expression','features','countenance','visage','look'],hand:['grip','palm','fingers','fist','grasp'],head:['mind','thoughts','skull','brow','temple'],voice:['tone','words','speech','whisper','sound'],door:['entrance','doorway','threshold','entry','gate'],room:['chamber','space','quarters','hall','area'],time:['moment','occasion','instance','period','while'],back:['spine','rear','return','retreat','behind'],long:['extended','prolonged','lengthy','enduring','sustained'],dark:['dim','shadowed','unlit','gloomy','murky'],small:['little','slight','tiny','compact','modest'],found:['discovered','located','uncovered','encountered','spotted'],called:['named','summoned','addressed','hailed','dubbed'],people:['individuals','figures','crowd','group','folk'],world:['realm','domain','land','sphere','landscape'],place:['location','spot','position','site','area'],still:['motionless','calm','quiet','unmoving','yet'],words:['speech','language','phrases','remarks','terms'],woman:['figure','lady','person','character','she'],never:['rarely','seldom','hardly','not once','at no point'],always:['constantly','perpetually','inevitably','forever','endlessly'],around:['surrounding','about','nearby','encircling','throughout'],before:['earlier','previously','prior','ahead','formerly'],every:['each','all','entire','whole','total'],mother:['parent','matriarch','her mother','mama','the woman'],taught:['instructed','showed','trained','guided','schooled'],knew:['understood','recognized','realized','grasped','comprehended']};
       const lo=original.toLowerCase().trim();
       const syns=synonyms[lo];
-      if(syns){replacement=syns[Math.floor(Math.random()*syns.length)]}
+      if(syns){replacement=pickContextSynonym(hlElement,syns)||syns[0]}
       else{replacement=original}
     }
   }else if(type==='sentence-length'){
@@ -495,27 +578,24 @@ function replaceAndFix(hlElement){
   // Flash confirmation
   span.style.outline='2px solid var(--green)';span.style.outlineOffset='2px';
   setTimeout(()=>{span.style.outline=''},1500);
-  addReanalyzeButton();
+  scheduleReanalyze();
   syncPreview();
 }
 
-// RE-ANALYZE: let user re-run analysis on edited text
-function addReanalyzeButton(){
-  const existing=document.querySelector('.reanalyze-btn');
-  if(existing)return;
-  const btn=document.createElement('button');
-  btn.className='btn-gold reanalyze-btn';
-  btn.style.cssText='width:auto;padding:.4rem 1rem;font-size:.78rem;border-radius:var(--rs)';
-  btn.textContent='\u21BB Re-analyze';
-  btn.onclick=()=>{
-    extractedText=$('ed-annotated').textContent;
-    analysisResult=Analyzer.analyze(extractedText);
-    if(!analysisResult.error){renderAll();btn.remove()}
-  };
-  // Dock in the bottom bar next to tabs
-  const bottomBar=document.querySelector('.bottom-icons');
-  if(bottomBar)bottomBar.prepend(btn);
-  else document.querySelector('.center-bottom')?.appendChild(btn);
+// AUTO RE-ANALYZE: debounced — runs automatically after any edit
+let _reanalyzeTimer=null;
+function scheduleReanalyze(){
+  clearTimeout(_reanalyzeTimer);
+  _reanalyzeTimer=setTimeout(()=>{
+    const page=$('ed-annotated');
+    if(!page)return;
+    extractedText=page.textContent;
+    const newResult=Analyzer.analyze(extractedText);
+    if(!newResult.error){
+      analysisResult=newResult;
+      renderAll();
+    }
+  },2000); // 2 second debounce — gives user time to finish typing
 }
 
 // LEFT SIDEBAR
@@ -1572,7 +1652,7 @@ function renderAnnotatedAsPages(text,issues){
   p.style.cssText='background:#faf6ee !important;color:#000 !important';
   p.setAttribute('contenteditable','true');
   p.setAttribute('spellcheck','false');
-  p.addEventListener('input',()=>{addReanalyzeButton();syncPreview()});
+  p.addEventListener('input',()=>{scheduleReanalyze();syncPreview();});
 
   const chapterRe=/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*|part\s+\d+[^\n]*|part\s+[a-z]+[^\n]*|prologue[^\n]*|epilogue[^\n]*)/i;
   const sceneBreakRe=/^\s*(\*\s*\*\s*\*|#\s*#\s*#|---+|~~~+|\* \* \*)\s*$/;
@@ -1628,7 +1708,39 @@ function renderAnnotatedAsPages(text,issues){
   // Wire tooltip on highlights
   const tip=$('tip');
   let activeHL=null;
-  p.addEventListener('click',e=>{const hl=e.target.closest('.hl');if(hl&&!hl.classList.contains('off')){activeHL=hl;const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};tip.innerHTML='<div class="tip-cat">'+(labels[hl.dataset.t]||hl.dataset.t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+hl.dataset.s+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">Replace &amp; Fix</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';tip.classList.add('on');const rect=hl.getBoundingClientRect();tip.style.top=(rect.bottom+8)+'px';tip.style.left=Math.min(rect.left,window.innerWidth-360)+'px';$('tip-fix-btn').onclick=()=>{replaceAndFix(activeHL)};$('tip-ign-btn').onclick=()=>{activeHL.classList.add('off');tip.classList.remove('on')}}else if(!e.target.closest('.tip')){tip.classList.remove('on')}});
+  p.addEventListener('click',e=>{
+    const hl=e.target.closest('.hl');
+    if(hl&&!hl.classList.contains('off')){
+      activeHL=hl;
+      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};
+      const t=hl.dataset.t;
+      const sug=hl.dataset.s||'';
+      // Determine if this issue has an auto-replacement available
+      const hasAI=!!sug.match(/Replace with:\s*".+?"/);
+      const hasTry=!!sug.match(/Try:\s*.+/i);
+      // Types with reliable auto-fix: wordy (has "Replace with"), weak-verb/repetition (has "Try:"), adverb (remove), passive (restructure), cliche (has map)
+      const canAutoFix=hasAI||hasTry||t==='adverb'||t==='passive'||t==='wordy'||t==='cliche';
+      const fixLabel=canAutoFix?'Replace &amp; Fix':'Edit Here';
+      tip.innerHTML='<div class="tip-cat">'+(labels[t]||t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+sug+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+fixLabel+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
+      tip.classList.add('on');
+      const rect=hl.getBoundingClientRect();
+      tip.style.top=(rect.bottom+8)+'px';
+      tip.style.left=Math.min(rect.left,window.innerWidth-360)+'px';
+      $('tip-fix-btn').onclick=()=>{
+        if(canAutoFix){replaceAndFix(activeHL)}
+        else{
+          // Focus the highlight text for manual editing
+          tip.classList.remove('on');
+          const sel=window.getSelection();
+          const range=document.createRange();
+          range.selectNodeContents(hl);
+          sel.removeAllRanges();sel.addRange(range);
+          hl.focus();
+        }
+      };
+      $('tip-ign-btn').onclick=()=>{activeHL.classList.add('off');tip.classList.remove('on')};
+    }else if(!e.target.closest('.tip')){tip.classList.remove('on')}
+  });
 
   // Build chapter nav after rendering
   buildChapterNav();
@@ -2290,7 +2402,7 @@ document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{
     }else{
       document.execCommand(cmd,false,null);
     }
-    addReanalyzeButton();syncPreview();
+    scheduleReanalyze();syncPreview();
   });
 });
 
