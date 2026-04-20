@@ -140,8 +140,53 @@ window.addEventListener('keydown',e=>{
   }else if((e.ctrlKey||e.metaKey)&&k==='s'){
     e.preventDefault();e.stopPropagation();
     saveAnalysis();
+  }else if((e.ctrlKey||e.metaKey)&&e.shiftKey&&k==='d'){
+    e.preventDefault();e.stopPropagation();
+    toggleDebugOverlay();
   }
 },true);
+
+function toggleDebugOverlay(){
+  const overlay=$('debug-overlay');
+  if(!overlay)return;
+  const isVisible=overlay.style.display!=='none';
+  if(isVisible){overlay.style.display='none';return;}
+  Analyzer.debugMode=true;
+  // Re-run analysis with debug mode on to populate log
+  if(extractedText){
+    const dbgResult=Analyzer.analyze(extractedText);
+    renderDebugOverlay(Analyzer._lastDebugLog);
+  }else{
+    renderDebugOverlay(null);
+  }
+  overlay.style.display='';
+}
+
+function renderDebugOverlay(log){
+  const overlay=$('debug-overlay');
+  if(!overlay)return;
+  if(!log){
+    $('dbg-count').textContent='no analysis yet';
+    $('debug-tbody').innerHTML='<tr><td colspan="7" style="padding:6px;color:#888">Open a document first.</td></tr>';
+    return;
+  }
+  $('dbg-count').textContent=log.raw+' raw, '+log.passed+' passed, '+(log.raw-log.passed)+' dropped';
+  const rows=log.entries.map(e=>{
+    const isPass=e.status==='PASS';
+    const rowColor=isPass?'#1a2a1a':'#2a1a1a';
+    const statusColor=isPass?'#5dba7d':'#c45c4a';
+    return '<tr style="background:'+rowColor+';border-bottom:1px solid #2a2828">'+
+      '<td style="padding:2px 6px;color:#d4a855">'+e.type+'</td>'+
+      '<td style="padding:2px 6px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escA(e.text)+'">'+esc(e.text.substring(0,40))+'</td>'+
+      '<td style="padding:2px 6px;color:#888">'+e.index+'</td>'+
+      '<td style="padding:2px 6px;color:#888">'+e.length+'</td>'+
+      '<td style="padding:2px 6px;color:#888">'+e.confidence.toFixed(2)+'</td>'+
+      '<td style="padding:2px 6px;color:'+statusColor+';font-weight:bold">'+esc(e.status)+'</td>'+
+      '<td style="padding:2px 6px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c8c4c0" title="'+escA(e.suggestion)+'">'+esc(e.suggestion)+'</td>'+
+    '</tr>';
+  }).join('');
+  $('debug-tbody').innerHTML=rows||'<tr><td colspan="7" style="padding:6px;color:#888">No issues detected.</td></tr>';
+}
 
 function renderAll(){
   const r=analysisResult;

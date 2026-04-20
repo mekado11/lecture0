@@ -2,6 +2,9 @@
 
 const Analyzer = {
 
+  debugMode: false,
+  _lastDebugLog: null,
+
   // ========================
   // MANUSCRIPT MODE DETECTION
   // ========================
@@ -2519,43 +2522,66 @@ const Analyzer = {
     // ========================================================
     // VALIDATION LAYER — verify every issue before accepting it
     // ========================================================
+    const debugLog = [];
     const allIssues = rawIssues.filter(issue => {
+      let dropReason = null;
+
       // 1. Confidence threshold: skip low-confidence detections
-      if (issue.confidence !== undefined && issue.confidence < 0.6) return false;
+      if (issue.confidence !== undefined && issue.confidence < 0.6) { dropReason = 'low-confidence('+issue.confidence+')'; }
 
       // 2. Bounds check: issue must be within text range
-      if (issue.index < 0 || issue.index + issue.length > text.length) return false;
+      if (!dropReason && (issue.index < 0 || issue.index + issue.length > text.length)) { dropReason = 'out-of-bounds'; }
 
       // 3. Text verification: the text at issue.index must match issue.text
-      const actualText = text.substring(issue.index, issue.index + issue.length);
-      if (actualText !== issue.text) {
-        // Try to find the correct position (text may have shifted)
-        const correctedIdx = text.indexOf(issue.text, Math.max(0, issue.index - 50));
-        if (correctedIdx !== -1 && Math.abs(correctedIdx - issue.index) < 100) {
-          issue.index = correctedIdx; // fix the position
-        } else {
-          return false; // can't locate this text — skip it
+      if (!dropReason) {
+        const actualText = text.substring(issue.index, issue.index + issue.length);
+        if (actualText !== issue.text) {
+          const correctedIdx = text.indexOf(issue.text, Math.max(0, issue.index - 50));
+          if (correctedIdx !== -1 && Math.abs(correctedIdx - issue.index) < 100) {
+            issue.index = correctedIdx;
+          } else {
+            dropReason = 'text-mismatch(expected:"'+issue.text.substring(0,20)+'",got:"'+actualText.substring(0,20)+'")';
+          }
         }
       }
 
       // 4. Word boundary check (for single-word issues like adverbs, repetitions, weak-verbs)
-      if (['adverb', 'weak-verb', 'repetition'].includes(issue.type)) {
+      if (!dropReason && ['adverb', 'weak-verb', 'repetition'].includes(issue.type)) {
         const charBefore = issue.index > 0 ? text[issue.index - 1] : ' ';
         const charAfter = issue.index + issue.length < text.length ? text[issue.index + issue.length] : ' ';
         const isWordBoundary = ch => /[\s.,;:!?'"()\[\]{}\-—–\n\r\t]/.test(ch) || ch === undefined;
         if (!isWordBoundary(charBefore) || !isWordBoundary(charAfter)) {
-          return false; // highlight would cut through a word — skip
+          dropReason = 'no-word-boundary(before:"'+charBefore+'",after:"'+charAfter+'")';
         }
       }
 
       // 5. Suggestion must reference actual text (not a template for a different word)
-      // For adverbs: verify the suggestion mentions the actual word
-      if (issue.type === 'adverb' && issue.suggestion && !issue.suggestion.toLowerCase().includes(issue.text.toLowerCase())) {
+      if (!dropReason && issue.type === 'adverb' && issue.suggestion && !issue.suggestion.toLowerCase().includes(issue.text.toLowerCase())) {
         issue.suggestion = `Remove "${issue.text}" and strengthen the verb it modifies.`;
       }
 
-      return true;
+      if (Analyzer.debugMode) {
+        debugLog.push({
+          type: issue.type,
+          text: issue.text,
+          index: issue.index,
+          length: issue.length,
+          confidence: issue.confidence !== undefined ? issue.confidence : 1.0,
+          status: dropReason ? 'DROPPED:'+dropReason : 'PASS',
+          suggestion: (issue.suggestion || '').substring(0, 80)
+        });
+      }
+
+      return !dropReason;
     }).sort((a, b) => a.index - b.index);
+
+    if (Analyzer.debugMode) {
+      Analyzer._lastDebugLog = { raw: rawIssues.length, passed: allIssues.length, entries: debugLog };
+      console.group('%c[AuthorScrolls Debug] Analysis Trace', 'color:#5dba7d;font-weight:bold');
+      console.log('Raw issues: %d | Passed validation: %d | Dropped: %d', rawIssues.length, allIssues.length, rawIssues.length - allIssues.length);
+      console.table(debugLog.map(e => ({ type: e.type, text: e.text.substring(0,40), idx: e.index, len: e.length, conf: e.confidence.toFixed(2), status: e.status, suggestion: e.suggestion.substring(0,60) })));
+      console.groupEnd();
+    }
 
     // Pass mode to mode-aware analyzers
     const plot = this.analyzePlot(text, mode);
