@@ -14,6 +14,7 @@ module.exports = async (req, res) => {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) { res.status(500).json({ error: 'Stripe not configured' }); return; }
 
+  const safeOrigin = allowed.includes(origin) ? origin : 'https://authorscrolls.com';
   const { userId, email, plan } = req.body;
   if (!userId || !email) { res.status(400).json({ error: 'Missing userId or email' }); return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { res.status(400).json({ error: 'Invalid email' }); return; }
@@ -37,8 +38,8 @@ module.exports = async (req, res) => {
     'line_items[0][price_data][recurring][interval]': selectedPlan.interval,
     'line_items[0][price_data][product_data][name]': selectedPlan.name,
     'line_items[0][quantity]': '1',
-    'success_url': (req.headers.origin || 'https://authorscrolls.com') + '/app.html?upgraded=true',
-    'cancel_url': (req.headers.origin || 'https://authorscrolls.com') + '/app.html?cancelled=true'
+    'success_url': safeOrigin + '/app.html?upgraded=true',
+    'cancel_url': safeOrigin + '/app.html?cancelled=true'
   }).toString();
 
   const options = {
