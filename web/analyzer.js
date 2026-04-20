@@ -2,6 +2,9 @@
 
 const Analyzer = {
 
+  debugMode: false,
+  _lastDebugLog: null,
+
   // ========================
   // MANUSCRIPT MODE DETECTION
   // ========================
@@ -66,6 +69,29 @@ const Analyzer = {
   // ========================
   // ADVERB DETECTION
   // ========================
+  ADVERB_VERB_MAP: {
+    'quickly': { walked: 'hurried', ran: 'sprinted', moved: 'darted', said: 'snapped', looked: 'glanced', turned: 'whipped', ate: 'wolfed', grabbed: 'snatched', wrote: 'scribbled' },
+    'slowly': { walked: 'trudged', moved: 'crept', said: 'drawled', turned: 'eased', opened: 'cracked', drove: 'crawled', ate: 'savored', stood: 'rose' },
+    'softly': { said: 'whispered', spoke: 'murmured', touched: 'caressed', closed: 'eased', sang: 'hummed', laughed: 'chuckled', called: 'cooed' },
+    'loudly': { said: 'shouted', spoke: 'bellowed', laughed: 'roared', cried: 'wailed', called: 'hollered', sang: 'belted', knocked: 'pounded' },
+    'angrily': { said: 'snapped', looked: 'glared', walked: 'stomped', spoke: 'snarled', turned: 'whirled', grabbed: 'seized', threw: 'hurled' },
+    'sadly': { said: 'sighed', looked: 'drooped', walked: 'shuffled', smiled: 'grimaced', spoke: 'murmured', sat: 'slumped' },
+    'nervously': { said: 'stammered', looked: 'fidgeted', walked: 'paced', laughed: 'tittered', spoke: 'stuttered', sat: 'squirmed' },
+    'carefully': { walked: 'crept', moved: 'inched', placed: 'set', looked: 'examined', held: 'cradled', opened: 'eased' },
+    'suddenly': { moved: 'lurched', turned: 'whipped', stopped: 'froze', appeared: 'materialized', stood: 'bolted', jumped: 'leapt' },
+    'gently': { touched: 'caressed', said: 'murmured', placed: 'nestled', pushed: 'nudged', held: 'cradled', closed: 'eased' },
+    'quietly': { said: 'whispered', spoke: 'murmured', walked: 'tiptoed', closed: 'eased', moved: 'crept', laughed: 'chuckled' },
+    'happily': { said: 'chirped', walked: 'skipped', smiled: 'beamed', laughed: 'giggled', sang: 'trilled' },
+    'firmly': { said: 'declared', held: 'gripped', stood: 'planted', looked: 'fixed', grabbed: 'clenched' },
+    'desperately': { ran: 'bolted', grabbed: 'clutched', said: 'pleaded', looked: 'searched', tried: 'strained' },
+    'lazily': { walked: 'ambled', sat: 'lounged', looked: 'gazed', moved: 'drifted', stretched: 'sprawled' },
+    'eagerly': { looked: 'scanned', ran: 'dashed', said: 'blurted', grabbed: 'snatched', waited: 'hovered' },
+    'gracefully': { walked: 'glided', moved: 'flowed', turned: 'pivoted', fell: 'tumbled', stood: 'rose' },
+    'roughly': { grabbed: 'yanked', pushed: 'shoved', said: 'growled', threw: 'hurled', pulled: 'wrenched' },
+    'wearily': { walked: 'trudged', sat: 'slumped', said: 'sighed', looked: 'drooped', stood: 'swayed' },
+    'silently': { walked: 'crept', moved: 'glided', sat: 'perched', stood: 'loomed', watched: 'observed' }
+  },
+
   findAdverbs(text) {
     const issues = [];
     const regex = /\b(\w+ly)\b/gi;
@@ -100,19 +126,47 @@ const Analyzer = {
       // True adverbs typically modify verbs: "[adverb] [verb]" or "[verb] [adverb]"
       const before = text.substring(Math.max(0, match.index - 30), match.index).toLowerCase();
       const after = text.substring(match.index + match[1].length, Math.min(text.length, match.index + match[1].length + 30)).toLowerCase();
-      // Confidence: higher if it appears next to a verb pattern
-      let confidence = 0.7; // base confidence for -ly words
-      if (/\b(was|were|is|are|had|have|has|did|could|would|should|will|might|can)\s*$/.test(before)) confidence = 0.5; // likely adjective after linking verb
-      if (/^\s*(the|a|an|this|that|his|her|its|their|our|my|your)\b/.test(after)) confidence = 0.4; // before determiner = likely not adverb
-      if (/\b(very|too|so|quite|rather|extremely)\s*$/.test(before)) confidence = 0.3; // "very quickly" — "quickly" IS an adverb but "very clumsy" — "clumsy" is not
-      if (/^\s*[,.]/.test(after) && /\b(is|was|were|are|been|being|seem|look|feel|appear|become)\b/.test(before)) confidence = 0.3; // predicate adjective
-      if (confidence < 0.6) continue; // skip low confidence
+      let confidence = 0.7;
+      // HIGH confidence: adverb modifying an action verb (the real problem case)
+      if (/\b(walked|ran|said|went|looked|moved|turned|came|spoke|wrote|drove|ate|sat|stood|fell|pulled|pushed|threw|jumped|held|grabbed|took|gave|put|made|got|started|began)\s*$/.test(before)) {
+        confidence = 0.9;
+      }
+      // Auxiliary + adverb + verb pattern: "was quickly running"
+      if (/\b(was|were|had|did|could|would|should|will|might|can)\s*$/.test(before) && /^\s*\w+(ing|ed|en)\b/.test(after)) {
+        confidence = 0.85;
+      }
+      // LOW confidence: predicate adjective position "was lovely."
+      if (/^\s*[,.]/.test(after) && /\b(is|was|were|are|been|being|seem|look|feel|appear|become)\b/.test(before)) {
+        confidence = 0.3;
+      }
+      // Before determiner = likely adjective "a lonely road"
+      if (/^\s*(the|a|an|this|that|his|her|its|their|our|my|your)\b/.test(after)) confidence = 0.4;
+      // After intensifier + before punctuation = predicate adjective "was very lovely."
+      if (/\b(very|too|so|quite|rather|extremely)\s*$/.test(before) && /^\s*[,.]/.test(after)) confidence = 0.3;
+      if (confidence < 0.6) continue;
+
+      // Build context-aware suggestion using verb-absorption map
+      const verbBefore = before.match(/\b(\w+)\s*$/);
+      const verbAfter = after.match(/^\s*(\w+)/);
+      const adverb = word;
+      let suggestion = `Remove "${match[1]}" and strengthen the verb it modifies.`;
+
+      const absorb = this.ADVERB_VERB_MAP[adverb];
+      if (absorb) {
+        const vb = verbBefore ? verbBefore[1].toLowerCase() : null;
+        const va = verbAfter ? verbAfter[1].toLowerCase() : null;
+        if (vb && absorb[vb]) {
+          suggestion = `"${vb} ${match[1]}" \u2192 "${absorb[vb]}" (one strong verb replaces verb+adverb)`;
+        } else if (va && absorb[va]) {
+          suggestion = `"${match[1]} ${va}" \u2192 "${absorb[va]}" (one strong verb replaces adverb+verb)`;
+        }
+      }
 
       issues.push({
         type: 'adverb', text: match[1], index: match.index, length: match[1].length,
         severity: 'low', confidence,
         message: `Adverb "${match[1]}" — consider a stronger verb that doesn't need modification.`,
-        suggestion: `Remove "${match[1]}" and strengthen the verb it modifies.`
+        suggestion
       });
     }
     return issues;
@@ -148,22 +202,120 @@ const Analyzer = {
     'the best of both worlds','the elephant in the room','the whole nine yards',
     'tip of the iceberg','turn a blind eye','two peas in a pod',
     'up in the air','water under the bridge','wear your heart on your sleeve',
-    'crystal clear','like a punch to the gut','hit her like','hit him like'
+    'crystal clear','like a punch to the gut','hit her like','hit him like',
+    'her heart skipped a beat','dark as night','time stood still',
+    'a chill ran down his spine','a chill ran down her spine','blood ran cold',
+    'let out a breath','eyes widened','heart pounding',
+    'knot in her stomach','knot in his stomach','tears streamed down'
   ],
+
+  CLICHE_REWRITES: {
+    'at the end of the day': 'State your conclusion directly — "ultimately" or just say what you mean.',
+    'few and far between': 'Name the specific scarcity — how rare, and why does it matter?',
+    'in the nick of time': 'Show the nearness — what almost happened? How close was the miss?',
+    'it was a dark and stormy night': 'Ground the weather in a specific sensory detail unique to this scene.',
+    'all that glitters is not gold': 'Show the deception through a specific reveal — what looked good but wasn\'t?',
+    'better late than never': 'Show the consequence of the delay and why arrival still mattered.',
+    'beat around the bush': 'Show the specific avoidance — what are they dodging, and how?',
+    'bite the bullet': 'Show the moment of deciding — the breath before the hard choice.',
+    'break the ice': 'Show the specific gesture that shifted the mood between characters.',
+    'burning the midnight oil': 'Show the fatigue and dedication — heavy eyelids, cold coffee, stiff neck.',
+    'caught red-handed': 'Describe the exact moment of discovery — who saw what, and their reaction.',
+    'cold as ice': 'Show the emotional coldness through action — what did they not react to?',
+    'cool as a cucumber': 'Show the specific calm behavior amid chaos — steady hands, even voice.',
+    'cry over spilt milk': 'Name the specific regret and why dwelling on it is futile.',
+    'dead as a doornail': 'Describe the specific stillness or finality that makes death real here.',
+    'diamond in the rough': 'Show the hidden quality — what specific talent or trait shines through?',
+    'easy as pie': 'Show the ease through action — how quickly or effortlessly did they do it?',
+    'fit as a fiddle': 'Describe the specific vitality — energy, posture, movement.',
+    'go the extra mile': 'Name the specific effort — what exactly did they do beyond expectations?',
+    'heart of gold': 'Show the kindness through a specific act, not a label.',
+    'hit the nail on the head': 'Show the reaction to accuracy — how did others respond to the insight?',
+    'icing on the cake': 'Name the bonus and why it elevated an already good situation.',
+    'in a nutshell': 'Just state the summary directly.',
+    'kill two birds with one stone': 'Name both goals and the single action that achieved them.',
+    'last but not least': 'Just introduce the final item — "last but not least" adds nothing.',
+    'leave no stone unturned': 'Show the thoroughness — what obscure places did they search?',
+    'let the cat out of the bag': 'Show the moment of revelation — the words, the silence after.',
+    'light at the end of the tunnel': 'Name the specific hope or sign of progress.',
+    'once in a blue moon': 'Name the specific rarity and timeframe.',
+    'piece of cake': 'Show the ease through the character\'s relaxed demeanor.',
+    'read between the lines': 'Show what the subtext actually was — what wasn\'t said?',
+    'right as rain': 'Show the recovery through specific physical or emotional details.',
+    'sharp as a tack': 'Show the intelligence through a specific insight or quick response.',
+    'sick as a dog': 'Describe the specific symptoms — what does their illness look/feel like?',
+    'take it with a grain of salt': 'Show the skepticism — a raised eyebrow, a pause, a counterpoint.',
+    'the apple of my eye': 'Show the cherishing through a specific gesture or memory.',
+    'the calm before the storm': 'Describe the specific, eerie quiet and what details feel wrong.',
+    'the grass is always greener': 'Show the envy through a specific comparison the character makes.',
+    'the tip of the iceberg': 'Name the bigger problem directly, or show its scale through one detail.',
+    'think outside the box': 'Show the creative thinking through the actual unconventional idea.',
+    'time heals all wounds': 'Show the passage of time and what specifically changed.',
+    'under the weather': 'Describe the specific malaise — headache, chills, heavy limbs.',
+    'when pigs fly': 'Show the disbelief through a character\'s actual reaction or retort.',
+    'a chip on your shoulder': 'Show the resentment through a specific defensive behavior.',
+    'add insult to injury': 'Show both the original hurt and the compounding indignity.',
+    'back to the drawing board': 'Show the moment of scrapping the plan — the sigh, the blank page.',
+    'barking up the wrong tree': 'Show the misdirection and the moment they realize the mistake.',
+    'blood is thicker than water': 'Show the loyalty in action — what did family cost them?',
+    'butterflies in my stomach': 'Describe the specific physical sensation — tight chest, shallow breath.',
+    'caught between a rock and a hard place': 'Name both bad options and what makes each one terrible.',
+    'every cloud has a silver lining': 'Name the specific unexpected good that came from the bad.',
+    'head over heels': 'Show the infatuation through a specific moment of irrational behavior.',
+    'hit the ground running': 'Show the immediate action — what specifically did they do first?',
+    'it takes two to tango': 'Show both parties\' contributions to the conflict.',
+    'jump on the bandwagon': 'Show the specific moment of joining in — and what swayed them.',
+    'keep your chin up': 'Show encouragement through a specific gesture or action instead.',
+    'let sleeping dogs lie': 'Show the decision to not provoke — the held tongue, the turned heel.',
+    'method to the madness': 'Reveal the hidden logic through a specific aha-moment.',
+    'needle in a haystack': 'Show the search difficulty — how many wrong turns, how much time?',
+    'on thin ice': 'Show the precariousness — one more wrong move and what happens?',
+    'pull yourself together': 'Show the composure effort — deep breath, wiped eyes, straightened spine.',
+    'raining cats and dogs': 'Describe this specific rain — sheets, rivulets, the sound on the roof.',
+    'see eye to eye': 'Show the agreement forming — the nod, the shared look.',
+    'steal someone\'s thunder': 'Show the moment of being upstaged and the reaction.',
+    'take the bull by the horns': 'Show the decisive action — what exactly did they confront?',
+    'the best of both worlds': 'Name both advantages and why this situation delivers them.',
+    'the elephant in the room': 'Name the unspoken thing and show people avoiding it.',
+    'the whole nine yards': 'Name the specific completeness — what did "everything" include?',
+    'tip of the iceberg': 'Name the bigger problem directly, or show its scale through one detail.',
+    'turn a blind eye': 'Show the deliberate ignoring — what did they look away from?',
+    'two peas in a pod': 'Show the similarity through a specific shared habit or reaction.',
+    'up in the air': 'Name the specific uncertainty and what\'s at stake.',
+    'water under the bridge': 'Show the letting go — a shrug, a changed subject, a genuine smile.',
+    'wear your heart on your sleeve': 'Show the emotional openness through visible vulnerability.',
+    'crystal clear': 'Just say "clear" or show the clarity through the character\'s confident response.',
+    'like a punch to the gut': 'Describe the actual physical reaction — doubled over, breath gone, nausea.',
+    'hit her like': 'Show the emotional impact through a physical reaction specific to this character.',
+    'hit him like': 'Show the emotional impact through a physical reaction specific to this character.',
+    'her heart skipped a beat': 'Show the surprise through action — a stumble, a caught breath, frozen hands.',
+    'dark as night': 'Describe what the darkness hides or reveals — shapes, sounds, absence.',
+    'time stood still': 'Show the dilated moment — hyperaware details, slowed perception.',
+    'a chill ran down his spine': 'Show the fear through a specific physical response unique to this character.',
+    'a chill ran down her spine': 'Show the fear through a specific physical response unique to this character.',
+    'blood ran cold': 'Show the dread through a physical freeze — locked joints, numb fingers.',
+    'let out a breath': 'Show relief through a specific action — shoulders dropping, unclenched jaw.',
+    'eyes widened': 'Show surprise through what they actually did next, not just a facial expression.',
+    'heart pounding': 'Vary the fear response — dry mouth, tunnel vision, ringing ears.',
+    'knot in her stomach': 'Describe the anxiety through behavior — pacing, nail-biting, repetitive checking.',
+    'knot in his stomach': 'Describe the anxiety through behavior — pacing, nail-biting, repetitive checking.',
+    'tears streamed down': 'Show the crying through its effect — blurred vision, cracking voice, shaking.'
+  },
 
   findCliches(text) {
     const issues = [];
-    const lower = text.toLowerCase();
     for (const cliche of this.CLICHES) {
-      let idx = lower.indexOf(cliche);
-      while (idx !== -1) {
+      const escaped = cliche.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp('\\b' + escaped + '\\b', 'gi');
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        const rewrite = this.CLICHE_REWRITES[cliche] || `Replace "${cliche}" with original phrasing that captures what you specifically mean.`;
         issues.push({
-          type: 'cliche', text: text.substring(idx, idx + cliche.length),
-          index: idx, length: cliche.length, severity: 'medium', confidence: 0.95,
+          type: 'cliche', text: match[0],
+          index: match.index, length: match[0].length, severity: 'medium', confidence: 0.95,
           message: `Cliche: "${cliche}" — overused expression that weakens your voice.`,
-          suggestion: 'Replace with original phrasing that fits your voice.'
+          suggestion: rewrite
         });
-        idx = lower.indexOf(cliche, idx + 1);
       }
     }
     return issues;
@@ -185,17 +337,45 @@ const Analyzer = {
     'sat':'perched, settled, reclined, lounged','held':'clutched, gripped, grasped, cradled'
   },
 
+  DIALOGUE_TAG_VERBS: new Set(['said','asked','replied','answered','whispered','shouted','muttered','exclaimed','declared','called','cried','yelled','screamed','murmured','sighed','groaned','moaned','hissed','snapped','barked','growled','stammered','stuttered','pleaded','begged','demanded','insisted','suggested','warned','promised','admitted','announced','added','continued','explained','noted','observed','remarked','repeated','urged','wondered']),
+
   findWeakVerbs(text) {
     const issues = [];
+    const dialogueSkipVerbs = new Set(['said','asked','replied','answered']);
     for (const [verb, alternatives] of Object.entries(this.WEAK_VERBS)) {
       const regex = new RegExp(`\\b${verb}\\b`, 'gi');
       let match;
       while ((match = regex.exec(text)) !== null) {
+        const word = match[0].toLowerCase();
+        const before = text.substring(Math.max(0, match.index - 30), match.index);
+        const after = text.substring(match.index + match[0].length, Math.min(text.length, match.index + match[0].length + 30));
+
+        if (dialogueSkipVerbs.has(word)) {
+          if (/[,!?][""\u201D]\s*$/.test(before) || /[""\u201D]\s*$/.test(before)) continue;
+          if (/^\s+[A-Z]/.test(after) && /[""\u201C\u201D]/.test(before)) continue;
+        }
+
+        let confidence = 0.9;
+        if (/[""\u201C]/.test(before) && /[""\u201D]/.test(after)) confidence = 0.5;
+
+        const alts = alternatives.split(',').map(s => s.trim());
+        const context = text.substring(Math.max(0, match.index - 60), Math.min(text.length, match.index + 60)).toLowerCase();
+        const isAngry = /\b(angry|furious|rage|fist|slam|shout|scream|yell|snarl)\b/.test(context);
+        const isSad = /\b(sad|tears|cry|grief|mourn|lonely|empty|sorrow)\b/.test(context);
+        const isFast = /\b(quick|fast|hurry|rush|urgent|sudden|sprint)\b/.test(context);
+        const isQuiet = /\b(quiet|soft|gentle|whisper|careful|cautious|slow)\b/.test(context);
+
+        let best = alts[0];
+        if (isAngry && alts.length > 2) best = alts.find(a => /storm|snap|snarl|stomp|slam|lurch|seethe|glare|bark/.test(a)) || alts[alts.length - 1];
+        else if (isSad && alts.length > 2) best = alts.find(a => /shuffle|droop|sigh|trudge|slump|muse|murmur/.test(a)) || alts[1];
+        else if (isFast) best = alts.find(a => /sprint|dash|bolt|dart|snap|seize|snatch|lunge/.test(a)) || alts[0];
+        else if (isQuiet) best = alts.find(a => /crept|glide|ease|murmur|whisper|settle|tiptoe/.test(a)) || alts[1];
+
         issues.push({
           type: 'weak-verb', text: match[0], index: match.index, length: match[0].length,
-          severity: 'low', confidence: 0.9,
+          severity: 'low', confidence,
           message: `Weak verb "${match[0]}" — a more specific verb creates vivid imagery.`,
-          suggestion: `Try: ${alternatives}`
+          suggestion: `Try "${best}" — or: ${alts.join(', ')}`
         });
       }
     }
@@ -221,17 +401,17 @@ const Analyzer = {
 
   findWordyPhrases(text) {
     const issues = [];
-    const lower = text.toLowerCase();
     for (const [phrase, replacement] of Object.entries(this.WORDY_PHRASES)) {
-      let idx = lower.indexOf(phrase);
-      while (idx !== -1) {
+      const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp('\\b' + escaped + '\\b', 'gi');
+      let match;
+      while ((match = regex.exec(text)) !== null) {
         issues.push({
-          type: 'wordy', text: text.substring(idx, idx + phrase.length),
-          index: idx, length: phrase.length, severity: 'medium', confidence: 0.95,
-          message: `Wordy phrase: "${phrase}"`,
+          type: 'wordy', text: match[0],
+          index: match.index, length: match[0].length, severity: 'medium', confidence: 0.95,
+          message: `Wordy phrase: "${match[0]}"`,
           suggestion: `Replace with: "${replacement}"`
         });
-        idx = lower.indexOf(phrase, idx + 1);
       }
     }
     return issues;
@@ -246,14 +426,26 @@ const Analyzer = {
       let match;
       const regex = new RegExp(pattern.source, pattern.flags);
       while ((match = regex.exec(text)) !== null) {
-        // Skip passive-looking adjectives ("was interested", "was tired")
         const lastWord = match[0].split(/\s+/).pop().toLowerCase();
         if (this.PASSIVE_EXCEPTIONS.has(lastWord)) continue;
+
+        const after = text.substring(match.index + match[0].length, Math.min(text.length, match.index + match[0].length + 40));
+        const byMatch = after.match(/^\s+by\s+(the\s+)?(\w+)/i);
+        let suggestion;
+        if (byMatch) {
+          const actor = byMatch[2];
+          const verb = lastWord;
+          suggestion = `"${match[0]} by ${actor}" \u2192 "${actor} ${verb}..." \u2014 make ${actor} the subject.`;
+        } else {
+          const verb = lastWord;
+          suggestion = `Who ${verb}? Make the actor the subject: "[someone] ${verb}..."`;
+        }
+
         issues.push({
           type: 'passive', text: match[0], index: match.index, length: match[0].length,
           severity: 'medium', confidence: 0.85,
           message: `Passive voice: "${match[0]}"`,
-          suggestion: 'Rewrite in active voice for stronger prose.'
+          suggestion
         });
       }
     }
@@ -320,40 +512,109 @@ const Analyzer = {
     while ((match = sentenceRegex.exec(text)) !== null) {
       const sentence = match[0].trim();
       const wordCount = sentence.split(/\s+/).length;
-      if (wordCount > 35) {
+      if (sentence.includes(';')) continue;
+      const hasDialogue = /[""\u201C][^""\u201D]*[""\u201D]/.test(sentence);
+      const threshold = hasDialogue ? 45 : 35;
+      if (wordCount > threshold) {
+        const severity = wordCount > 50 ? 'high' : wordCount > 42 ? 'medium' : 'low';
+        const confidence = wordCount > 50 ? 0.95 : 0.8;
+
+        const splitSuggestion = this._findSplitPoint(sentence, wordCount);
         issues.push({
           type: 'sentence-length',
           text: sentence,
-          index: match.index, length: sentence.length, confidence: 0.95,
-          severity: wordCount > 50 ? 'high' : 'medium',
-          message: `Long sentence (${wordCount} words). Consider breaking it up.`,
-          suggestion: 'Split into 2-3 shorter sentences for better readability.'
+          index: match.index, length: sentence.length, confidence,
+          severity,
+          message: `Long sentence (${wordCount} words).${severity === 'low' ? ' Consider if it could be tightened.' : ' Consider breaking it up.'}`,
+          suggestion: splitSuggestion
         });
       }
     }
     return issues;
   },
 
+  _findSplitPoint(sentence, wordCount) {
+    const conjunctions = /,\s*(and|but|or|so|yet|which|who|where|when|because|although|while|since|after|before|though)\s/gi;
+    let best = null;
+    let m;
+    while ((m = conjunctions.exec(sentence)) !== null) {
+      const wordsBefore = sentence.substring(0, m.index).split(/\s+/).length;
+      if (wordsBefore >= 12 && wordsBefore <= wordCount - 8) {
+        if (!best || Math.abs(wordsBefore - wordCount / 2) < Math.abs(best.pos - wordCount / 2)) {
+          best = { pos: wordsBefore, word: m[1], idx: m.index };
+        }
+      }
+    }
+    if (best) {
+      return `Break at "${best.word}" (around word ${best.pos}) \u2014 the idea shifts there. Make two sentences.`;
+    }
+    return `At ${wordCount} words, look for a natural pause \u2014 a comma or conjunction \u2014 and split there.`;
+  },
+
   // ========================
   // SHOW VS TELL DETECTION
   // ========================
+  EMOTION_SHOWS: {
+    angry: 'clenched jaw, white knuckles, clipped words, flushed face, tight shoulders',
+    happy: 'wide grin, light step, humming, bright eyes, easy laughter',
+    sad: 'slumped shoulders, distant gaze, quiet voice, slow movements, hollow chest',
+    scared: 'racing pulse, shallow breath, wide eyes, trembling hands, dry mouth',
+    afraid: 'racing pulse, shallow breath, wide eyes, trembling hands, dry mouth',
+    nervous: 'fidgeting, dry mouth, darting eyes, sweaty palms, tapping foot',
+    anxious: 'pacing, chewing lip, checking the time, tight chest, restless hands',
+    excited: 'bouncing on toes, rapid speech, flushed cheeks, can\'t sit still',
+    lonely: 'reaching for a phone then stopping, empty chair across the table, echoing rooms',
+    jealous: 'forced smile, clenched teeth, looking away, picking at nails',
+    proud: 'chin lifted, squared shoulders, lingering smile, chest expanded',
+    guilty: 'avoiding eye contact, shifting weight, rubbing neck, swallowing hard',
+    ashamed: 'hunched posture, hidden face, lowered voice, turning away',
+    confused: 'furrowed brow, tilted head, repeated blinking, mouth opening then closing',
+    frustrated: 'running hands through hair, clenched fist on table, exhaling sharply',
+    disappointed: 'shoulders dropping, gaze falling, long exhale, pressing lips together',
+    relieved: 'unclenched jaw, deep exhale, shoulders dropping, closing eyes briefly',
+    grateful: 'eyes glistening, squeezing a hand, voice catching, nodding slowly',
+    hopeful: 'leaning forward, searching eyes, held breath, uncurling fingers',
+    desperate: 'grabbing at sleeves, voice cracking, wild eyes, lunging forward',
+    beautiful: 'Describe what makes them striking \u2014 a specific feature, how light falls on them.',
+    ugly: 'Show the reaction of others, or a specific asymmetry or mark.',
+    tired: 'heavy eyelids, stifled yawn, sagging posture, dragging feet',
+    bored: 'picking at nails, staring at ceiling, counting tiles, sighing',
+    furious: 'veins standing out, voice dropping low, very still body, shaking hands',
+    delighted: 'clapping hands, pulling someone into a hug, breathless laughter',
+    miserable: 'curled inward, arms around knees, staring at nothing, no appetite',
+    exhausted: 'propping head on hand, blurred vision, fumbling with keys, stumbling',
+    terrified: 'paralyzed, can\'t breathe, tunnel vision, numb fingers, backing away',
+    gorgeous: 'Show the observer\'s physical reaction \u2014 caught breath, lingering gaze.',
+    handsome: 'Show the observer\'s physical reaction \u2014 caught breath, lingering gaze.',
+    attractive: 'Show the observer\'s physical reaction \u2014 caught breath, lingering gaze.',
+    hideous: 'Show the visceral reaction \u2014 recoiling, averted eyes, a held breath.'
+  },
+
   findShowVsTell(text) {
     const issues = [];
     const tellingPatterns = [
-      { regex: /\b(felt|feeling)\s+(angry|happy|sad|scared|afraid|nervous|anxious|excited|lonely|jealous|proud|guilty|ashamed|confused|frustrated|disappointed|relieved|grateful|hopeful|desperate)\b/gi, msg: 'Telling emotion instead of showing' },
-      { regex: /\b(was|were|seemed|looked)\s+(beautiful|ugly|tired|angry|happy|sad|scared|afraid|nervous|excited|bored|confused|annoyed|furious|delighted|miserable|exhausted|terrified|gorgeous|handsome|attractive|hideous)\b/gi, msg: 'Telling state instead of showing' },
-      { regex: /\b(obviously|clearly|evidently|apparently)\b/gi, msg: 'Telling the reader what is obvious rather than showing' },
-      { regex: /\bshe knew\b|\bhe knew\b|\bthey knew\b|\bshe realized\b|\bhe realized\b/gi, msg: 'Telling internal state - show through action or dialogue' },
-      { regex: /\bcould feel\b|\bcould sense\b|\bcould tell\b|\bcould see\b/gi, msg: 'Filter word - remove for more direct prose' }
+      { regex: /\b(felt|feeling)\s+(angry|happy|sad|scared|afraid|nervous|anxious|excited|lonely|jealous|proud|guilty|ashamed|confused|frustrated|disappointed|relieved|grateful|hopeful|desperate)\b/gi, msg: 'Telling emotion instead of showing', emotionIdx: 2 },
+      { regex: /\b(was|were|seemed|looked)\s+(beautiful|ugly|tired|angry|happy|sad|scared|afraid|nervous|excited|bored|confused|annoyed|furious|delighted|miserable|exhausted|terrified|gorgeous|handsome|attractive|hideous)\b/gi, msg: 'Telling state instead of showing', emotionIdx: 2 },
+      { regex: /\b(obviously|clearly|evidently|apparently)\b/gi, msg: 'Telling the reader what is obvious rather than showing', emotionIdx: 0 },
+      { regex: /\bshe knew\b|\bhe knew\b|\bthey knew\b|\bshe realized\b|\bhe realized\b/gi, msg: 'Telling internal state - show through action or dialogue', emotionIdx: 0 },
+      { regex: /\bcould feel\b|\bcould sense\b|\bcould tell\b|\bcould see\b/gi, msg: 'Filter word - remove for more direct prose', emotionIdx: 0 }
     ];
-    for (const { regex, msg } of tellingPatterns) {
+    for (const { regex, msg, emotionIdx } of tellingPatterns) {
       let match;
       const r = new RegExp(regex.source, regex.flags);
       while ((match = r.exec(text)) !== null) {
+        let suggestion = 'Show through action, dialogue, or sensory detail instead.';
+        if (emotionIdx > 0 && match[emotionIdx]) {
+          const emotion = match[emotionIdx].toLowerCase();
+          const shows = this.EMOTION_SHOWS[emotion];
+          if (shows) {
+            suggestion = `Instead of "${match[0]}", show it: ${shows}.`;
+          }
+        }
         issues.push({
           type: 'show-tell', text: match[0], index: match.index, length: match[0].length,
           severity: 'medium', confidence: 0.85, message: `${msg}: "${match[0]}"`,
-          suggestion: 'Show through action, dialogue, or sensory detail instead.'
+          suggestion
         });
       }
     }
@@ -2519,43 +2780,66 @@ const Analyzer = {
     // ========================================================
     // VALIDATION LAYER — verify every issue before accepting it
     // ========================================================
+    const debugLog = [];
     const allIssues = rawIssues.filter(issue => {
+      let dropReason = null;
+
       // 1. Confidence threshold: skip low-confidence detections
-      if (issue.confidence !== undefined && issue.confidence < 0.6) return false;
+      if (issue.confidence !== undefined && issue.confidence < 0.6) { dropReason = 'low-confidence('+issue.confidence+')'; }
 
       // 2. Bounds check: issue must be within text range
-      if (issue.index < 0 || issue.index + issue.length > text.length) return false;
+      if (!dropReason && (issue.index < 0 || issue.index + issue.length > text.length)) { dropReason = 'out-of-bounds'; }
 
       // 3. Text verification: the text at issue.index must match issue.text
-      const actualText = text.substring(issue.index, issue.index + issue.length);
-      if (actualText !== issue.text) {
-        // Try to find the correct position (text may have shifted)
-        const correctedIdx = text.indexOf(issue.text, Math.max(0, issue.index - 50));
-        if (correctedIdx !== -1 && Math.abs(correctedIdx - issue.index) < 100) {
-          issue.index = correctedIdx; // fix the position
-        } else {
-          return false; // can't locate this text — skip it
+      if (!dropReason) {
+        const actualText = text.substring(issue.index, issue.index + issue.length);
+        if (actualText !== issue.text) {
+          const correctedIdx = text.indexOf(issue.text, Math.max(0, issue.index - 50));
+          if (correctedIdx !== -1 && Math.abs(correctedIdx - issue.index) < 100) {
+            issue.index = correctedIdx;
+          } else {
+            dropReason = 'text-mismatch(expected:"'+issue.text.substring(0,20)+'",got:"'+actualText.substring(0,20)+'")';
+          }
         }
       }
 
       // 4. Word boundary check (for single-word issues like adverbs, repetitions, weak-verbs)
-      if (['adverb', 'weak-verb', 'repetition'].includes(issue.type)) {
+      if (!dropReason && ['adverb', 'weak-verb', 'repetition'].includes(issue.type)) {
         const charBefore = issue.index > 0 ? text[issue.index - 1] : ' ';
         const charAfter = issue.index + issue.length < text.length ? text[issue.index + issue.length] : ' ';
         const isWordBoundary = ch => /[\s.,;:!?'"()\[\]{}\-—–\n\r\t]/.test(ch) || ch === undefined;
         if (!isWordBoundary(charBefore) || !isWordBoundary(charAfter)) {
-          return false; // highlight would cut through a word — skip
+          dropReason = 'no-word-boundary(before:"'+charBefore+'",after:"'+charAfter+'")';
         }
       }
 
       // 5. Suggestion must reference actual text (not a template for a different word)
-      // For adverbs: verify the suggestion mentions the actual word
-      if (issue.type === 'adverb' && issue.suggestion && !issue.suggestion.toLowerCase().includes(issue.text.toLowerCase())) {
+      if (!dropReason && issue.type === 'adverb' && issue.suggestion && !issue.suggestion.toLowerCase().includes(issue.text.toLowerCase())) {
         issue.suggestion = `Remove "${issue.text}" and strengthen the verb it modifies.`;
       }
 
-      return true;
+      if (Analyzer.debugMode) {
+        debugLog.push({
+          type: issue.type,
+          text: issue.text,
+          index: issue.index,
+          length: issue.length,
+          confidence: issue.confidence !== undefined ? issue.confidence : 1.0,
+          status: dropReason ? 'DROPPED:'+dropReason : 'PASS',
+          suggestion: (issue.suggestion || '').substring(0, 80)
+        });
+      }
+
+      return !dropReason;
     }).sort((a, b) => a.index - b.index);
+
+    if (Analyzer.debugMode) {
+      Analyzer._lastDebugLog = { raw: rawIssues.length, passed: allIssues.length, entries: debugLog };
+      console.group('%c[AuthorScrolls Debug] Analysis Trace', 'color:#5dba7d;font-weight:bold');
+      console.log('Raw issues: %d | Passed validation: %d | Dropped: %d', rawIssues.length, allIssues.length, rawIssues.length - allIssues.length);
+      console.table(debugLog.map(e => ({ type: e.type, text: e.text.substring(0,40), idx: e.index, len: e.length, conf: e.confidence.toFixed(2), status: e.status, suggestion: e.suggestion.substring(0,60) })));
+      console.groupEnd();
+    }
 
     // Pass mode to mode-aware analyzers
     const plot = this.analyzePlot(text, mode);
