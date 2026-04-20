@@ -1943,7 +1943,8 @@ function renderAnnotatedAsPages(text,issues){
     const hl=e.target.closest('.hl');
     if(hl&&!hl.classList.contains('off')){
       activeHL=hl;
-      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};
+      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence',bookism:'Bookism detected'};
+      const isSuggestion=hl.classList.contains('hl-suggest');
       const t=hl.dataset.t;
       const sug=hl.dataset.s||'';
       // Determine if this issue has an auto-replacement available
@@ -1952,7 +1953,8 @@ function renderAnnotatedAsPages(text,issues){
       // Types with reliable auto-fix: wordy (has "Replace with"), weak-verb/repetition (has "Try:"), adverb (remove), passive (restructure), cliche (has map)
       const canAutoFix=hasAI||hasTry||t==='adverb'||t==='passive'||t==='wordy'||t==='cliche';
       const fixLabel=canAutoFix?'Replace &amp; Fix':'Edit Here';
-      tip.innerHTML='<div class="tip-cat">'+(labels[t]||t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+esc(sug)+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+fixLabel+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
+      const catLabel=isSuggestion?'Suggestion: '+(labels[t]||t):(labels[t]||t);
+      tip.innerHTML='<div class="tip-cat"'+(isSuggestion?' style="opacity:.7"':'')+'>'+catLabel+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+esc(sug)+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+fixLabel+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
       tip.classList.add('on');
       const rect=hl.getBoundingClientRect();
       tip.style.top=(rect.bottom+8)+'px';
@@ -1987,7 +1989,8 @@ function getAnnotatedSlice(fullText,start,end,issues){
     const iStart=Math.max(i.index,start);
     const iEnd=Math.min(i.index+i.length,end);
     if(iStart>pos)h+=esc(fullText.substring(pos,iStart));
-    h+='<span class="hl" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'">'+esc(fullText.substring(iStart,iEnd))+'</span>';
+    const hlTier=(i.confidence>=0.85)?'hl':'hl hl-suggest';
+    h+='<span class="'+hlTier+'" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'" data-c="'+(i.confidence||1)+'">'+esc(fullText.substring(iStart,iEnd))+'</span>';
     pos=iEnd;
   }
   if(pos<end)h+=esc(fullText.substring(pos,end));
