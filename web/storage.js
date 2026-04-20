@@ -144,15 +144,17 @@ const Storage = {
         if (this._currentManuscriptId) {
           await this.updateManuscript(this._currentManuscriptId, text, analysisResult);
         }
-        // Also save to localStorage as fallback
+      } catch (e) {
+        console.warn('Auto-save failed:', e.message);
+      }
+      // localStorage always runs — even if Firestore failed — as last-resort fallback
+      try {
         localStorage.setItem('ml_autosave', JSON.stringify({
           text, result: analysisResult,
           manuscriptId: this._currentManuscriptId,
           savedAt: new Date().toISOString()
         }));
-      } catch (e) {
-        console.warn('Auto-save failed:', e.message);
-      }
+      } catch (e) { /* storage quota exceeded */ }
     }, 5000); // 5 second debounce
   }
 };

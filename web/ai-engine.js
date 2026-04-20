@@ -156,7 +156,7 @@ const AIEngine = {
       try {
         results[f.key] = await f.fn();
       } catch (err) {
-        results[f.key] = { error: err.message };
+        results[f.key] = { error: err?.message || String(err) };
       }
     }
     return results;

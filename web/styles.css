@@ -214,6 +214,9 @@ body.lib-mode{overflow:auto}
 .hl[data-t="repetition"]{background:rgba(107,172,212,.15);border-bottom:2px solid var(--blue)}
 .hl[data-t="wordy"]{background:rgba(93,186,125,.15);border-bottom:2px solid var(--green)}
 .hl[data-t="sentence-length"]{background:rgba(212,168,85,.12);border-bottom:2px solid var(--yellow)}
+.hl.hl-suggest{background:none!important;border-bottom-style:dashed!important;opacity:.6}
+.hl.hl-suggest:hover{opacity:.85}
+.hl[data-t="bookism"]{background:rgba(212,168,85,.12);border-bottom:2px solid var(--yellow)}
 .hl.off{background:none!important;border-bottom:none!important}
 .fix-applied{transition:outline .3s}
 

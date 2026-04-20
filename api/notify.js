@@ -23,7 +23,7 @@ module.exports = async (req, res) => {
   // Send a single push notification (called from Firebase Cloud Function if needed)
   if (action === 'send-push') {
     const secret = process.env.CRON_SECRET;
-    if (secret && req.headers['x-cron-secret'] !== secret) {
+    if (!secret || req.headers['x-cron-secret'] !== secret) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 

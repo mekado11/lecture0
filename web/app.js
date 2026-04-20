@@ -10,16 +10,16 @@ dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-ove
 dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files.length)hf(e.dataTransfer.files[0])});
 fi.addEventListener('change',e=>{if(e.target.files.length)hf(e.target.files[0])});
-$('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('analyze-btn').classList.add('hidden');fi.value=''});
+$('clear-file').addEventListener('click',()=>{uploadedFile=null;extractedText='';analysisResult=null;$('file-info').classList.add('hidden');$('analyze-btn').classList.add('hidden');fi.value=''});
 function hf(f){const x=f.name.split('.').pop().toLowerCase();if(!['docx','pdf','txt'].includes(x)){alert('Upload .docx, .pdf, or .txt');return}if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');$('analyze-btn').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden')}
-async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const c=await(await p.getPage(i)).getTextContent();t+=c.items.map(x=>x.str).join(' ')+'\n\n'}return t}}
+async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';const res=await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()});return res.value||''}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const c=await(await p.getPage(i)).getTextContent();t+=(c.items||[]).map(x=>x.str).join(' ')+'\n\n'}return t||''}}
 $('analyze-btn').addEventListener('click',async()=>{
   if(!uploadedFile)return;
   $('analyze-btn').classList.add('hidden');
   $('upload-loading').classList.remove('hidden');
   try{
     $('loader-text').textContent='Extracting...';
-    extractedText=await ext(uploadedFile);
+    extractedText=(await ext(uploadedFile)||'').substring(0,500000);
     $('loader-text').textContent='Analyzing...';
     // Yield to UI so spinner renders before blocking analysis
     await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
@@ -282,6 +282,7 @@ function autoSave(){
   if(!analysisResult||!uploadedFile)return;
   clearTimeout(autoSaveTimer);
   autoSaveTimer=setTimeout(async()=>{
+    if(!uploadedFile||!analysisResult)return;
     if(Storage.userId){
       try{
         if(!Storage._currentManuscriptId){
@@ -800,14 +801,15 @@ const _issueWhy={
   'show-tell':'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',
   wordy:'Extra words slow pacing and dilute impact. Tight prose holds attention.',
   repetition:'Repeated words in close proximity suggest limited vocabulary and can feel monotonous to readers.',
-  'sentence-length':'Long sentences tax working memory. Varying length creates rhythm and controls pacing.'
+  'sentence-length':'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',
+  bookism:'Bookism dialogue tags ("ejaculated", "riposted", "opined") signal amateur writing. Agents and editors flag these on sight. "Said" is invisible to readers — use it.'
 };
 
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
   const typeMap={plot:null,clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:null,showTell:'show-tell',copy:null};
   const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing'};
-  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence'};
+  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence',bookism:'Bookism'};
   const t=typeMap[cat];
 
   // Sort by severity: high first, then medium, then low
@@ -911,7 +913,7 @@ function renderDetailed(r){
   plotRows.push(sr('Issues/1K words',r.issuesPerK));
   h+=secWithTip(plotLabel,r.scores.plot,plotRows,'plot');
   h+=secWithTip('Transitions',r.scores.transitions,[r.transitions.smoothRate+'% smooth',sr('Transition Words',r.transitions.transitionsUsed),sr('Smooth',r.transitions.smoothTransitions+'/'+(r.transitions.totalParagraphs-1))],'transitions');
-  h+=secWithTip('Copy Editing',r.scores.copy,[r.issues.length+' issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell'])],'copy');
+  h+=secWithTip('Copy Editing',r.scores.copy,[r.issues.length+' issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell']),sr('Bookisms',r.issueCounts.bookism||0)],'copy');
   // Line Editing (true stylistic editing, not just readability)
   const le=r.lineEditing;
   const lineRows=['Stylistic editing: tone, flow, precision, pacing, POV, extraneous language'];
@@ -1480,6 +1482,7 @@ function renderBookPreview(r){
 function showOpeningCoach(){
   if(!analysisResult)return;
   const od=analysisResult.openingDiagnosis;
+  if(!od||od.score===undefined)return;
   // Switch to a new panel view in the center
   document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
@@ -1942,7 +1945,8 @@ function renderAnnotatedAsPages(text,issues){
     const hl=e.target.closest('.hl');
     if(hl&&!hl.classList.contains('off')){
       activeHL=hl;
-      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};
+      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence',bookism:'Bookism detected'};
+      const isSuggestion=hl.classList.contains('hl-suggest');
       const t=hl.dataset.t;
       const sug=hl.dataset.s||'';
       // Determine if this issue has an auto-replacement available
@@ -1951,7 +1955,8 @@ function renderAnnotatedAsPages(text,issues){
       // Types with reliable auto-fix: wordy (has "Replace with"), weak-verb/repetition (has "Try:"), adverb (remove), passive (restructure), cliche (has map)
       const canAutoFix=hasAI||hasTry||t==='adverb'||t==='passive'||t==='wordy'||t==='cliche';
       const fixLabel=canAutoFix?'Replace &amp; Fix':'Edit Here';
-      tip.innerHTML='<div class="tip-cat">'+(labels[t]||t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+sug+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+fixLabel+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
+      const catLabel=isSuggestion?'Suggestion: '+(labels[t]||t):(labels[t]||t);
+      tip.innerHTML='<div class="tip-cat"'+(isSuggestion?' style="opacity:.7"':'')+'>'+catLabel+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+esc(sug)+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+fixLabel+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
       tip.classList.add('on');
       const rect=hl.getBoundingClientRect();
       tip.style.top=(rect.bottom+8)+'px';
@@ -1986,7 +1991,8 @@ function getAnnotatedSlice(fullText,start,end,issues){
     const iStart=Math.max(i.index,start);
     const iEnd=Math.min(i.index+i.length,end);
     if(iStart>pos)h+=esc(fullText.substring(pos,iStart));
-    h+='<span class="hl" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'">'+esc(fullText.substring(iStart,iEnd))+'</span>';
+    const hlTier=(i.confidence>=0.85)?'hl':'hl hl-suggest';
+    h+='<span class="'+hlTier+'" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'" data-c="'+(i.confidence||1)+'">'+esc(fullText.substring(iStart,iEnd))+'</span>';
     pos=iEnd;
   }
   if(pos<end)h+=esc(fullText.substring(pos,end));
@@ -2393,10 +2399,14 @@ async function _openManuscript(idx){
   }else{
     const full=await Storage.getManuscript(m.id);
     if(!full)return;
-    extractedText=full.text;
+    extractedText=full.text||'';
     uploadedFile={name:full.fileName,size:0};
     analysisResult=Analyzer.analyze(extractedText);
     Storage._currentManuscriptId=m.id;
+  }
+  if(!analysisResult||analysisResult.error){
+    alert(analysisResult?.error||'Could not analyze this manuscript. The text may be empty or too short.');
+    return;
   }
   // Remember for "Back to Editor"
   localStorage.setItem('ml_last_open',JSON.stringify({fileName:m.fileName,manuscriptId:Storage._currentManuscriptId||m.id||null}));
@@ -2616,7 +2626,7 @@ $('genre-override')?.addEventListener('change',()=>{
   renderAll();
 });
 
-function goToLibrary(){$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-modal')?.classList.add('hidden');$('upload-loading')?.classList.add('hidden');$('analyze-btn')?.classList.add('hidden');$('file-info')?.classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value='';Storage._currentManuscriptId=null;document.body.classList.add('lib-mode');renderLibrary()}
+function goToLibrary(){clearTimeout(_reanalyzeTimer);_reanalyzeTimer=null;clearTimeout(autoSaveTimer);autoSaveTimer=null;$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-modal')?.classList.add('hidden');$('upload-loading')?.classList.add('hidden');$('analyze-btn')?.classList.add('hidden');$('file-info')?.classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value='';Storage._currentManuscriptId=null;document.body.classList.add('lib-mode');renderLibrary()}
 $('new-btn')?.addEventListener('click',goToLibrary);
 // Back arrow removed — Library button handles navigation
 

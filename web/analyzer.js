@@ -6,6 +6,19 @@ const Analyzer = {
   _lastDebugLog: null,
 
   // ========================
+  // TEXT NORMALIZATION
+  // ========================
+  _NORM_MAP: {'“':'"','”':'"','‘':"'",'’':"'",'—':'-','–':'-',' ':' '},
+
+  _normalizeForDetection(text) {
+    let out = '';
+    for (let i = 0; i < text.length; i++) {
+      out += this._NORM_MAP[text[i]] || text[i];
+    }
+    return out;
+  },
+
+  // ========================
   // MANUSCRIPT MODE DETECTION
   // ========================
   detectMode(text) {
@@ -92,7 +105,8 @@ const Analyzer = {
     'silently': { walked: 'crept', moved: 'glided', sat: 'perched', stood: 'loomed', watched: 'observed' }
   },
 
-  findAdverbs(text) {
+  findAdverbs(text, ntext) {
+    ntext = ntext || text;
     const issues = [];
     const regex = /\b(\w+ly)\b/gi;
     let match;
@@ -119,13 +133,11 @@ const Analyzer = {
       'multiply','ally','italy','lily','folly','tally','assembly','anomaly',
       'jelly','bully','gully','holly','monopoly','poly','trolley'
     ]);
-    while ((match = regex.exec(text)) !== null) {
+    while ((match = regex.exec(ntext)) !== null) {
       const word = match[1].toLowerCase();
       if (exceptions.has(word)) continue;
-      // Verify the match is actually an adverb by checking surrounding context
-      // True adverbs typically modify verbs: "[adverb] [verb]" or "[verb] [adverb]"
-      const before = text.substring(Math.max(0, match.index - 30), match.index).toLowerCase();
-      const after = text.substring(match.index + match[1].length, Math.min(text.length, match.index + match[1].length + 30)).toLowerCase();
+      const before = ntext.substring(Math.max(0, match.index - 30), match.index).toLowerCase();
+      const after = ntext.substring(match.index + match[1].length, Math.min(ntext.length, match.index + match[1].length + 30)).toLowerCase();
       let confidence = 0.7;
       // HIGH confidence: adverb modifying an action verb (the real problem case)
       if (/\b(walked|ran|said|went|looked|moved|turned|came|spoke|wrote|drove|ate|sat|stood|fell|pulled|pushed|threw|jumped|held|grabbed|took|gave|put|made|got|started|began)\s*$/.test(before)) {
@@ -163,7 +175,7 @@ const Analyzer = {
       }
 
       issues.push({
-        type: 'adverb', text: match[1], index: match.index, length: match[1].length,
+        type: 'adverb', text: text.substring(match.index, match.index + match[1].length), index: match.index, length: match[1].length,
         severity: 'low', confidence,
         message: `Adverb "${match[1]}" — consider a stronger verb that doesn't need modification.`,
         suggestion
@@ -302,16 +314,17 @@ const Analyzer = {
     'tears streamed down': 'Show the crying through its effect — blurred vision, cracking voice, shaking.'
   },
 
-  findCliches(text) {
+  findCliches(text, ntext) {
+    ntext = ntext || text;
     const issues = [];
     for (const cliche of this.CLICHES) {
       const escaped = cliche.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp('\\b' + escaped + '\\b', 'gi');
+      const regex = new RegExp('(?<!\\w)' + escaped + '(?!\\w)', 'gi');
       let match;
-      while ((match = regex.exec(text)) !== null) {
+      while ((match = regex.exec(ntext)) !== null) {
         const rewrite = this.CLICHE_REWRITES[cliche] || `Replace "${cliche}" with original phrasing that captures what you specifically mean.`;
         issues.push({
-          type: 'cliche', text: match[0],
+          type: 'cliche', text: text.substring(match.index, match.index + match[0].length),
           index: match.index, length: match[0].length, severity: 'medium', confidence: 0.95,
           message: `Cliche: "${cliche}" — overused expression that weakens your voice.`,
           suggestion: rewrite
@@ -339,27 +352,34 @@ const Analyzer = {
 
   DIALOGUE_TAG_VERBS: new Set(['said','asked','replied','answered','whispered','shouted','muttered','exclaimed','declared','called','cried','yelled','screamed','murmured','sighed','groaned','moaned','hissed','snapped','barked','growled','stammered','stuttered','pleaded','begged','demanded','insisted','suggested','warned','promised','admitted','announced','added','continued','explained','noted','observed','remarked','repeated','urged','wondered']),
 
-  findWeakVerbs(text) {
+  isDialogueTagContext(ntext, verbIndex, verbLength) {
+    const before = ntext.substring(Math.max(0, verbIndex - 60), verbIndex);
+    const after = ntext.substring(verbIndex + verbLength, Math.min(ntext.length, verbIndex + verbLength + 60));
+    if (/["'][,!?.]?\s*\w*\s*$/.test(before)) return true;
+    if (/^\s*,?\s*["']/.test(after)) return true;
+    if (/["']\s+\w+\s+$/.test(before)) return true;
+    return false;
+  },
+
+  findWeakVerbs(text, ntext) {
+    ntext = ntext || text;
     const issues = [];
-    const dialogueSkipVerbs = new Set(['said','asked','replied','answered']);
     for (const [verb, alternatives] of Object.entries(this.WEAK_VERBS)) {
       const regex = new RegExp(`\\b${verb}\\b`, 'gi');
       let match;
-      while ((match = regex.exec(text)) !== null) {
+      while ((match = regex.exec(ntext)) !== null) {
         const word = match[0].toLowerCase();
-        const before = text.substring(Math.max(0, match.index - 30), match.index);
-        const after = text.substring(match.index + match[0].length, Math.min(text.length, match.index + match[0].length + 30));
+        const dialogueSkipVerbs = new Set(['said','asked','replied','answered']);
 
-        if (dialogueSkipVerbs.has(word)) {
-          if (/[,!?][""\u201D]\s*$/.test(before) || /[""\u201D]\s*$/.test(before)) continue;
-          if (/^\s+[A-Z]/.test(after) && /[""\u201C\u201D]/.test(before)) continue;
-        }
+        if (dialogueSkipVerbs.has(word) && this.isDialogueTagContext(ntext, match.index, match[0].length)) continue;
 
         let confidence = 0.9;
-        if (/[""\u201C]/.test(before) && /[""\u201D]/.test(after)) confidence = 0.5;
+        const before = ntext.substring(Math.max(0, match.index - 40), match.index);
+        const after = ntext.substring(match.index + match[0].length, Math.min(ntext.length, match.index + match[0].length + 40));
+        if (/["']/.test(before) && /["']/.test(after)) confidence = 0.5;
 
         const alts = alternatives.split(',').map(s => s.trim());
-        const context = text.substring(Math.max(0, match.index - 60), Math.min(text.length, match.index + 60)).toLowerCase();
+        const context = ntext.substring(Math.max(0, match.index - 60), Math.min(ntext.length, match.index + 60)).toLowerCase();
         const isAngry = /\b(angry|furious|rage|fist|slam|shout|scream|yell|snarl)\b/.test(context);
         const isSad = /\b(sad|tears|cry|grief|mourn|lonely|empty|sorrow)\b/.test(context);
         const isFast = /\b(quick|fast|hurry|rush|urgent|sudden|sprint)\b/.test(context);
@@ -371,11 +391,12 @@ const Analyzer = {
         else if (isFast) best = alts.find(a => /sprint|dash|bolt|dart|snap|seize|snatch|lunge/.test(a)) || alts[0];
         else if (isQuiet) best = alts.find(a => /crept|glide|ease|murmur|whisper|settle|tiptoe/.test(a)) || alts[1];
 
+        const originalText = text.substring(match.index, match.index + match[0].length);
         issues.push({
-          type: 'weak-verb', text: match[0], index: match.index, length: match[0].length,
+          type: 'weak-verb', text: originalText, index: match.index, length: match[0].length,
           severity: 'low', confidence,
-          message: `Weak verb "${match[0]}" — a more specific verb creates vivid imagery.`,
-          suggestion: `Try "${best}" — or: ${alts.join(', ')}`
+          message: `Weak verb "${originalText}" \u2014 a more specific verb creates vivid imagery.`,
+          suggestion: `Try "${best}" \u2014 or: ${alts.join(', ')}`
         });
       }
     }
@@ -399,15 +420,16 @@ const Analyzer = {
     'with regard to':'about','with the exception of':'except'
   },
 
-  findWordyPhrases(text) {
+  findWordyPhrases(text, ntext) {
+    ntext = ntext || text;
     const issues = [];
     for (const [phrase, replacement] of Object.entries(this.WORDY_PHRASES)) {
       const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp('\\b' + escaped + '\\b', 'gi');
+      const regex = new RegExp('(?<!\\w)' + escaped + '(?!\\w)', 'gi');
       let match;
-      while ((match = regex.exec(text)) !== null) {
+      while ((match = regex.exec(ntext)) !== null) {
         issues.push({
-          type: 'wordy', text: match[0],
+          type: 'wordy', text: text.substring(match.index, match.index + match[0].length),
           index: match.index, length: match[0].length, severity: 'medium', confidence: 0.95,
           message: `Wordy phrase: "${match[0]}"`,
           suggestion: `Replace with: "${replacement}"`
@@ -420,16 +442,17 @@ const Analyzer = {
   // ========================
   // PASSIVE VOICE
   // ========================
-  findPassiveVoice(text) {
+  findPassiveVoice(text, ntext) {
+    ntext = ntext || text;
     const issues = [];
     for (const pattern of this.PASSIVE_PATTERNS) {
       let match;
       const regex = new RegExp(pattern.source, pattern.flags);
-      while ((match = regex.exec(text)) !== null) {
+      while ((match = regex.exec(ntext)) !== null) {
         const lastWord = match[0].split(/\s+/).pop().toLowerCase();
         if (this.PASSIVE_EXCEPTIONS.has(lastWord)) continue;
 
-        const after = text.substring(match.index + match[0].length, Math.min(text.length, match.index + match[0].length + 40));
+        const after = ntext.substring(match.index + match[0].length, Math.min(ntext.length, match.index + match[0].length + 40));
         const byMatch = after.match(/^\s+by\s+(the\s+)?(\w+)/i);
         let suggestion;
         if (byMatch) {
@@ -442,7 +465,7 @@ const Analyzer = {
         }
 
         issues.push({
-          type: 'passive', text: match[0], index: match.index, length: match[0].length,
+          type: 'passive', text: text.substring(match.index, match.index + match[0].length), index: match.index, length: match[0].length,
           severity: 'medium', confidence: 0.85,
           message: `Passive voice: "${match[0]}"`,
           suggestion
@@ -455,7 +478,8 @@ const Analyzer = {
   // ========================
   // WORD REPETITION
   // ========================
-  findRepetitions(text) {
+  findRepetitions(text, ntext) {
+    ntext = ntext || text;
     const issues = [];
     const lower = text.toLowerCase();
     const sentenceRegex = /[^.!?]*[.!?]+/g;
@@ -505,16 +529,17 @@ const Analyzer = {
   // ========================
   // LONG SENTENCE DETECTION
   // ========================
-  findLongSentences(text) {
+  findLongSentences(text, ntext) {
+    ntext = ntext || text;
     const issues = [];
     const sentenceRegex = /[^.!?]*[.!?]+/g;
     let match;
     while ((match = sentenceRegex.exec(text)) !== null) {
       const sentence = match[0].trim();
       const wordCount = sentence.split(/\s+/).length;
-      if (sentence.includes(';')) continue;
+      const hasSemicolon = sentence.includes(';');
       const hasDialogue = /[""\u201C][^""\u201D]*[""\u201D]/.test(sentence);
-      const threshold = hasDialogue ? 45 : 35;
+      const threshold = 35 + (hasDialogue ? 10 : 0) + (hasSemicolon ? 8 : 0);
       if (wordCount > threshold) {
         const severity = wordCount > 50 ? 'high' : wordCount > 42 ? 'medium' : 'low';
         const confidence = wordCount > 50 ? 0.95 : 0.8;
@@ -590,7 +615,8 @@ const Analyzer = {
     hideous: 'Show the visceral reaction \u2014 recoiling, averted eyes, a held breath.'
   },
 
-  findShowVsTell(text) {
+  findShowVsTell(text, ntext) {
+    ntext = ntext || text;
     const issues = [];
     const tellingPatterns = [
       { regex: /\b(felt|feeling)\s+(angry|happy|sad|scared|afraid|nervous|anxious|excited|lonely|jealous|proud|guilty|ashamed|confused|frustrated|disappointed|relieved|grateful|hopeful|desperate)\b/gi, msg: 'Telling emotion instead of showing', emotionIdx: 2 },
@@ -602,7 +628,7 @@ const Analyzer = {
     for (const { regex, msg, emotionIdx } of tellingPatterns) {
       let match;
       const r = new RegExp(regex.source, regex.flags);
-      while ((match = r.exec(text)) !== null) {
+      while ((match = r.exec(ntext)) !== null) {
         let suggestion = 'Show through action, dialogue, or sensory detail instead.';
         if (emotionIdx > 0 && match[emotionIdx]) {
           const emotion = match[emotionIdx].toLowerCase();
@@ -612,10 +638,53 @@ const Analyzer = {
           }
         }
         issues.push({
-          type: 'show-tell', text: match[0], index: match.index, length: match[0].length,
+          type: 'show-tell', text: text.substring(match.index, match.index + match[0].length), index: match.index, length: match[0].length,
           severity: 'medium', confidence: 0.85, message: `${msg}: "${match[0]}"`,
           suggestion
         });
+      }
+    }
+    return issues;
+  },
+
+  // ========================
+  // BOOKISM DETECTION
+  // ========================
+  BOOKISMS_HIGH_RISK: new Set(['ejaculated','opined','expostulated','retorted','interjected','riposted','demurred','remonstrated','averred','enunciated','vociferated']),
+  BOOKISMS_EXPRESSIVE: new Set(['exclaimed','gasped','snapped','barked','growled','boomed','hissed','shrieked','bellowed','thundered','whimpered','sobbed','wailed','screeched','roared','snarled','stammered','stuttered']),
+
+  findBookisms(text, ntext) {
+    ntext = ntext || text;
+    const issues = [];
+    const tagCounts = {};
+    const tagPositions = {};
+    const pattern = /["']\s*([A-Z]\w*|\w+)\s+(ejaculated|opined|expostulated|retorted|interjected|riposted|demurred|remonstrated|averred|enunciated|vociferated|exclaimed|gasped|snapped|barked|growled|boomed|hissed|shrieked|bellowed|thundered|whimpered|sobbed|wailed|screeched|roared|snarled|stammered|stuttered)\b/gi;
+    let m;
+    while ((m = pattern.exec(ntext)) !== null) {
+      const verb = m[2].toLowerCase();
+      tagCounts[verb] = (tagCounts[verb] || 0) + 1;
+      if (!tagPositions[verb]) tagPositions[verb] = [];
+      tagPositions[verb].push({ index: m.index + m[0].indexOf(m[2]), length: m[2].length });
+    }
+    const pattern2 = /\b(ejaculated|opined|expostulated|retorted|interjected|riposted|demurred|remonstrated|averred|enunciated|vociferated|exclaimed|gasped|snapped|barked|growled|boomed|hissed|shrieked|bellowed|thundered|whimpered|sobbed|wailed|screeched|roared|snarled|stammered|stuttered)\s+([A-Z]\w*|\w+)\s*[,.]?\s*["']/gi;
+    while ((m = pattern2.exec(ntext)) !== null) {
+      const verb = m[1].toLowerCase();
+      tagCounts[verb] = (tagCounts[verb] || 0) + 1;
+      if (!tagPositions[verb]) tagPositions[verb] = [];
+      tagPositions[verb].push({ index: m.index, length: m[1].length });
+    }
+    for (const [verb, count] of Object.entries(tagCounts)) {
+      const threshold = this.BOOKISMS_HIGH_RISK.has(verb) ? 2 : this.BOOKISMS_EXPRESSIVE.has(verb) ? 4 : 999;
+      if (count >= threshold) {
+        const severity = this.BOOKISMS_HIGH_RISK.has(verb) ? 'high' : 'medium';
+        for (const pos of tagPositions[verb]) {
+          issues.push({
+            type: 'bookism', text: text.substring(pos.index, pos.index + pos.length),
+            index: pos.index, length: pos.length, severity, confidence: 0.9,
+            message: `Bookism: "${verb}" used ${count}x in this manuscript.`,
+            suggestion: `"${verb}" is a bookism — editors notice these. Use "said" instead; it's invisible to readers.`
+          });
+        }
       }
     }
     return issues;
@@ -2758,23 +2827,27 @@ const Analyzer = {
       return { error: 'Text too short for meaningful analysis. Please provide at least a few paragraphs.' };
     }
 
+    // Normalize for detection: smart quotes → straight, em/en dash → hyphen
+    const ntext = this._normalizeForDetection(text);
+
     // Detect manuscript mode first
     const manuscriptMode = this.detectMode(text);
     const mode = manuscriptMode.mode;
 
-    const passiveIssues = this.findPassiveVoice(text);
-    const adverbIssues = this.findAdverbs(text);
-    const clicheIssues = this.findCliches(text);
-    const weakVerbIssues = this.findWeakVerbs(text);
-    const wordyIssues = this.findWordyPhrases(text);
-    const repetitionIssues = this.findRepetitions(text);
-    const longSentenceIssues = this.findLongSentences(text);
-    const showTellIssues = this.findShowVsTell(text);
+    const passiveIssues = this.findPassiveVoice(text, ntext);
+    const adverbIssues = this.findAdverbs(text, ntext);
+    const clicheIssues = this.findCliches(text, ntext);
+    const weakVerbIssues = this.findWeakVerbs(text, ntext);
+    const wordyIssues = this.findWordyPhrases(text, ntext);
+    const repetitionIssues = this.findRepetitions(text, ntext);
+    const longSentenceIssues = this.findLongSentences(text, ntext);
+    const showTellIssues = this.findShowVsTell(text, ntext);
+    const bookismIssues = this.findBookisms(text, ntext);
 
     const rawIssues = [
       ...passiveIssues, ...adverbIssues, ...clicheIssues,
       ...weakVerbIssues, ...wordyIssues, ...repetitionIssues,
-      ...longSentenceIssues, ...showTellIssues
+      ...longSentenceIssues, ...showTellIssues, ...bookismIssues
     ];
 
     // ========================================================
@@ -2905,7 +2978,8 @@ const Analyzer = {
         passive: passiveIssues.length, adverb: adverbIssues.length,
         cliche: clicheIssues.length, 'weak-verb': weakVerbIssues.length,
         wordy: wordyIssues.length, repetition: repetitionIssues.length,
-        'sentence-length': longSentenceIssues.length, 'show-tell': showTellIssues.length
+        'sentence-length': longSentenceIssues.length, 'show-tell': showTellIssues.length,
+        bookism: bookismIssues.length
       }
     };
   },
