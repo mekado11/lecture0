@@ -282,6 +282,7 @@ function autoSave(){
   if(!analysisResult||!uploadedFile)return;
   clearTimeout(autoSaveTimer);
   autoSaveTimer=setTimeout(async()=>{
+    if(!uploadedFile||!analysisResult)return;
     if(Storage.userId){
       try{
         if(!Storage._currentManuscriptId){
@@ -800,14 +801,15 @@ const _issueWhy={
   'show-tell':'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',
   wordy:'Extra words slow pacing and dilute impact. Tight prose holds attention.',
   repetition:'Repeated words in close proximity suggest limited vocabulary and can feel monotonous to readers.',
-  'sentence-length':'Long sentences tax working memory. Varying length creates rhythm and controls pacing.'
+  'sentence-length':'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',
+  bookism:'Bookism dialogue tags ("ejaculated", "riposted", "opined") signal amateur writing. Agents and editors flag these on sight. "Said" is invisible to readers — use it.'
 };
 
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
   const typeMap={plot:null,clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:null,showTell:'show-tell',copy:null};
   const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing'};
-  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence'};
+  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence',bookism:'Bookism'};
   const t=typeMap[cat];
 
   // Sort by severity: high first, then medium, then low
@@ -911,7 +913,7 @@ function renderDetailed(r){
   plotRows.push(sr('Issues/1K words',r.issuesPerK));
   h+=secWithTip(plotLabel,r.scores.plot,plotRows,'plot');
   h+=secWithTip('Transitions',r.scores.transitions,[r.transitions.smoothRate+'% smooth',sr('Transition Words',r.transitions.transitionsUsed),sr('Smooth',r.transitions.smoothTransitions+'/'+(r.transitions.totalParagraphs-1))],'transitions');
-  h+=secWithTip('Copy Editing',r.scores.copy,[r.issues.length+' issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell'])],'copy');
+  h+=secWithTip('Copy Editing',r.scores.copy,[r.issues.length+' issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell']),sr('Bookisms',r.issueCounts.bookism||0)],'copy');
   // Line Editing (true stylistic editing, not just readability)
   const le=r.lineEditing;
   const lineRows=['Stylistic editing: tone, flow, precision, pacing, POV, extraneous language'];
@@ -2624,7 +2626,7 @@ $('genre-override')?.addEventListener('change',()=>{
   renderAll();
 });
 
-function goToLibrary(){$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-modal')?.classList.add('hidden');$('upload-loading')?.classList.add('hidden');$('analyze-btn')?.classList.add('hidden');$('file-info')?.classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value='';Storage._currentManuscriptId=null;document.body.classList.add('lib-mode');renderLibrary()}
+function goToLibrary(){clearTimeout(_reanalyzeTimer);_reanalyzeTimer=null;clearTimeout(autoSaveTimer);autoSaveTimer=null;$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-modal')?.classList.add('hidden');$('upload-loading')?.classList.add('hidden');$('analyze-btn')?.classList.add('hidden');$('file-info')?.classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value='';Storage._currentManuscriptId=null;document.body.classList.add('lib-mode');renderLibrary()}
 $('new-btn')?.addEventListener('click',goToLibrary);
 // Back arrow removed — Library button handles navigation
 
