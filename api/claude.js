@@ -32,15 +32,16 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: { message: 'Method not allowed' } }); return; }
 
-  if (req.body.test) { res.json({ ok: true }); return; }
+  if (req.body.test === true && process.env.NODE_ENV !== 'production') { res.json({ ok: true }); return; }
 
   // Rate limiting
+  // IMPORTANT: userId comes from client — never use it to grant elevated privileges.
+  // Admin/dev status is only determined by DEV_UIDS (server-side list), never from client headers.
   const userId = req.headers['x-user-id'] || 'anonymous';
-  const userEmail = (req.headers['x-user-email'] || '').toLowerCase().trim();
   const today = new Date().toISOString().split('T')[0];
   const key = userId + ':' + today;
   const current = rateLimitMap.get(key) || 0;
-  const isDev = DEV_UIDS.has(userId) || ADMIN_EMAILS.has(userEmail);
+  const isDev = DEV_UIDS.has(userId);
   // TODO: check Firestore for user tier. For now, all non-dev users are free.
   const userTier = isDev ? 'dev' : 'free';
   const limitMap = { dev: DEV_LIMIT, premium: PREMIUM_AI_LIMIT, starter: STARTER_AI_LIMIT, free: FREE_AI_LIMIT };

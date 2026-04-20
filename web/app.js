@@ -10,16 +10,16 @@ dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-ove
 dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files.length)hf(e.dataTransfer.files[0])});
 fi.addEventListener('change',e=>{if(e.target.files.length)hf(e.target.files[0])});
-$('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('analyze-btn').classList.add('hidden');fi.value=''});
+$('clear-file').addEventListener('click',()=>{uploadedFile=null;extractedText='';analysisResult=null;$('file-info').classList.add('hidden');$('analyze-btn').classList.add('hidden');fi.value=''});
 function hf(f){const x=f.name.split('.').pop().toLowerCase();if(!['docx','pdf','txt'].includes(x)){alert('Upload .docx, .pdf, or .txt');return}if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');$('analyze-btn').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden')}
-async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const c=await(await p.getPage(i)).getTextContent();t+=c.items.map(x=>x.str).join(' ')+'\n\n'}return t}}
+async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';const res=await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()});return res.value||''}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const c=await(await p.getPage(i)).getTextContent();t+=(c.items||[]).map(x=>x.str).join(' ')+'\n\n'}return t||''}}
 $('analyze-btn').addEventListener('click',async()=>{
   if(!uploadedFile)return;
   $('analyze-btn').classList.add('hidden');
   $('upload-loading').classList.remove('hidden');
   try{
     $('loader-text').textContent='Extracting...';
-    extractedText=await ext(uploadedFile);
+    extractedText=(await ext(uploadedFile)||'').substring(0,500000);
     $('loader-text').textContent='Analyzing...';
     // Yield to UI so spinner renders before blocking analysis
     await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
@@ -1480,6 +1480,7 @@ function renderBookPreview(r){
 function showOpeningCoach(){
   if(!analysisResult)return;
   const od=analysisResult.openingDiagnosis;
+  if(!od||od.score===undefined)return;
   // Switch to a new panel view in the center
   document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
@@ -1951,7 +1952,7 @@ function renderAnnotatedAsPages(text,issues){
       // Types with reliable auto-fix: wordy (has "Replace with"), weak-verb/repetition (has "Try:"), adverb (remove), passive (restructure), cliche (has map)
       const canAutoFix=hasAI||hasTry||t==='adverb'||t==='passive'||t==='wordy'||t==='cliche';
       const fixLabel=canAutoFix?'Replace &amp; Fix':'Edit Here';
-      tip.innerHTML='<div class="tip-cat">'+(labels[t]||t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+sug+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+fixLabel+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
+      tip.innerHTML='<div class="tip-cat">'+(labels[t]||t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+esc(sug)+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+fixLabel+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
       tip.classList.add('on');
       const rect=hl.getBoundingClientRect();
       tip.style.top=(rect.bottom+8)+'px';
@@ -2393,10 +2394,14 @@ async function _openManuscript(idx){
   }else{
     const full=await Storage.getManuscript(m.id);
     if(!full)return;
-    extractedText=full.text;
+    extractedText=full.text||'';
     uploadedFile={name:full.fileName,size:0};
     analysisResult=Analyzer.analyze(extractedText);
     Storage._currentManuscriptId=m.id;
+  }
+  if(!analysisResult||analysisResult.error){
+    alert(analysisResult?.error||'Could not analyze this manuscript. The text may be empty or too short.');
+    return;
   }
   // Remember for "Back to Editor"
   localStorage.setItem('ml_last_open',JSON.stringify({fileName:m.fileName,manuscriptId:Storage._currentManuscriptId||m.id||null}));
