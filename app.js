@@ -722,19 +722,19 @@ function renderRight(r){
   const highSev=type=>r.issues.filter(i=>i.type===type&&i.severity==='high').length;
   const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
   const cats=[
-    {k:'plot',name:'Plot Structure',score:r.scores.plot,issues:0,weight:'10%'},
+    {k:'plot',name:'Plot Structure',score:r.scores.plot,issues:countType('pov'),weight:'10%'},
     {k:'clarity',name:'Clarity',score:r.readerPerspective.clarityScore,issues:countType('passive'),weight:'10%'},
     {k:'pacing',name:'Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),issues:countType('sentence-length'),badge:r.readerPerspective.pacingFeel.includes('Rushed')?'Rushed':null,weight:'8%'},
     {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:countType('adverb'),weight:'7%'},
     {k:'style',name:'Style & Voice',score:r.scores.style,issues:countType('weak-verb'),weight:'8%'},
-    {k:'dialogue',name:'Dialogue',score:r.scores.dialogue,issues:0,weight:'7%'},
+    {k:'dialogue',name:'Dialogue',score:r.scores.dialogue,issues:countType('dialogue'),weight:'7%'},
     {k:'showTell',name:'Show vs Tell',score:r.scores.showTell,issues:stIssues,weight:'8%'},
     {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:cpIssues,weight:'12%'}
   ];
   const container=$('rp-scores');
   container.innerHTML=cats.map(c=>{
     const col=scHex(c.score);const id='rsc-'+Math.random().toString(36).substr(2,5);
-    const issueLabel=c.issues>0?c.issues+' issue'+(c.issues===1?'':'s'):'Clean';
+    const issueLabel=c.issues>0?c.issues+' issue'+(c.issues===1?'':'s'):c.score>=80?'Clean':'—';
     const issueColor=c.issues>10?'var(--red)':c.issues>3?'var(--yellow)':'var(--green)';
     return '<div class="rsc" data-cat="'+c.k+'"><div class="rsc-ring"><canvas id="'+id+'" width="34" height="34"></canvas><span class="rsc-n" style="color:'+col+'">'+c.score+'</span></div><div class="rsc-info"><div class="rsc-name">'+c.name+'<span style="font-size:.55rem;color:var(--dim);margin-left:4px">'+c.weight+'</span></div><div class="rsc-sub" style="color:'+issueColor+'">'+issueLabel+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="rsc-val" style="color:'+col+'">'+c.score+'</span>')+'</div>';
   }).join('');
@@ -758,9 +758,124 @@ const _issueWhy={
   'sentence-length':'Long sentences tax working memory. Varying length creates rhythm and controls pacing.'
 };
 
+const _REWRITE_TYPES = new Set(['passive','adverb','weak-verb','show-tell','wordy','cliche']);
+
+function wireCardBtns(card, btns) {
+  btns.querySelector('.rpd-fix-btn')?.addEventListener('click', () => {
+    const page = $('ed-annotated');
+    const q = card.dataset.issueText.substring(0,60).replace(/"/g,'&quot;');
+    const hl = page?.querySelector('.hl[data-q="'+q+'"]');
+    if (!hl) return;
+    document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
+    document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
+    $('ed-annotated')?.classList.add('active');
+    if (card.dataset.hasFix === '1') {
+      replaceAndFix(hl);
+      card.style.opacity = '.3'; card.style.pointerEvents = 'none';
+    } else {
+      hl.scrollIntoView({behavior:'smooth',block:'center'});
+      setTimeout(()=>{const sel=window.getSelection();const r=document.createRange();r.selectNodeContents(hl);sel.removeAllRanges();sel.addRange(r)},400);
+    }
+  });
+  btns.querySelector('.tip-ign')?.addEventListener('click', () => {
+    const page = $('ed-annotated');
+    const q = card.dataset.issueText.substring(0,60).replace(/"/g,'&quot;');
+    const hl = page?.querySelector('.hl[data-q="'+q+'"]');
+    if (hl) hl.classList.add('off');
+    card.remove();
+  });
+  btns.querySelector('.rpd-rewrite-btn')?.addEventListener('click', () => doRewrite(card));
+}
+
+async function doRewrite(card) {
+  const issueText = card.dataset.issueText;
+  const issueType = card.dataset.issueType;
+  const issueIndex = parseInt(card.dataset.issueIndex || '0', 10);
+  const btns = card.querySelector('.rpd-btns');
+
+  let sentence = issueText, context = '';
+  if (extractedText) {
+    const sentStart = Math.max(0, extractedText.lastIndexOf('.', issueIndex - 1) + 1);
+    const sentEnd = extractedText.indexOf('.', issueIndex + issueText.length);
+    if (sentEnd > sentStart) sentence = extractedText.slice(sentStart, sentEnd + 1).trim();
+    const lo = Math.max(0, issueIndex - 150);
+    const hi = Math.min(extractedText.length, issueIndex + issueText.length + 150);
+    context = extractedText.slice(lo, hi);
+  }
+
+  btns.innerHTML = '<span class="rpd-rewrite-loading"><span class="rpd-spin"></span>Rewriting…</span>';
+
+  try {
+    const fp = Analyzer.extractStyleFingerprint(extractedText);
+    const res = await AIEngine.rewriteSentence(sentence, issueType, context, fp);
+    const rewrite = res?.rewrite?.trim() || '';
+    if (!rewrite) throw new Error('Empty response — try again');
+
+    btns.innerHTML =
+      '<div class="rpd-rewrite-result">' +
+        '<div class="rpd-rewrite-label">✦ Suggested rewrite <span class="rpd-exp-badge">Experimental</span></div>' +
+        '<div class="rpd-rewrite-text">' + esc(rewrite) + '</div>' +
+        '<div class="rpd-rewrite-actions">' +
+          '<button class="rpd-use-btn">Use This</button>' +
+          '<button class="rpd-retry-btn">Try Again</button>' +
+          '<button class="rpd-skip-btn">Skip</button>' +
+        '</div>' +
+      '</div>';
+
+    btns.querySelector('.rpd-use-btn').addEventListener('click', () => {
+      const page = $('ed-annotated');
+      const q = issueText.substring(0,60).replace(/"/g,'&quot;');
+      const hl = page?.querySelector('.hl[data-q="'+q+'"]');
+      document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
+      document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
+      $('ed-annotated')?.classList.add('active');
+      if (hl) {
+        const sel = window.getSelection(); const range = document.createRange();
+        range.selectNodeContents(hl); sel.removeAllRanges(); sel.addRange(range);
+        document.execCommand('insertText', false, rewrite);
+        extractedText = extractTextFromEditor();
+        scheduleReanalyze();
+      }
+      card.style.opacity = '.3'; card.style.pointerEvents = 'none';
+    });
+
+    btns.querySelector('.rpd-retry-btn').addEventListener('click', () => doRewrite(card));
+
+    btns.querySelector('.rpd-skip-btn').addEventListener('click', () => {
+      const hasFix = card.dataset.hasFix === '1';
+      const fixBtnHtml = hasFix
+        ? '<button class="tip-fix rpd-fix-btn">Accept Fix</button>'
+        : '<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
+      btns.innerHTML = fixBtnHtml + '<button class="tip-ign rpd-ign-btn">Dismiss</button>'
+        + '<button class="rpd-rewrite-btn">✦ Rewrite</button>';
+      wireCardBtns(card, btns);
+    });
+
+  } catch(err) {
+    btns.innerHTML =
+      '<div class="rpd-rewrite-error">⚠ ' + esc(err.message) + '</div>' +
+      '<div class="rpd-rewrite-actions">' +
+        '<button class="rpd-retry-btn">Try Again</button>' +
+        '<button class="rpd-skip-btn">Skip</button>' +
+      '</div>';
+    btns.querySelector('.rpd-retry-btn').addEventListener('click', () => doRewrite(card));
+    btns.querySelector('.rpd-skip-btn').addEventListener('click', () => {
+      const hasFix = card.dataset.hasFix === '1';
+      const fixBtnHtml = hasFix
+        ? '<button class="tip-fix rpd-fix-btn">Accept Fix</button>'
+        : '<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
+      btns.innerHTML = fixBtnHtml + '<button class="tip-ign rpd-ign-btn">Dismiss</button>'
+        + '<button class="rpd-rewrite-btn">✦ Rewrite</button>';
+      wireCardBtns(card, btns);
+    });
+  }
+}
+
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
-  const typeMap={plot:null,clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:null,showTell:'show-tell',copy:null};
+  const typeMap={plot:'pov',clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:'dialogue',showTell:'show-tell',copy:null};
   const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing'};
   const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence'};
   const t=typeMap[cat];
@@ -786,12 +901,13 @@ function showDetail(cat){
     (shown.length===0?'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No issues in this category. Nice work!</p>':
     shown.map((iss,idx)=>{
       const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Accept Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
+      const rwBtn=_REWRITE_TYPES.has(iss.type)?'<button class="rpd-rewrite-btn">✶ Rewrite</button>':'';
       const sevColor=iss.severity==='high'?'var(--red)':iss.severity==='medium'?'var(--yellow)':'var(--muted)';
-      return '<div class="rpd-issue" data-issue-text="'+escA(iss.text)+'" data-issue-sug="'+escA(iss.suggestion)+'" data-has-fix="'+(hasConcreteFix(iss)?'1':'0')+'">'+
+      return '<div class="rpd-issue" data-issue-text="'+escA(iss.text)+'" data-issue-sug="'+escA(iss.suggestion)+'" data-has-fix="'+(hasConcreteFix(iss)?'1':'0')+'" data-issue-type="'+escA(iss.type)+'" data-issue-index="'+(iss.index||0)+'">'+
         '<div class="rpd-issue-head"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+sevColor+';margin-right:5px"></span>'+(typeLabels[iss.type]||iss.type)+'</div>'+
         '<div class="rpd-desc">'+esc(iss.suggestion)+'</div>'+
         '<div class="rpd-quote rpd-navigate" style="cursor:pointer" title="Click to jump to this text">\u2018'+esc(iss.text.substring(0,60))+'\u2019</div>'+
-        '<div class="rpd-btns">'+fixBtn+'<button class="tip-ign rpd-ign-btn">Dismiss</button></div></div>';
+        '<div class="rpd-btns">'+fixBtn+'<button class="tip-ign rpd-ign-btn">Dismiss</button>'+rwBtn+'</div></div>';
     }).join(''))+
     (totalForCat>8?'<div style="padding:.4rem .7rem;font-size:.7rem;color:var(--muted);text-align:center">Showing top 8 of '+totalForCat+' — fix these first for the biggest impact</div>':'');
 
@@ -836,6 +952,9 @@ function showDetail(cat){
     const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');
     if(hl)hl.classList.add('off');
     card.remove();
+  })});
+  d.querySelectorAll('.rpd-rewrite-btn').forEach(btn=>{btn.addEventListener('click',()=>{
+    doRewrite(btn.closest('.rpd-issue'));
   })});
 }
 

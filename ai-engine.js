@@ -499,7 +499,49 @@ Rules:
         Object.keys(v2.scores).map(k => [k, diff(v1.scores[k] || 0, v2.scores[k] || 0)])
       )
     };
+  },
+
+  async _callClaudeRewrite(systemText, userText) {
+    const endpoint = this.API_ENDPOINT;
+    const headers = { 'content-type': 'application/json' };
+    const currentUser = typeof firebase !== 'undefined' && firebase.auth().currentUser ? firebase.auth().currentUser : null;
+    headers['x-user-id'] = currentUser ? currentUser.uid : 'anon';
+    if (currentUser) {
+      try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch(e) {}
+    }
+    headers['x-model'] = 'claude';
+    const response = await fetch(endpoint, {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 256,
+        system: [{ type: 'text', text: systemText }],
+        messages: [{ role: 'user', content: userText }]
+      })
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(()=>({}));
+      throw new Error(err.error?.message || 'Rewrite failed (' + response.status + ')');
+    }
+    const result = await response.json();
+    const raw = result.content?.[0]?.text || '';
+    try { return JSON.parse(raw); } catch(e) { return { rewrite: raw.trim() }; }
+  },
+
+  async rewriteSentence(sentence, issueType, context, fingerprint) {
+    const fp = Analyzer.fingerprintToPrompt(fingerprint);
+    const names = {
+      passive: 'passive voice', adverb: 'adverb overuse', 'weak-verb': 'weak verb',
+      'show-tell': 'telling instead of showing', wordy: 'wordiness', cliche: 'cliché'
+    };
+    const issueName = names[issueType] || issueType;
+    const sys = 'You are a fiction editor. Fix the writing issue while preserving the author\'s exact voice and meaning. Return ONLY valid JSON: {"rewrite":"..."}. No explanation.'
+      + (fp ? '\n\nAuthor voice profile: ' + fp + '.' : '');
+    const usr = 'Fix ' + issueName + ' in:\n"' + sentence + '"'
+      + (context && context !== sentence ? '\n\nContext (do not rewrite):\n"' + context + '"' : '');
+    return this._callClaudeRewrite(sys, usr);
   }
+
 };
 
 // Load session cache on init
