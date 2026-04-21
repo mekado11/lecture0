@@ -131,7 +131,7 @@ h1{font-size:2.6rem;font-weight:700;line-height:1.15;margin-bottom:.8rem;text-al
 <div class="bg"></div>
 <nav>
   <a class="nb" href="index.html"><span>&#127807;</span> AuthorScrolls</a>
-  <div class="nl" id="nl"><a href="pricing.html">Pricing</a><a href="blog.html">Blog</a><a onclick="showAuth('signin')">Sign In</a><button class="nc" onclick="showAuth('signup')">Sign Up Free</button></div>
+  <div class="nl" id="nl"><a href="pricing.html">Pricing</a><a href="blog.html">Blog</a><a id="nav-signin" style="cursor:pointer">Sign In</a><button class="nc" id="nav-signup">Sign Up Free</button></div>
   <div class="ui hidden" id="nu"><a href="profile.html" style="text-decoration:none;display:flex;align-items:center;gap:.4rem"><div class="ua" id="uav">?</div><span id="unm" style="color:#e8dfd4;font-size:.82rem">User</span></a><a href="pricing.html" style="color:#9c9085;font-size:.82rem;text-decoration:none;font-family:Inter,sans-serif">Pricing</a><a class="nc" href="app.html">Open Editor</a></div>
 </nav>
 
@@ -140,7 +140,7 @@ h1{font-size:2.6rem;font-weight:700;line-height:1.15;margin-bottom:.8rem;text-al
   <div class="roller"><div class="finial l"></div><div class="finial r"></div></div>
   <div class="parch">
     <div class="rv"><h1>Welcome to Writing,<br>Engineered.</h1><p class="sub">Turn your words into precision-crafted storytelling<br>with real-time intelligence, not guesswork.</p>
-    <div class="btns"><button class="bg1" onclick="showAuth('signup')">Start Writing</button><button class="bo1" onclick="document.getElementById('how').scrollIntoView({behavior:'smooth'})">See How It Works</button></div></div>
+    <div class="btns"><button class="bg1" id="hero-cta">Start Writing</button><button class="bo1" id="hero-how">See How It Works</button></div></div>
     <div class="div"></div>
     <div class="rv" id="how"><p class="tagb">Most tools fix grammar.</p><p class="tagb">None tell you if your story works.</p><div class="div"></div><p class="tags">Measure How Your Writing Performs</p></div>
     <div class="ss rv">
@@ -158,7 +158,7 @@ h1{font-size:2.6rem;font-weight:700;line-height:1.15;margin-bottom:.8rem;text-al
       <div class="ft rv"><div class="ft-i">&#9997;</div><h3>Fix issues with a click, tailored to your goals</h3><p>Replace & Fix rewrites weak verbs, splits long sentences, removes filler.</p></div>
       <div class="ft rv"><div class="ft-i">&#128065;</div><h3>Know how readers respond before they read</h3><p>DNF Risk, engagement, hook strength, emotional journey mapping.</p></div>
     </div>
-    <div class="cta rv"><button class="bg1" style="font-size:1.05rem;padding:.85rem 2.5rem" onclick="showAuth('signup')">Start Writing Better Today &#8250;</button></div>
+    <div class="cta rv"><button class="bg1" id="bottom-cta" style="font-size:1.05rem;padding:.85rem 2.5rem">Start Writing Better Today &#8250;</button></div>
   </div>
   <div class="roller"><div class="finial l"></div><div class="finial r"></div></div>
 </div>
@@ -170,7 +170,7 @@ h1{font-size:2.6rem;font-weight:700;line-height:1.15;margin-bottom:.8rem;text-al
 
 <!-- AUTH -->
 <div class="ao" id="ao">
-<div class="ab"><button class="ax" onclick="hideAuth()">&times;</button>
+<div class="ab"><button class="ax" id="auth-close">&times;</button>
 <h2 id="ati">Welcome Back</h2><p id="asu">Sign in to access your manuscripts</p>
 <button class="abtn ag" id="gbtn"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>Continue with Google</button>
 <div class="adv">or</div>
@@ -179,23 +179,13 @@ h1{font-size:2.6rem;font-weight:700;line-height:1.15;margin-bottom:.8rem;text-al
 <input type="password" class="ai" id="apw" placeholder="Password (min 6 characters)">
 <button class="as" id="aes">Sign In</button>
 <div class="ae" id="aer"></div>
-<div class="at" id="atg">Don't have an account? <span onclick="sw()">Sign up</span></div>
+<div class="at" id="atg">Don't have an account? <span id="auth-toggle" style="cursor:pointer">Sign up</span></div>
 </div></div>
 
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-<script>
-firebase.initializeApp({apiKey:"AIzaSyBkLqqoxn7gkE9EBvGeuRz54-7xEN9dAWI",authDomain:"writers-manuscript.firebaseapp.com",projectId:"writers-manuscript",storageBucket:"writers-manuscript.appspot.com",messagingSenderId:"420138585851",appId:"1:420138585851:web:09c683cf202c9dde50aa5e"});
-const auth=firebase.auth();let am='signin';
-auth.onAuthStateChanged(u=>{if(u){document.getElementById('nl').classList.add('hidden');document.getElementById('nu').classList.remove('hidden');document.getElementById('unm').textContent=u.displayName||u.email.split('@')[0];document.getElementById('uav').textContent=(u.displayName||u.email)[0].toUpperCase();hideAuth()}else{document.getElementById('nl').classList.remove('hidden');document.getElementById('nu').classList.add('hidden')}});
-function showAuth(m){am=m||'signin';document.getElementById('ao').classList.add('show');if(am==='signup'){document.getElementById('ati').textContent='Create Your Account';document.getElementById('asu').textContent='Start analyzing your manuscripts for free';document.getElementById('anm').style.display='block';document.getElementById('aes').textContent='Sign Up';document.getElementById('atg').innerHTML='Already have an account? <span onclick="sw()">Sign in</span>'}else{document.getElementById('ati').textContent='Welcome Back';document.getElementById('asu').textContent='Sign in to access your manuscripts';document.getElementById('anm').style.display='none';document.getElementById('aes').textContent='Sign In';document.getElementById('atg').innerHTML='Don\'t have an account? <span onclick="sw()">Sign up</span>'}document.getElementById('aer').style.display='none'}
-function hideAuth(){document.getElementById('ao').classList.remove('show')}
-function sw(){showAuth(am==='signin'?'signup':'signin')}
-function se(m){const e=document.getElementById('aer');e.textContent=m;e.style.display='block'}
-document.getElementById('gbtn').addEventListener('click',async()=>{try{await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());window.location.href='app.html'}catch(e){se(e.message)}});
-document.getElementById('aes').addEventListener('click',async()=>{const em=document.getElementById('aem').value.trim(),pw=document.getElementById('apw').value,nm=document.getElementById('anm').value.trim();if(!em||!pw){se('Enter email and password');return}if(pw.length<6){se('Password: 6+ characters');return}try{if(am==='signup'){const c=await auth.createUserWithEmailAndPassword(em,pw);if(nm)await c.user.updateProfile({displayName:nm})}else{await auth.signInWithEmailAndPassword(em,pw)}window.location.href='app.html'}catch(e){const m={'auth/email-already-in-use':'Email already registered.','auth/invalid-email':'Invalid email.','auth/user-not-found':'No account found.','auth/wrong-password':'Incorrect password.','auth/weak-password':'Password too short.'};se(m[e.code]||e.message)}});
-document.querySelectorAll('.rv').forEach(el=>new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('v')})},{threshold:.15}).observe(el));
-</script>
+<script src="firebase-config.js"></script>
+<script src="landing-init.js"></script>
 </body>
 </html>

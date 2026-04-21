@@ -1,13 +1,5 @@
 // Firebase init + auth gate — extracted from inline script for CSP compliance
-const firebaseConfig = {
-  apiKey: "AIzaSyBkLqqoxn7gkE9EBvGeuRz54-7xEN9dAWI",
-  authDomain: "writers-manuscript.firebaseapp.com",
-  projectId: "writers-manuscript",
-  storageBucket: "writers-manuscript.appspot.com",
-  messagingSenderId: "420138585851",
-  appId: "1:420138585851:web:09c683cf202c9dde50aa5e"
-};
-firebase.initializeApp(firebaseConfig);
+firebase.initializeApp(FIREBASE_CONFIG);
 const ADMIN_EMAILS = ['admin@authorscrolls.com'];
 window.__isAdmin = false;
 firebase.auth().onAuthStateChanged(function(user) {

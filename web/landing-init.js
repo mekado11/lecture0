@@ -1,5 +1,5 @@
 // Firebase init + auth UI for landing page — extracted from inline script for CSP compliance
-firebase.initializeApp({apiKey:"AIzaSyBkLqqoxn7gkE9EBvGeuRz54-7xEN9dAWI",authDomain:"writers-manuscript.firebaseapp.com",projectId:"writers-manuscript",storageBucket:"writers-manuscript.appspot.com",messagingSenderId:"420138585851",appId:"1:420138585851:web:09c683cf202c9dde50aa5e"});
+firebase.initializeApp(FIREBASE_CONFIG);
 var auth=firebase.auth();var am='signin';
 auth.onAuthStateChanged(function(u){if(u){document.getElementById('nl').classList.add('hidden');document.getElementById('nu').classList.remove('hidden');document.getElementById('unm').textContent=u.displayName||u.email.split('@')[0];document.getElementById('uav').textContent=(u.displayName||u.email)[0].toUpperCase();hideAuth()}else{document.getElementById('nl').classList.remove('hidden');document.getElementById('nu').classList.add('hidden')}});
 function showAuth(m){
