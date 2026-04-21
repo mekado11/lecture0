@@ -747,7 +747,8 @@ const _issueWhy={
   'show-tell':'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',
   wordy:'Extra words slow pacing and dilute impact. Tight prose holds attention.',
   repetition:'Repeated words in close proximity suggest limited vocabulary and can feel monotonous to readers.',
-  'sentence-length':'Long sentences tax working memory. Varying length creates rhythm and controls pacing.'
+  'sentence-length':'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',
+  'confused-word':'Wrong word — sounds right but means something different. These slip past spell-check.'
 };
 
 const _REWRITE_TYPES = new Set(['passive','adverb','weak-verb','show-tell','wordy','cliche']);
@@ -870,7 +871,7 @@ function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
   const typeMap={plot:'pov',clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:'dialogue',showTell:'show-tell',copy:null};
   const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing'};
-  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence'};
+  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word'};
   const t=typeMap[cat];
 
   // Sort by severity: high first, then medium, then low
@@ -2009,7 +2010,7 @@ function renderAnnotatedAsPages(text,issues){
     const hl=e.target.closest('.hl');
     if(hl&&!hl.classList.contains('off')){
       activeHL=hl;
-      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};
+      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence','confused-word':'Wrong word'};
       const t=hl.dataset.t;
       const sug=hl.dataset.s||'';
       // Determine if this issue has an auto-replacement available
