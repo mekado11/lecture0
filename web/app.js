@@ -1353,10 +1353,22 @@ function renderBookPreview(r){
       const textNodes=[];
       while(walker.nextNode())textNodes.push(walker.currentNode);
       textNodes.forEach(tn=>{
+        re.lastIndex=0;
         if(re.test(tn.textContent)){
-          const span=document.createElement('span');
-          span.innerHTML=tn.textContent.replace(re,'<mark class="pv-highlight">$1</mark>');
-          tn.parentNode.replaceChild(span,tn);
+          re.lastIndex=0;
+          const frag=document.createDocumentFragment();
+          const txt=tn.textContent;
+          let last=0,m;
+          while((m=re.exec(txt))!==null){
+            if(m.index>last)frag.appendChild(document.createTextNode(txt.slice(last,m.index)));
+            const mark=document.createElement('mark');
+            mark.className='pv-highlight';
+            mark.textContent=m[1];
+            frag.appendChild(mark);
+            last=m.index+m[0].length;
+          }
+          if(last<txt.length)frag.appendChild(document.createTextNode(txt.slice(last)));
+          tn.parentNode.replaceChild(frag,tn);
         }
       });
     });

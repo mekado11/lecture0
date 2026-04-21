@@ -14,11 +14,6 @@ const DEV_UIDS = new Set([
   // Add your Firebase UID here after first sign-in
 ]);
 
-// Admin emails — these get dev-tier access regardless of UID
-const ADMIN_EMAILS = new Set([
-  'admin@authorscrolls.com'
-]);
-
 module.exports = async (req, res) => {
   const origin = req.headers.origin || '';
   const allowed = ['https://authorscrolls.com','https://www.authorscrolls.com'];
@@ -62,16 +57,23 @@ module.exports = async (req, res) => {
   for (const [k] of rateLimitMap) { if (!k.endsWith(today)) rateLimitMap.delete(k); }
 
   // Determine which model/provider to use
-  const requestedModel = req.headers['x-model'] || req.body._model || 'openai-fast';
-  delete req.body._model;
-  delete req.body._userId;
+  const ALLOWED_ROUTES = new Set(['claude','claude-premium','openai-fast','openai-nano','openai-premium']);
+  const requestedModel = req.headers['x-model'] || 'openai-fast';
+  if (!ALLOWED_ROUTES.has(requestedModel)) {
+    res.status(400).json({ error: { message: 'Invalid model route' } }); return;
+  }
+
+  // Extract only allowed fields — never forward arbitrary client payload
+  const sanitized = {
+    system: req.body.system || [],
+    messages: req.body.messages || [],
+    max_tokens: Math.min(Number(req.body.max_tokens) || 2048, 2048)
+  };
 
   if (requestedModel === 'claude' || requestedModel === 'claude-premium') {
-    // === CLAUDE (premium deep analysis) ===
-    return callClaude(req.body, res);
+    return callClaude(sanitized, res);
   } else {
-    // === OPENAI (fast/cheap for most tasks) ===
-    return callOpenAI(req.body, requestedModel, res);
+    return callOpenAI(sanitized, requestedModel, res);
   }
 };
 
@@ -79,8 +81,12 @@ function callClaude(body, res) {
   const apiKey = process.env.CLAUDE_API_KEY;
   if (!apiKey) { res.status(500).json({ error: { message: 'Claude API key not configured' } }); return Promise.resolve(); }
 
-  if (body.max_tokens > 2048) body.max_tokens = 2048;
-  const payload = JSON.stringify(body);
+  const payload = JSON.stringify({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: body.max_tokens,
+    system: body.system,
+    messages: body.messages
+  });
 
   const options = {
     hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST',
