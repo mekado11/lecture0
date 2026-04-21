@@ -115,27 +115,38 @@ let ignoredIssues=new Set();
 let previousScore=null;
 let autoSaveTimer=null;
 
-// Undo/Redo stack for Replace & Fix operations
+// Undo/Redo stack — we own ALL undo. Browser native undo is never used.
 const _undoStack=[];
 const _redoStack=[];
-const MAX_UNDO=30;
+const MAX_UNDO=50;
+let _lastSnapshotText='';
 function pushUndo(){
   const page=$('ed-annotated');
   if(!page)return;
   _undoStack.push({html:page.innerHTML,text:extractedText});
   if(_undoStack.length>MAX_UNDO)_undoStack.shift();
-  _redoStack.length=0; // clear redo on new action
+  _redoStack.length=0;
+  _lastSnapshotText=extractedText;
   _updateUndoBtn();
+}
+function _pushTypingSnapshot(){
+  if(extractedText===_lastSnapshotText)return;
+  const page=$('ed-annotated');
+  if(!page)return;
+  _undoStack.push({html:page.innerHTML,text:extractedText});
+  if(_undoStack.length>MAX_UNDO)_undoStack.shift();
+  _redoStack.length=0;
+  _lastSnapshotText=extractedText;
 }
 function undoLastFix(){
   if(_undoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  // Save current state to redo stack
   _redoStack.push({html:page.innerHTML,text:extractedText});
   const state=_undoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
+  _lastSnapshotText=extractedText;
   syncPreview();scheduleReanalyze();
   _updateUndoBtn();
 }
@@ -143,11 +154,11 @@ function redoLastFix(){
   if(_redoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  // Save current state to undo stack
   _undoStack.push({html:page.innerHTML,text:extractedText});
   const state=_redoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
+  _lastSnapshotText=extractedText;
   syncPreview();scheduleReanalyze();
   _updateUndoBtn();
 }
@@ -155,16 +166,15 @@ function _updateUndoBtn(){
   const btn=$('undo-fix-btn');
   if(btn)btn.style.display=_undoStack.length>0?'':'none';
 }
-// Keyboard shortcuts: Ctrl+Z=undo, Ctrl+R=redo, Ctrl+S=save
-// Ctrl+X/C/V (cut/copy/paste) handled natively by contenteditable
-// Use capture:true so we intercept before browser default actions
+// Keyboard shortcuts — we own Ctrl+Z completely
 window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase();
   if((e.ctrlKey||e.metaKey)&&k==='z'&&!e.shiftKey){
-    if(_undoStack.length>0){e.preventDefault();e.stopPropagation();undoLastFix()}
-  }else if((e.ctrlKey||e.metaKey)&&k==='r'){
-    e.preventDefault();e.stopImmediatePropagation(); // block reload
-    if(_redoStack.length>0){redoLastFix()}
+    e.preventDefault();e.stopPropagation();
+    undoLastFix();
+  }else if((e.ctrlKey||e.metaKey)&&(k==='y'||(k==='z'&&e.shiftKey))){
+    e.preventDefault();e.stopPropagation();
+    redoLastFix();
   }else if((e.ctrlKey||e.metaKey)&&k==='s'){
     e.preventDefault();e.stopPropagation();
     saveAnalysis();
@@ -510,6 +520,7 @@ function scheduleReanalyze(){
     const page=$('ed-annotated');
     if(!page)return;
     extractedText=extractTextFromEditor();
+    _pushTypingSnapshot();
     document.querySelectorAll('.rsc,.gauge-wrap').forEach(el=>el.classList.add('scores-pending'));
     if(_analyzerWorker){
       _analyzeVersion++;
