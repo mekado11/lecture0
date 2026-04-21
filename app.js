@@ -3,6 +3,18 @@ let uploadedFile=null,extractedText='',analysisResult=null;
 const $=id=>document.getElementById(id);
 document.body.classList.add('lib-mode'); // Library is first view — allow scroll
 
+// Web Worker for off-main-thread analysis
+let _analyzerWorker=null;
+let _analyzeVersion=0;
+try{_analyzerWorker=new Worker('analyzer-worker.js')}catch(e){console.warn('Worker init failed, using main thread:',e.message)}
+if(_analyzerWorker){
+  _analyzerWorker.onmessage=function(e){
+    if(e.data.type==='result'&&e.data.version===_analyzeVersion){
+      _onAnalysisComplete(e.data.data);
+    }
+  };
+}
+
 // UPLOAD
 const dz=$('drop-zone'),fi=$('file-input');
 dz.addEventListener('click',()=>fi.click());
@@ -22,9 +34,24 @@ $('analyze-btn').addEventListener('click',async()=>{
     extractedText=await ext(uploadedFile);
     _smartScanDone=false;_batchFixDone=false;
     $('loader-text').textContent='Analyzing...';
-    // Yield to UI so spinner renders before blocking analysis
-    await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
-    analysisResult=Analyzer.analyze(extractedText);
+    if(_analyzerWorker){
+      _analyzeVersion++;
+      const v=_analyzeVersion;
+      analysisResult=await new Promise((resolve,reject)=>{
+        const handler=function(e){
+          if(e.data.version===v){
+            _analyzerWorker.removeEventListener('message',handler);
+            if(e.data.type==='result')resolve(e.data.data);
+            else reject(new Error(e.data.message||'Analysis failed'));
+          }
+        };
+        _analyzerWorker.addEventListener('message',handler);
+        _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v});
+      });
+    }else{
+      await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
+      analysisResult=Analyzer.analyze(extractedText);
+    }
     if(analysisResult.error){alert(analysisResult.error);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
     // Save immediately to Firestore/localStorage so it appears in library
     trackSession('analyzing');
@@ -641,27 +668,32 @@ function extractTextFromEditor(){
   return parts.join('\n\n');
 }
 
+function _onAnalysisComplete(newResult){
+    if(newResult.error)return;
+    if(_initialIssueCount===null)_initialIssueCount=newResult.issues.length;
+    const prevCount=analysisResult?analysisResult.issues.length:_initialIssueCount;
+    const newCount=newResult.issues.length;
+    if(newCount<prevCount)_issuesResolved+=(prevCount-newCount);
+    analysisResult=newResult;
+    _batchFixDone=false;_smartScanDone=false;
+    diffHighlights(newResult.issues);
+    updateScoresOnly(newResult);
+    document.querySelectorAll('.rsc,.rp-detail,.gauge-wrap').forEach(el=>el.classList.remove('scores-pending'));
+}
+
 function scheduleReanalyze(){
   clearTimeout(_reanalyzeTimer);
   _reanalyzeTimer=setTimeout(()=>{
     const page=$('ed-annotated');
     if(!page)return;
     extractedText=extractTextFromEditor();
-    const newResult=Analyzer.analyze(extractedText);
-    if(newResult.error)return;
-
-    // Track resolved issues
-    if(_initialIssueCount===null)_initialIssueCount=newResult.issues.length;
-    const prevCount=analysisResult?analysisResult.issues.length:_initialIssueCount;
-    const newCount=newResult.issues.length;
-    if(newCount<prevCount)_issuesResolved+=(prevCount-newCount);
-
-    analysisResult=newResult;
-    _batchFixDone=false;_smartScanDone=false;
-    // Surgically remove resolved highlights from editor DOM
-    diffHighlights(newResult.issues);
-    // Update scores, sidebar, gauge — NOT the editor content
-    updateScoresOnly(newResult);
+    document.querySelectorAll('.rsc,.gauge-wrap').forEach(el=>el.classList.add('scores-pending'));
+    if(_analyzerWorker){
+      _analyzeVersion++;
+      _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:_analyzeVersion});
+    }else{
+      _onAnalysisComplete(Analyzer.analyze(extractedText));
+    }
   },2000);
 }
 
