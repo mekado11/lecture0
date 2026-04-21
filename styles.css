@@ -269,7 +269,8 @@ body.lib-mode{overflow:auto}
 .rpd-spin{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
 .rpd-rewrite-result{width:100%;margin-top:.3rem}
-.rpd-rewrite-label{font-size:.68rem;color:var(--muted);margin-bottom:.3rem;display:flex;align-items:center;gap:.4rem}
+.rpd-rewrite-label{font-size:.68rem;color:var(--muted);margin-bottom:.15rem;display:flex;align-items:center;gap:.4rem}
+.rpd-rewrite-voice-note{font-size:.65rem;color:var(--dim);margin-bottom:.3rem;font-style:italic}
 .rpd-exp-badge{background:rgba(162,140,208,.15);color:#a28cd0;border:1px solid rgba(162,140,208,.3);border-radius:3px;padding:.05rem .35rem;font-size:.6rem;font-weight:700;letter-spacing:.4px}
 .rpd-rewrite-text{background:rgba(93,186,125,.07);border:1px solid rgba(93,186,125,.2);border-radius:var(--rs);padding:.4rem .6rem;font-size:.82rem;color:var(--text);line-height:1.5;margin-bottom:.4rem;font-style:italic}
 .rpd-rewrite-actions{display:flex;gap:.3rem;flex-wrap:wrap}

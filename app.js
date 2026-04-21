@@ -437,8 +437,6 @@ function replaceAndFix(hlElement){
     replacement=m?m[1]:'';
     if(replacement==='(omit)'||replacement==='(omit or rephrase)'){replacement='';mode='remove'}
     else if(!replacement){mode='remove';replacement=''}
-  }else if(type==='passive'){
-    replacement=original.replace(/\b(was|were)\s+(being\s+)?/i,'').trim();
   }else if(type==='adverb'){
     replacement='';mode='remove';
   }else if(type==='cliche'){
@@ -470,12 +468,6 @@ function replaceAndFix(hlElement){
       // Generic: strip the cliche structure, keep core meaning
       replacement=original.replace(/\b(like|as)\s+a\s+/gi,'').trim();
       if(replacement===original)replacement=original+' [replace with original phrasing]';
-    }
-  }else if(type==='show-tell'){
-    replacement=original.replace(/\b(felt|feeling|could feel|could sense|could tell|could see|obviously|clearly|evidently|apparently)\s*/i,'').trim();
-    if(!replacement||replacement===original){
-      // "was beautiful" -> "beautiful" (let writer expand into showing)
-      replacement=original.replace(/\b(was|were|seemed|looked)\s+/i,'').trim();
     }
   }else if(type==='repetition'){
     // First try: extract synonym from the issue's suggestion ("Try: stated, replied, remarked")
@@ -814,10 +806,11 @@ async function doRewrite(card) {
 
     btns.innerHTML =
       '<div class="rpd-rewrite-result">' +
-        '<div class="rpd-rewrite-label">✦ Suggested rewrite <span class="rpd-exp-badge">Experimental</span></div>' +
+        '<div class="rpd-rewrite-label">✦ AI suggestion <span class="rpd-exp-badge">Experimental</span></div>' +
+        '<div class="rpd-rewrite-voice-note">Inspiration only — your voice, your words.</div>' +
         '<div class="rpd-rewrite-text">' + esc(rewrite) + '</div>' +
         '<div class="rpd-rewrite-actions">' +
-          '<button class="rpd-use-btn">Use This</button>' +
+          '<button class="rpd-use-btn">Apply Suggestion</button>' +
           '<button class="rpd-retry-btn">Try Again</button>' +
           '<button class="rpd-skip-btn">Skip</button>' +
         '</div>' +
@@ -846,7 +839,7 @@ async function doRewrite(card) {
     btns.querySelector('.rpd-skip-btn').addEventListener('click', () => {
       const hasFix = card.dataset.hasFix === '1';
       const fixBtnHtml = hasFix
-        ? '<button class="tip-fix rpd-fix-btn">Accept Fix</button>'
+        ? '<button class="tip-fix rpd-fix-btn">Apply Fix</button>'
         : '<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
       btns.innerHTML = fixBtnHtml + '<button class="tip-ign rpd-ign-btn">Dismiss</button>'
         + '<button class="rpd-rewrite-btn">✦ Rewrite</button>';
@@ -864,7 +857,7 @@ async function doRewrite(card) {
     btns.querySelector('.rpd-skip-btn').addEventListener('click', () => {
       const hasFix = card.dataset.hasFix === '1';
       const fixBtnHtml = hasFix
-        ? '<button class="tip-fix rpd-fix-btn">Accept Fix</button>'
+        ? '<button class="tip-fix rpd-fix-btn">Apply Fix</button>'
         : '<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
       btns.innerHTML = fixBtnHtml + '<button class="tip-ign rpd-ign-btn">Dismiss</button>'
         + '<button class="rpd-rewrite-btn">✦ Rewrite</button>';
@@ -889,7 +882,7 @@ function showDetail(cat){
 
   // Determine if suggestion has a concrete replacement
   function hasConcreteFix(iss){
-    return !!iss.suggestion.match(/Replace with:\s*".+?"/)||!!iss.suggestion.match(/Try:\s*.+/i)||iss.type==='adverb'||iss.type==='passive'||iss.type==='wordy'||iss.type==='cliche';
+    return !!iss.suggestion.match(/Replace with:\s*".+?"/)||!!iss.suggestion.match(/Try:\s*.+/i)||iss.type==='adverb'||iss.type==='wordy'||iss.type==='cliche';
   }
 
   // Progress indicator
@@ -900,7 +893,7 @@ function showDetail(cat){
     (_issueWhy[t]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+_issueWhy[t]+'</div>':'')+
     (shown.length===0?(cat==='plot'&&r.scores.plot<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the plot structure score is <strong style="color:var(--yellow)">'+r.scores.plot+'/100</strong>.</p><p style="margin-top:.3rem">The engine evaluates arc progression, conflict setup, and tension distribution. Consider whether your opening establishes clear stakes and whether tension builds through the middle.</p></div>':cat==='dialogue'&&r.scores.dialogue<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the dialogue score is <strong style="color:var(--yellow)">'+r.scores.dialogue+'/100</strong>.</p><p style="margin-top:.3rem">Review dialogue for natural rhythm, distinct character voices, and balance between dialogue and narration.</p></div>':'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No issues in this category. Nice work!</p>'):
     shown.map((iss,idx)=>{
-      const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Accept Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
+      const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Apply Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
       const rwBtn=_REWRITE_TYPES.has(iss.type)?'<button class="rpd-rewrite-btn">✶ Rewrite</button>':'';
       const sevColor=iss.severity==='high'?'var(--red)':iss.severity==='medium'?'var(--yellow)':'var(--muted)';
       return '<div class="rpd-issue" data-issue-text="'+escA(iss.text)+'" data-issue-sug="'+escA(iss.suggestion)+'" data-has-fix="'+(hasConcreteFix(iss)?'1':'0')+'" data-issue-type="'+escA(iss.type)+'" data-issue-index="'+(iss.index||0)+'">'+
@@ -2023,7 +2016,7 @@ function renderAnnotatedAsPages(text,issues){
       const hasAI=!!sug.match(/Replace with:\s*".+?"/);
       const hasTry=!!sug.match(/Try:\s*.+/i);
       // Types with reliable auto-fix: wordy (has "Replace with"), weak-verb/repetition (has "Try:"), adverb (remove), passive (restructure), cliche (has map)
-      const canAutoFix=hasAI||hasTry||t==='adverb'||t==='passive'||t==='wordy'||t==='cliche';
+      const canAutoFix=hasAI||hasTry||t==='adverb'||t==='wordy'||t==='cliche';
       const fixLabel=canAutoFix?'Replace &amp; Fix':'Edit Here';
       tip.innerHTML='<div class="tip-cat">'+(labels[t]||t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+sug+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+fixLabel+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
       tip.classList.add('on');
