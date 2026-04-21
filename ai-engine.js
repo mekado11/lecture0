@@ -10,9 +10,7 @@ const AIEngine = {
   // CACHE MANAGEMENT
   // ========================
   _getCacheKey(text, feature) {
-    // Hash first 200 chars + length + feature for unique key
-    const hash = text.substring(0, 200) + '|' + text.length + '|' + feature;
-    return hash;
+    return this._shortHash(text) + '|' + text.length + '|' + feature;
   },
 
   _getCached(text, feature) {
@@ -546,9 +544,14 @@ Rules:
   // BATCH FIX SUGGESTIONS (one call, all issues, cached 24h)
   // ========================
   _shortHash(s) {
-    let h = 0;
-    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-    return Math.abs(h).toString(36);
+    let a = 0, b = 0, c = 0;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s.charCodeAt(i);
+      a = ((a << 5) - a + ch) | 0;
+      b = ((b << 7) ^ (b >>> 3) ^ ch) | 0;
+      c = ((c * 31) + ch + (i & 0xff)) | 0;
+    }
+    return (Math.abs(a).toString(36) + Math.abs(b).toString(36) + Math.abs(c).toString(36)).substring(0, 16);
   },
 
   getCachedFixes(text) {

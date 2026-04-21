@@ -2762,7 +2762,9 @@ const Analyzer = {
         cliche: clicheIssues.length, 'weak-verb': weakVerbIssues.length,
         wordy: wordyIssues.length, repetition: repetitionIssues.length,
         'sentence-length': longSentenceIssues.length, 'show-tell': showTellIssues.length,
-        'confused-word': confusedWordIssues.length
+        'confused-word': confusedWordIssues.length,
+        pov: lineEditing.findings ? lineEditing.findings.filter(f => f.type === 'pov').length : 0,
+        dialogue: dialogue.findings ? dialogue.findings.length : 0
       }
     };
   },

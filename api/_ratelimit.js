@@ -53,7 +53,7 @@ async function getCount(userId, today) {
   const r = getRedis();
 
   if (r) {
-    return (await r.get(key)) || 0;
+    return parseInt(await r.get(key), 10) || 0;
   }
   return fallbackMap.get(key) || 0;
 }

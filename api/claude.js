@@ -64,20 +64,19 @@ module.exports = async (req, res) => {
 
   const userTier = await getUserTier(userId);
   const limit = LIMITS[userTier] || LIMITS.free;
-  const used = await getCount(userId, today);
+  const used = await checkAndIncrement(userId, today);
 
-  if (used >= limit) {
+  if (used > limit) {
     res.status(429).json({
       error: {
         message: userTier === 'free'
           ? 'AI features require a subscription. Upgrade to Starter ($5/mo) for 1 AI analysis per day.'
           : 'Daily AI limit reached (' + limit + '/day). Upgrade for more, or wait until midnight UTC.',
-        code: 'RATE_LIMITED', limit, used, tier: userTier
+        code: 'RATE_LIMITED', limit, used: used - 1, tier: userTier
       }
     });
     return;
   }
-  await checkAndIncrement(userId, today);
 
   // Determine which model/provider to use
   const ALLOWED_ROUTES = new Set(['claude','claude-premium','openai-fast','openai-nano','openai-premium']);
