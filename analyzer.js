@@ -253,7 +253,7 @@ const Analyzer = {
           type: 'passive', text: match[0], index: match.index, length: match[0].length,
           severity: 'medium', confidence: 0.85,
           message: `Passive voice: "${match[0]}"`,
-          suggestion: 'Rewrite in active voice for stronger prose.'
+          suggestion: 'The subject isn’t doing the action. Flip it: "was opened by her" → "she opened." Click Rewrite for a suggestion.'
         });
       }
     }
