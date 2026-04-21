@@ -1,6 +1,7 @@
 // AuthorScrolls - Stripe Checkout API
 // Creates a Stripe checkout session for premium subscription
 const https = require('https');
+const { verifyToken } = require('./_auth');
 
 module.exports = async (req, res) => {
   const origin = req.headers.origin || '';
@@ -14,11 +15,19 @@ module.exports = async (req, res) => {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) { res.status(500).json({ error: 'Stripe not configured' }); return; }
 
+  // Verify Firebase ID token
+  const decoded = await verifyToken(req);
+  const hasFbAdmin = !!process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (hasFbAdmin && !decoded) {
+    res.status(401).json({ error: 'Authentication required' }); return;
+  }
+
   const safeOrigin = allowed.includes(origin) ? origin : 'https://authorscrolls.com';
-  const { userId, email, plan } = req.body;
+  const { plan } = req.body;
+  const userId = decoded ? decoded.uid : req.body.userId;
+  const email = decoded ? decoded.email : req.body.email;
   if (!userId || !email) { res.status(400).json({ error: 'Missing userId or email' }); return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { res.status(400).json({ error: 'Invalid email' }); return; }
-  if (!/^[a-zA-Z0-9]{10,}$/.test(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
   // Price IDs - create these in your Stripe dashboard
   // For now, use ad-hoc price

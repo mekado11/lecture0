@@ -2,6 +2,7 @@
 // Routes: OpenAI (fast/cheap) for most tasks, Claude (premium) for deep analysis
 // Rate limited per user per day
 const https = require('https');
+const { verifyToken } = require('./_auth');
 
 const rateLimitMap = new Map();
 const FREE_AI_LIMIT = 0;    // Free users: no AI
@@ -29,10 +30,16 @@ module.exports = async (req, res) => {
 
   if (req.body.test === true && process.env.NODE_ENV !== 'production') { res.json({ ok: true }); return; }
 
-  // Rate limiting
-  // IMPORTANT: userId comes from client — never use it to grant elevated privileges.
-  // Admin/dev status is only determined by DEV_UIDS (server-side list), never from client headers.
-  const userId = req.headers['x-user-id'] || 'anonymous';
+  // Verify Firebase ID token — fail-closed if configured, warn if not
+  const decoded = await verifyToken(req);
+  const hasFbAdmin = !!process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (hasFbAdmin && !decoded) {
+    res.status(401).json({ error: { message: 'Authentication required', code: 'UNAUTHENTICATED' } });
+    return;
+  }
+
+  // Rate limiting — use verified UID when available, fall back to header only in dev
+  const userId = decoded ? decoded.uid : (req.headers['x-user-id'] || 'anonymous');
   const today = new Date().toISOString().split('T')[0];
   const key = userId + ':' + today;
   const current = rateLimitMap.get(key) || 0;
