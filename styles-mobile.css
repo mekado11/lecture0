@@ -1,0 +1,40 @@
+/* Mobile overrides — additive only, never affect desktop */
+
+@media (max-width: 700px) {
+  /* Touch targets — WCAG AA minimum 44×44px */
+  .btab, .tb-btn, .focus-btn, .rpd-fix-btn, .rpd-ign-btn { min-height: 44px; }
+  .fmt-btn { min-height: 44px; min-width: 44px; }
+  .lpc-action { min-height: 44px; line-height: 44px; }
+  .bi-btn { min-height: 44px; padding: .4rem .6rem; }
+  .lib-avatar { width: 40px; height: 40px; }
+  .lib-search { height: 40px; }
+  .lib-card-actions button { min-height: 44px; }
+
+  /* Font floor — nothing below 12px */
+  .lib-card-meta, .lib-card-badge, .lpc-sub, .pv-emo-tag,
+  .pv-page-info, .status-pill, .genre-override, .lpc-collapse,
+  .ms-ruler-num { font-size: max(0.78rem, 12px); }
+
+  /* Tooltip overflow containment */
+  .tip { max-width: calc(100vw - 2rem); left: 1rem !important; right: 1rem; }
+
+  /* Panel height — was 200px, too cramped */
+  .left-panel, .right-panel, .preview-panel { max-height: 45vh; }
+
+  /* Gauge canvas — prevent overflow in stacked panel */
+  #gauge-canvas { max-width: 100%; height: auto; }
+}
+
+@media (max-width: 600px) {
+  /* Topbar overflow fix — hide center section before it wraps */
+  .topbar-c { display: none; }
+  .topbar { height: auto; flex-wrap: wrap; padding: .4rem .6rem; }
+  .topbar-r { flex-wrap: wrap; gap: .3rem; }
+  .tb-btn { font-size: .72rem; padding: .35rem .5rem; }
+}
+
+@media (max-width: 480px) {
+  /* Collapse multi-column grids on narrow phones */
+  .rdr-grid, .beta-grid, .comp-grid { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: 1fr; gap: .5rem; }
+}
