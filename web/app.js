@@ -851,14 +851,14 @@ function showDetail(cat){
     if(annotatedBtn)annotatedBtn.classList.add('active');
     $('ed-annotated')?.classList.add('active');
     const page=$('ed-annotated');
-    const searchQ=issueText.substring(0,60).replace(/"/g,'&quot;');
-    const hl=page.querySelector('.hl[data-q="'+searchQ+'"]');
+    const q60=issueText.substring(0,60);
+    const hl=Array.from(page.querySelectorAll('.hl')).find(el=>el.dataset.q===q60);
     if(hl){hl.scrollIntoView({behavior:'smooth',block:'center'});hl.style.outline='3px solid var(--gold)';hl.style.outlineOffset='3px';setTimeout(()=>{hl.style.outline=''},3000)}
   })});
   d.querySelectorAll('.rpd-fix-btn').forEach(btn=>{btn.addEventListener('click',()=>{
     const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;
     const page=$('ed-annotated');
-    const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');
+    const hl=Array.from(page.querySelectorAll('.hl')).find(el=>el.dataset.q===issueText.substring(0,60));
     if(!hl)return;
     // Switch to annotated view
     document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
@@ -880,7 +880,7 @@ function showDetail(cat){
   d.querySelectorAll('.rpd-ign-btn').forEach(btn=>{btn.addEventListener('click',()=>{
     const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;
     const page=$('ed-annotated');
-    const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');
+    const hl=Array.from(page.querySelectorAll('.hl')).find(el=>el.dataset.q===issueText.substring(0,60));
     if(hl)hl.classList.add('off');
     card.remove();
   })});
@@ -2100,49 +2100,122 @@ function renderVersions(){const c=$('ed-versions');if(!c)return;c.className='ms-
 if(vs.length>=2){const f=vs[0],l=vs[vs.length-1],d=l.overall-f.overall;h+='<div class="v-sum"><h4>Progress</h4>'+sr('Score',(d>=0?'+':'')+d)+sr('Issues',(l.totalIssues-f.totalIssues>=0?'+':'')+(l.totalIssues-f.totalIssues))+sr('Versions',vs.length)+'</div>'}
 c.innerHTML=h;c.querySelector('#clr-v')?.addEventListener('click',()=>{if(confirm('Clear?')){AIEngine.clearVersionHistory();renderVersions()}})}
 
-// EXPORT to Word (.doc) with colored issue highlights
-$('export-btn')?.addEventListener('click',()=>{
+// EXPORT to real .docx with Word margin comments
+$('export-btn')?.addEventListener('click',async()=>{
   if(!analysisResult||!extractedText)return;
-  const r=analysisResult;
-  const issueColors={passive:'#FFD700','weak-verb':'#FFA500',adverb:'#87CEEB',cliche:'#FF6347',wordy:'#DDA0DD','show-tell':'#98FB98',repetition:'#F0E68C','sentence-length':'#FFC0CB'};
-  const issueLabels={passive:'Passive Voice','weak-verb':'Weak Verb',adverb:'Adverb',cliche:'Cliché',wordy:'Wordy','show-tell':'Show vs Tell',repetition:'Repetition','sentence-length':'Long Sentence'};
+  const btn=$('export-btn');
+  btn.disabled=true;btn.textContent='Exporting...';
+  try{
+    const r=analysisResult;
+    const x=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+    const issueLabel={passive:'Passive Voice','weak-verb':'Weak Verb',adverb:'Adverb Overuse',cliche:'Cliché',wordy:'Wordy Phrase','show-tell':'Show vs Tell',repetition:'Word Repetition','sentence-length':'Long Sentence',bookism:'Bookism'};
+    const hlColor={passive:'yellow','weak-verb':'darkYellow',adverb:'cyan',cliche:'red',wordy:'magenta','show-tell':'green',repetition:'yellow','sentence-length':'red',bookism:'darkRed'};
 
-  // Build annotated HTML
-  const sorted=[...r.issues].sort((a,b)=>a.index-b.index);
-  const noOverlap=[];let lastEnd=-1;
-  for(const i of sorted){if(i.index>=lastEnd){noOverlap.push(i);lastEnd=i.index+i.length}}
+    // Sort issues, remove overlaps, assign comment IDs
+    const sorted=[...r.issues].sort((a,b)=>a.index-b.index);
+    const noOverlap=[];let lastEnd=-1;
+    for(const i of sorted){if(i.index>=lastEnd){noOverlap.push(i);lastEnd=i.index+i.length}}
+    noOverlap.forEach((i,n)=>{i._cid=n+1});
 
-  let body='';let pos=0;
-  for(const i of noOverlap){
-    if(i.index>pos)body+=esc(extractedText.substring(pos,i.index)).replace(/\n\n/g,'</p><p>');
-    const col=issueColors[i.type]||'#FFD700';
-    body+='<span style="background:'+col+';padding:1px 2px" title="'+esc(i.message)+'">'+esc(extractedText.substring(i.index,i.index+i.length))+'</span>';
-    if(i.suggestion)body+='<span style="color:#2E8B57;font-size:9pt"> ['+esc(i.suggestion)+']</span>';
-    pos=i.index+i.length;
-  }
-  if(pos<extractedText.length)body+=esc(extractedText.substring(pos)).replace(/\n\n/g,'</p><p>');
+    // Split text into paragraphs tracking char offsets
+    const paras=[];let cur=0;
+    for(const pt of extractedText.split(/\n\n/)){
+      paras.push({text:pt,start:cur,end:cur+pt.length});
+      cur+=pt.length+2;
+    }
 
-  // Build legend
-  let legend='<table style="border-collapse:collapse;margin-bottom:20px">';
-  Object.entries(issueColors).forEach(([k,c])=>{
-    const count=r.issueCounts[k]||0;
-    if(count>0)legend+='<tr><td style="background:'+c+';padding:3px 10px;border:1px solid #ccc">'+issueLabels[k]+'</td><td style="padding:3px 10px;border:1px solid #ccc">'+count+' issues</td></tr>';
-  });
-  legend+='</table>';
+    // Assign issues to their first overlapping paragraph
+    const byPara=paras.map(()=>[]);
+    for(const i of noOverlap){
+      for(let pi=0;pi<paras.length;pi++){
+        const p=paras[pi];
+        if(i.index<p.end&&i.index+i.length>p.start){
+          byPara[pi].push({...i,ls:Math.max(0,i.index-p.start),le:Math.min(p.text.length,i.index+i.length-p.start)});
+          break;
+        }
+      }
+    }
 
-  // Score summary
-  let scores='<h2 style="color:#8B4513">AuthorScrolls Analysis Report</h2>';
-  scores+='<p><b>File:</b> '+esc(uploadedFile.name)+' | <b>Genre:</b> '+esc(r.genre.label)+' | <b>Words:</b> '+r.totalWords.toLocaleString()+'</p>';
-  scores+='<p><b>Overall Score: '+r.overall+'/100</b></p>';
-  scores+='<table style="border-collapse:collapse;margin-bottom:15px"><tr><td style="padding:4px 12px;border:1px solid #ccc"><b>Plot</b><br>'+r.scores.plot+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Copy</b><br>'+r.scores.copy+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Style</b><br>'+r.scores.style+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Dialogue</b><br>'+r.scores.dialogue+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Show/Tell</b><br>'+r.scores.showTell+'</td></tr></table>';
+    // Build document body: summary section + manuscript paragraphs
+    const W='xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" xmlns:cx="http://schemas.microsoft.com/office/drawing/2014/chartex" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" xmlns:w16cid="http://schemas.microsoft.com/office/word/2016/wordml/cid" xmlns:w16se="http://schemas.microsoft.com/office/word/2015/wordml/symex" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk" xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"';
 
-  const html='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><style>body{font-family:Cambria,Georgia,serif;font-size:12pt;line-height:1.8;max-width:6.5in;margin:1in}p{text-indent:0.5in;margin:0 0 6pt 0}h1,h2{font-family:Calibri,sans-serif;text-indent:0}table{font-family:Calibri,sans-serif;font-size:10pt}</style></head><body>'+scores+legend+'<h2 style="color:#8B4513">Manuscript with Highlights</h2><p>'+body+'</p><hr><p style="text-indent:0;font-size:9pt;color:#999">Generated by AuthorScrolls &middot; '+new Date().toLocaleDateString()+'</p></body></html>';
+    function p(content,style){return'<w:p><w:pPr>'+(style?'<w:pStyle w:val="'+style+'"/>':'')+'</w:pPr>'+content+'</w:p>';}
+    function run(t,bold){return'<w:r>'+(bold?'<w:rPr><w:b/></w:rPr>':'')+'<w:t xml:space="preserve">'+x(t)+'</w:t></w:r>';}
 
-  const blob=new Blob([html],{type:'application/msword'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=uploadedFile.name.replace(/\.\w+$/,'')+'-AuthorScrolls.doc';
-  a.click();
+    // Summary header
+    let body='';
+    body+=p(run('AuthorScrolls Analysis Report',true),'Heading1');
+    body+=p(run(uploadedFile.name.replace(/\.\w+$/,'')+' · '+r.genre.label+' · '+r.totalWords.toLocaleString()+' words'));
+    body+=p(run('Overall Score: '+r.overall+'/100',true));
+    body+=p(run('Plot: '+r.scores.plot+'  Copy: '+r.scores.copy+'  Style: '+r.scores.style+'  Dialogue: '+r.scores.dialogue+'  Show/Tell: '+r.scores.showTell));
+    const issueSummary=Object.entries(r.issueCounts).filter(([,v])=>v>0).map(([k,v])=>(issueLabel[k]||k)+': '+v).join('  ·  ');
+    if(issueSummary)body+=p(run(issueSummary));
+    body+=p(run('Manuscript with Comments'),'Heading1');
+
+    // Manuscript paragraphs
+    for(let pi=0;pi<paras.length;pi++){
+      const par=paras[pi];
+      const issues=byPara[pi];
+      if(!par.text.trim()&&!issues.length)continue;
+      let pc='<w:pPr><w:jc w:val="both"/><w:spacing w:after="120"/></w:pPr>';
+      if(!issues.length){
+        pc+=run(par.text);
+      }else{
+        let pos=0;
+        for(const iss of issues){
+          if(iss.ls>pos)pc+='<w:r><w:t xml:space="preserve">'+x(par.text.substring(pos,iss.ls))+'</w:t></w:r>';
+          const col=hlColor[iss.type]||'yellow';
+          pc+='<w:commentRangeStart w:id="'+iss._cid+'"/>';
+          pc+='<w:r><w:rPr><w:highlight w:val="'+col+'"/></w:rPr><w:t xml:space="preserve">'+x(par.text.substring(iss.ls,iss.le))+'</w:t></w:r>';
+          pc+='<w:commentRangeEnd w:id="'+iss._cid+'"/>';
+          pc+='<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="'+iss._cid+'"/></w:r>';
+          pos=iss.le;
+        }
+        if(pos<par.text.length)pc+='<w:r><w:t xml:space="preserve">'+x(par.text.substring(pos))+'</w:t></w:r>';
+      }
+      body+='<w:p>'+pc+'</w:p>';
+    }
+
+    // Build comments.xml
+    const dateStr=new Date().toISOString().split('.')[0]+'Z';
+    let commentsXml='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:comments '+W+'>';
+    for(const iss of noOverlap){
+      const label=issueLabel[iss.type]||iss.type;
+      const msg=x(iss.suggestion||iss.message||'');
+      commentsXml+='<w:comment w:id="'+iss._cid+'" w:author="AuthorScrolls" w:date="'+dateStr+'" w:initials="AS">';
+      commentsXml+='<w:p><w:pPr><w:pStyle w:val="CommentText"/></w:pPr>';
+      commentsXml+='<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:annotationRef/></w:r>';
+      commentsXml+='<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">'+x(label)+': </w:t></w:r>';
+      commentsXml+='<w:r><w:t xml:space="preserve">'+msg+'</w:t></w:r>';
+      commentsXml+='</w:p></w:comment>';
+    }
+    commentsXml+='</w:comments>';
+
+    const documentXml='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document '+W+'><w:body>'+body+'<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>';
+
+    const contentTypes='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/comments.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>';
+
+    const rels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>';
+
+    const docRels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="comments.xml"/></Relationships>';
+
+    const stylesXml='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles '+W+'><w:style w:type="paragraph" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:rPr><w:b/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr></w:style><w:style w:type="character" w:styleId="CommentReference"><w:name w:val="Comment Reference"/></w:style><w:style w:type="paragraph" w:styleId="CommentText"><w:name w:val="Comment Text"/><w:basedOn w:val="Normal"/><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style></w:styles>';
+
+    const zip=new JSZip();
+    zip.file('[Content_Types].xml',contentTypes);
+    zip.file('_rels/.rels',rels);
+    zip.file('word/document.xml',documentXml);
+    zip.file('word/comments.xml',commentsXml);
+    zip.file('word/styles.xml',stylesXml);
+    zip.file('word/_rels/document.xml.rels',docRels);
+
+    const blob=await zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=uploadedFile.name.replace(/\.\w+$/,'')+'-AuthorScrolls.docx';
+    a.click();
+  }catch(e){alert('Export failed: '+e.message);}
+  finally{btn.disabled=false;btn.textContent='Export';}
 });
 
 // SAVE / LOAD
