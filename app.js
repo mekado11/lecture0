@@ -753,6 +753,19 @@ const _issueWhy={
 
 const _REWRITE_TYPES = new Set(['passive','adverb','weak-verb','show-tell','wordy','cliche']);
 
+function _cardBtnsHtml(card) {
+  const hasFix = card.dataset.hasFix === '1';
+  const type = card.dataset.issueType || '';
+  const canAIFix = _REWRITE_TYPES.has(type);
+  const fixHtml = hasFix
+    ? '<button class="tip-fix rpd-fix-btn">Apply Fix</button>'
+    : canAIFix
+      ? '<button class="rpd-fix-btn rpd-ai-fix-btn">Fix</button>'
+      : '<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
+  const rwHtml = (hasFix && canAIFix) ? '<button class="rpd-rewrite-btn">✶ Rewrite</button>' : '';
+  return fixHtml + '<button class="tip-ign rpd-ign-btn">Dismiss</button>' + rwHtml;
+}
+
 function wireCardBtns(card, btns) {
   btns.querySelector('.rpd-fix-btn')?.addEventListener('click', () => {
     const page = $('ed-annotated');
@@ -779,6 +792,7 @@ function wireCardBtns(card, btns) {
     card.remove();
   });
   btns.querySelector('.rpd-rewrite-btn')?.addEventListener('click', () => doRewrite(card));
+  btns.querySelector('.rpd-ai-fix-btn')?.addEventListener('click', () => doRewrite(card));
 }
 
 async function doRewrite(card) {
@@ -807,11 +821,10 @@ async function doRewrite(card) {
 
     btns.innerHTML =
       '<div class="rpd-rewrite-result">' +
-        '<div class="rpd-rewrite-label">✦ AI suggestion <span class="rpd-exp-badge">Experimental</span></div>' +
-        '<div class="rpd-rewrite-voice-note">Inspiration only — your voice, your words.</div>' +
+        '<div class="rpd-rewrite-label">✦ Suggested fix</div>' +
         '<div class="rpd-rewrite-text">' + esc(rewrite) + '</div>' +
         '<div class="rpd-rewrite-actions">' +
-          '<button class="rpd-use-btn">Apply Suggestion</button>' +
+          '<button class="rpd-use-btn">Apply</button>' +
           '<button class="rpd-retry-btn">Try Again</button>' +
           '<button class="rpd-skip-btn">Skip</button>' +
         '</div>' +
@@ -838,12 +851,7 @@ async function doRewrite(card) {
     btns.querySelector('.rpd-retry-btn').addEventListener('click', () => doRewrite(card));
 
     btns.querySelector('.rpd-skip-btn').addEventListener('click', () => {
-      const hasFix = card.dataset.hasFix === '1';
-      const fixBtnHtml = hasFix
-        ? '<button class="tip-fix rpd-fix-btn">Apply Fix</button>'
-        : '<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
-      btns.innerHTML = fixBtnHtml + '<button class="tip-ign rpd-ign-btn">Dismiss</button>'
-        + '<button class="rpd-rewrite-btn">✦ Rewrite</button>';
+      btns.innerHTML = _cardBtnsHtml(card);
       wireCardBtns(card, btns);
     });
 
@@ -856,12 +864,7 @@ async function doRewrite(card) {
       '</div>';
     btns.querySelector('.rpd-retry-btn').addEventListener('click', () => doRewrite(card));
     btns.querySelector('.rpd-skip-btn').addEventListener('click', () => {
-      const hasFix = card.dataset.hasFix === '1';
-      const fixBtnHtml = hasFix
-        ? '<button class="tip-fix rpd-fix-btn">Apply Fix</button>'
-        : '<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
-      btns.innerHTML = fixBtnHtml + '<button class="tip-ign rpd-ign-btn">Dismiss</button>'
-        + '<button class="rpd-rewrite-btn">✦ Rewrite</button>';
+      btns.innerHTML = _cardBtnsHtml(card);
       wireCardBtns(card, btns);
     });
   }
@@ -894,8 +897,9 @@ function showDetail(cat){
     (_issueWhy[t]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+_issueWhy[t]+'</div>':'')+
     (shown.length===0?(cat==='plot'&&r.scores.plot<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the plot structure score is <strong style="color:var(--yellow)">'+r.scores.plot+'/100</strong>.</p><p style="margin-top:.3rem">The engine evaluates arc progression, conflict setup, and tension distribution. Consider whether your opening establishes clear stakes and whether tension builds through the middle.</p></div>':cat==='dialogue'&&r.scores.dialogue<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the dialogue score is <strong style="color:var(--yellow)">'+r.scores.dialogue+'/100</strong>.</p><p style="margin-top:.3rem">Review dialogue for natural rhythm, distinct character voices, and balance between dialogue and narration.</p></div>':'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No issues in this category. Nice work!</p>'):
     shown.map((iss,idx)=>{
-      const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Apply Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
-      const rwBtn=_REWRITE_TYPES.has(iss.type)?'<button class="rpd-rewrite-btn">✶ Rewrite</button>':'';
+      const canAIFix=_REWRITE_TYPES.has(iss.type);
+      const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Apply Fix</button>':canAIFix?'<button class="rpd-fix-btn rpd-ai-fix-btn">Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
+      const rwBtn=(hasConcreteFix(iss)&&canAIFix)?'<button class="rpd-rewrite-btn">✶ Rewrite</button>':'';
       const sevColor=iss.severity==='high'?'var(--red)':iss.severity==='medium'?'var(--yellow)':'var(--muted)';
       return '<div class="rpd-issue" data-issue-text="'+escA(iss.text)+'" data-issue-sug="'+escA(iss.suggestion)+'" data-has-fix="'+(hasConcreteFix(iss)?'1':'0')+'" data-issue-type="'+escA(iss.type)+'" data-issue-index="'+(iss.index||0)+'">'+
         '<div class="rpd-issue-head"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+sevColor+';margin-right:5px"></span>'+(typeLabels[iss.type]||iss.type)+'</div>'+
@@ -948,6 +952,9 @@ function showDetail(cat){
     card.remove();
   })});
   d.querySelectorAll('.rpd-rewrite-btn').forEach(btn=>{btn.addEventListener('click',()=>{
+    doRewrite(btn.closest('.rpd-issue'));
+  })});
+  d.querySelectorAll('.rpd-ai-fix-btn').forEach(btn=>{btn.addEventListener('click',()=>{
     doRewrite(btn.closest('.rpd-issue'));
   })});
 }
