@@ -2,9 +2,16 @@
 firebase.initializeApp(FIREBASE_CONFIG);
 const ADMIN_EMAILS = ['admin@authorscrolls.com'];
 window.__isAdmin = false;
+window.__userPlan = 'free';
 firebase.auth().onAuthStateChanged(function(user) {
   if (!user) { window.location.href = 'index.html'; return; }
   window.__isAdmin = ADMIN_EMAILS.includes((user.email||'').toLowerCase());
+  // Fetch tier from Firestore
+  firebase.firestore().collection('users').doc(user.uid).get().then(function(doc) {
+    if (doc.exists && doc.data().tier) {
+      window.__userPlan = doc.data().tier;
+    }
+  }).catch(function() {});
   var brand = document.querySelector('.brand');
   if (brand) brand.textContent = 'AuthorScrolls';
   if (window.__isAdmin) {

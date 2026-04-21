@@ -753,10 +753,14 @@ const _issueWhy={
 
 const _REWRITE_TYPES = new Set(['passive','adverb','weak-verb','show-tell','wordy','cliche']);
 
+function _isPaid() {
+  return window.__isAdmin || window.__userPlan === 'starter' || window.__userPlan === 'premium';
+}
+
 function _cardBtnsHtml(card) {
   const hasFix = card.dataset.hasFix === '1';
   const type = card.dataset.issueType || '';
-  const canAIFix = _REWRITE_TYPES.has(type);
+  const canAIFix = _REWRITE_TYPES.has(type) && _isPaid();
   const fixHtml = hasFix
     ? '<button class="tip-fix rpd-fix-btn">Apply Fix</button>'
     : canAIFix
@@ -897,7 +901,7 @@ function showDetail(cat){
     (_issueWhy[t]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+_issueWhy[t]+'</div>':'')+
     (shown.length===0?(cat==='plot'&&r.scores.plot<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the plot structure score is <strong style="color:var(--yellow)">'+r.scores.plot+'/100</strong>.</p><p style="margin-top:.3rem">The engine evaluates arc progression, conflict setup, and tension distribution. Consider whether your opening establishes clear stakes and whether tension builds through the middle.</p></div>':cat==='dialogue'&&r.scores.dialogue<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the dialogue score is <strong style="color:var(--yellow)">'+r.scores.dialogue+'/100</strong>.</p><p style="margin-top:.3rem">Review dialogue for natural rhythm, distinct character voices, and balance between dialogue and narration.</p></div>':'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No issues in this category. Nice work!</p>'):
     shown.map((iss,idx)=>{
-      const canAIFix=_REWRITE_TYPES.has(iss.type);
+      const canAIFix=_REWRITE_TYPES.has(iss.type)&&_isPaid();
       const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Apply Fix</button>':canAIFix?'<button class="rpd-fix-btn rpd-ai-fix-btn">Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
       const rwBtn=(hasConcreteFix(iss)&&canAIFix)?'<button class="rpd-rewrite-btn">✶ Rewrite</button>':'';
       const sevColor=iss.severity==='high'?'var(--red)':iss.severity==='medium'?'var(--yellow)':'var(--muted)';
