@@ -90,8 +90,12 @@ exports.claude = onRequest(
     }
     rateLimitMap.set(key, current + 1);
 
-    const body = { ...req.body };
-    if (body.max_tokens > 2048) body.max_tokens = 2048;
+    const body = {
+      system: req.body.system || [],
+      messages: req.body.messages || [],
+      max_tokens: Math.min(parseInt(req.body.max_tokens, 10) || 1024, 2048),
+      model: "claude-sonnet-4-20250514"
+    };
     const payload = JSON.stringify(body);
     const apiKey = claudeApiKey.value();
     const options = {
@@ -111,7 +115,11 @@ exports.claude = onRequest(
         let data = "";
         proxyRes.on("data", (chunk) => (data += chunk));
         proxyRes.on("end", () => {
-          res.status(proxyRes.statusCode).json(JSON.parse(data));
+          try {
+            res.status(proxyRes.statusCode).json(JSON.parse(data));
+          } catch (e) {
+            res.status(502).json({ error: { message: "Invalid upstream response" } });
+          }
           resolve();
         });
       });

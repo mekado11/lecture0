@@ -3,6 +3,18 @@ let uploadedFile=null,extractedText='',analysisResult=null;
 const $=id=>document.getElementById(id);
 document.body.classList.add('lib-mode'); // Library is first view — allow scroll
 
+// Web Worker for off-main-thread analysis
+let _analyzerWorker=null;
+let _analyzeVersion=0;
+try{_analyzerWorker=new Worker('analyzer-worker.js')}catch(e){console.warn('Worker init failed, using main thread:',e.message)}
+if(_analyzerWorker){
+  _analyzerWorker.onmessage=function(e){
+    if(e.data.type==='result'&&e.data.version===_analyzeVersion){
+      _onAnalysisComplete(e.data.data);
+    }
+  };
+}
+
 // UPLOAD
 const dz=$('drop-zone'),fi=$('file-input');
 dz.addEventListener('click',()=>fi.click());
@@ -20,10 +32,26 @@ $('analyze-btn').addEventListener('click',async()=>{
   try{
     $('loader-text').textContent='Extracting...';
     extractedText=await ext(uploadedFile);
+    _smartScanDone=false;_batchFixDone=false;
     $('loader-text').textContent='Analyzing...';
-    // Yield to UI so spinner renders before blocking analysis
-    await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
-    analysisResult=Analyzer.analyze(extractedText);
+    if(_analyzerWorker){
+      _analyzeVersion++;
+      const v=_analyzeVersion;
+      analysisResult=await new Promise((resolve,reject)=>{
+        const handler=function(e){
+          if(e.data.version===v){
+            _analyzerWorker.removeEventListener('message',handler);
+            if(e.data.type==='result')resolve(e.data.data);
+            else reject(new Error(e.data.message||'Analysis failed'));
+          }
+        };
+        _analyzerWorker.addEventListener('message',handler);
+        _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v});
+      });
+    }else{
+      await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
+      analysisResult=Analyzer.analyze(extractedText);
+    }
     if(analysisResult.error){alert(analysisResult.error);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
     // Save immediately to Firestore/localStorage so it appears in library
     trackSession('analyzing');
@@ -87,27 +115,38 @@ let ignoredIssues=new Set();
 let previousScore=null;
 let autoSaveTimer=null;
 
-// Undo/Redo stack for Replace & Fix operations
+// Undo/Redo stack — we own ALL undo. Browser native undo is never used.
 const _undoStack=[];
 const _redoStack=[];
-const MAX_UNDO=30;
+const MAX_UNDO=50;
+let _lastSnapshotText='';
 function pushUndo(){
   const page=$('ed-annotated');
   if(!page)return;
   _undoStack.push({html:page.innerHTML,text:extractedText});
   if(_undoStack.length>MAX_UNDO)_undoStack.shift();
-  _redoStack.length=0; // clear redo on new action
+  _redoStack.length=0;
+  _lastSnapshotText=extractedText;
   _updateUndoBtn();
+}
+function _pushTypingSnapshot(){
+  if(extractedText===_lastSnapshotText)return;
+  const page=$('ed-annotated');
+  if(!page)return;
+  _undoStack.push({html:page.innerHTML,text:extractedText});
+  if(_undoStack.length>MAX_UNDO)_undoStack.shift();
+  _redoStack.length=0;
+  _lastSnapshotText=extractedText;
 }
 function undoLastFix(){
   if(_undoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  // Save current state to redo stack
   _redoStack.push({html:page.innerHTML,text:extractedText});
   const state=_undoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
+  _lastSnapshotText=extractedText;
   syncPreview();scheduleReanalyze();
   _updateUndoBtn();
 }
@@ -115,11 +154,11 @@ function redoLastFix(){
   if(_redoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  // Save current state to undo stack
   _undoStack.push({html:page.innerHTML,text:extractedText});
   const state=_redoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
+  _lastSnapshotText=extractedText;
   syncPreview();scheduleReanalyze();
   _updateUndoBtn();
 }
@@ -127,16 +166,15 @@ function _updateUndoBtn(){
   const btn=$('undo-fix-btn');
   if(btn)btn.style.display=_undoStack.length>0?'':'none';
 }
-// Keyboard shortcuts: Ctrl+Z=undo, Ctrl+R=redo, Ctrl+S=save
-// Ctrl+X/C/V (cut/copy/paste) handled natively by contenteditable
-// Use capture:true so we intercept before browser default actions
+// Keyboard shortcuts — we own Ctrl+Z completely
 window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase();
   if((e.ctrlKey||e.metaKey)&&k==='z'&&!e.shiftKey){
-    if(_undoStack.length>0){e.preventDefault();e.stopPropagation();undoLastFix()}
-  }else if((e.ctrlKey||e.metaKey)&&k==='r'){
-    e.preventDefault();e.stopImmediatePropagation(); // block reload
-    if(_redoStack.length>0){redoLastFix()}
+    e.preventDefault();e.stopPropagation();
+    undoLastFix();
+  }else if((e.ctrlKey||e.metaKey)&&(k==='y'||(k==='z'&&e.shiftKey))){
+    e.preventDefault();e.stopPropagation();
+    redoLastFix();
   }else if((e.ctrlKey||e.metaKey)&&k==='s'){
     e.preventDefault();e.stopPropagation();
     saveAnalysis();
@@ -188,6 +226,8 @@ function renderAll(){
   },1000);
   // Smart Scan — one-time AI scan for paid/admin users
   maybeRunSmartScan(r);
+  // Batch Fix — one call per manuscript, cached 24h
+  maybeBatchFix(r);
 }
 
 // AI-powered smart scan: runs once per manuscript for paid/admin users
@@ -219,8 +259,8 @@ async function maybeRunSmartScan(r){
       }
     });
 
-    // Re-render annotated view to show updated suggestions
-    renderAnnotated(extractedText,r.issues);
+    // Re-render right panel only — do NOT call renderAnnotated here
+    // because it replaces the entire editor DOM, destroying cursor/selection/undo
     renderRight(r);
 
     // Show a subtle toast
@@ -230,6 +270,55 @@ async function maybeRunSmartScan(r){
     document.body.appendChild(toast);
     setTimeout(()=>toast.remove(),4000);
   }catch(e){console.warn('SmartScan failed:',e.message)}
+}
+
+// BATCH FIX — one API call per manuscript, cached 24h in localStorage
+// Generates AI fix suggestions for all issues that lack local auto-fixes.
+// Cache hit = instant (all tiers). Cache miss = one API call (paid only).
+let _batchFixDone=false;
+async function maybeBatchFix(r){
+  if(_batchFixDone)return;
+  if(!r.issues||r.issues.length===0)return;
+
+  const _sh=AIEngine._shortHash.bind(AIEngine);
+
+  // Fast path: hydrate from cache (works for ALL tiers, no API call)
+  const cached=AIEngine.getCachedFixes(extractedText);
+  if(cached&&Object.keys(cached.suggestions).length>0){
+    _hydrateFromBatchCache(r,cached);
+    _batchFixDone=true;
+    return;
+  }
+
+  // Cache miss — only call API for paid users
+  if(!_isPaid())return;
+
+  try{
+    const fp=Analyzer.extractStyleFingerprint(extractedText);
+    const result=await AIEngine.batchFixSuggestions(extractedText,r.issues,fp);
+    if(result&&Object.keys(result.suggestions).length>0){
+      _hydrateFromBatchCache(r,result);
+      _batchFixDone=true;
+    }
+  }catch(e){console.warn('Batch fix failed:',e.message)}
+}
+
+function _hydrateFromBatchCache(r,cached){
+  const _sh=AIEngine._shortHash.bind(AIEngine);
+  let hydrated=0;
+  r.issues.forEach(issue=>{
+    if(/Replace with:\s*".+?"/.test(issue.suggestion))return;
+    const issueId=issue.type+':'+(issue.index||0)+':'+_sh(issue.text);
+    const fix=cached.suggestions[issueId];
+    if(fix&&fix.suggestion){
+      issue.suggestion='Replace with: "'+fix.suggestion+'"'+(fix.explanation?' — '+fix.explanation:'');
+      issue._batchFix=true;
+      hydrated++;
+    }
+  });
+  if(hydrated>0){
+    renderRight(r);
+  }
 }
 
 // AUTO-SAVE (Firestore + localStorage fallback)
@@ -348,194 +437,16 @@ function renderSceneIntel(r){
   });
 }
 
-// Context-aware synonym picker: checks surrounding sentence for tense/capitalization fit
-function pickContextSynonym(hlElement,candidates){
-  if(!candidates||candidates.length===0)return null;
-  const original=hlElement.textContent;
-  const origLower=original.toLowerCase();
-
-  // Get surrounding sentence by walking DOM siblings
-  let sentText='';
-  let node=hlElement.parentNode;
-  if(node)sentText=node.textContent||'';
-
-  // Detect if word appears to be past tense in context (ended in -ed, or irregular past form)
-  const isPastContext=/\b(was|were|had|did)\b/i.test(sentText)||
-    (origLower.endsWith('ed'))||
-    /\b(said|looked|walked|made|came|went|turned|stood|knew|thought|felt|took|gave|started|seemed|told|asked|found|called)\b/.test(origLower);
-
-  // Filter candidates that match tense/form
-  const pastFormMap={
-    glance:'glanced',gaze:'gazed',peer:'peered',watch:'watched',study:'studied',
-    stride:'strode',move:'moved',pace:'paced',stroll:'strolled',cross:'crossed',
-    create:'created',craft:'crafted',form:'formed',produce:'produced',build:'built',
-    arrive:'arrived',appear:'appeared',emerge:'emerged',approach:'approached',enter:'entered',
-    head:'headed',travel:'traveled',depart:'departed',
-    pivot:'pivoted',shift:'shifted',swing:'swung',rotate:'rotated',spin:'spun',
-    rise:'rose',remain:'remained',linger:'lingered',wait:'waited',stay:'stayed',
-    understand:'understood',recognize:'recognized',realize:'realized',sense:'sensed',grasp:'grasped',
-    consider:'considered',wonder:'wondered',reflect:'reflected',believe:'believed',imagine:'imagined',
-    experience:'experienced',notice:'noticed',detect:'detected',perceive:'perceived',
-    grab:'grabbed',seize:'seized',claim:'claimed',accept:'accepted',retrieve:'retrieved',
-    offer:'offered',hand:'handed',present:'presented',provide:'provided',deliver:'delivered',
-    begin:'began',initiate:'initiated',launch:'launched',commence:'commenced',open:'opened',
-    sound:'sounded',suggest:'suggested',indicate:'indicated',
-    inform:'informed',explain:'explained',reveal:'revealed',instruct:'instructed',describe:'described',
-    question:'questioned',inquire:'inquired',request:'requested',demand:'demanded',
-    state:'stated',reply:'replied',remark:'remarked',note:'noted',add:'added',
-    discover:'discovered',locate:'located',uncover:'uncovered',encounter:'encountered',spot:'spotted',
-    name:'named',summon:'summoned',address:'addressed',hail:'hailed',dub:'dubbed'
-  };
-
-  let picked=candidates;
-  if(isPastContext){
-    // Try to convert candidates to past tense
-    picked=candidates.map(c=>{
-      const cl=c.toLowerCase().trim();
-      if(pastFormMap[cl])return pastFormMap[cl];
-      // If candidate already looks past tense, keep it
-      if(cl.endsWith('ed')||cl.endsWith('oke')||cl.endsWith('ode')||cl.endsWith('ung')||cl.endsWith('ew'))return c;
-      // Default: add -ed if it's a simple verb
-      if(cl.endsWith('e'))return cl+'d';
-      return cl+'ed';
-    });
-  }
-
-  // Preserve original capitalization
-  const choice=picked[Math.floor(Math.random()*picked.length)];
-  if(!choice)return candidates[0];
-  if(original[0]===original[0].toUpperCase()){
-    return choice.charAt(0).toUpperCase()+choice.slice(1);
-  }
-  return choice;
-}
-
 // REPLACE & FIX: select the highlight text and use execCommand to replace
 // This works with native undo (Ctrl+Z) and properly updates the DOM
 function replaceAndFix(hlElement){
   const type=hlElement.dataset.t;
   const suggestion=hlElement.dataset.s||'';
   const original=hlElement.textContent;
-  let replacement='';
-  let mode='replace'; // 'replace', 'remove', 'split'
-
-  // Save undo state BEFORE any changes
-  pushUndo();
-
-  // Priority: use AI-generated replacement if available (from SmartScan)
-  const aiMatch=suggestion.match(/Replace with:\s*"(.+?)"/);
-  if(aiMatch&&aiMatch[1]&&aiMatch[1]!==original){
-    replacement=aiMatch[1];
-  }else if(type==='weak-verb'){
-    const m=suggestion.match(/Try:\s*(.+)/i);
-    if(m){
-      const alts=m[1].split(',').map(s=>s.trim()).filter(Boolean);
-      replacement=pickContextSynonym(hlElement,alts)||alts[0]||original;
-    }else{replacement=original}
-  }else if(type==='wordy'){
-    const m=suggestion.match(/Replace with:\s*"(.+?)"/i);
-    replacement=m?m[1]:'';
-    if(replacement==='(omit)'||replacement==='(omit or rephrase)'){replacement='';mode='remove'}
-    else if(!replacement){mode='remove';replacement=''}
-  }else if(type==='adverb'){
-    replacement='';mode='remove';
-  }else if(type==='cliche'){
-    // Map common cliches to plain alternatives
-    const fixes={
-      'the calm before the storm':'the tense quiet before everything changed',
-      'crystal clear':'completely obvious','like a punch to the gut':'a sudden shock',
-      'hit her like':'struck her as','hit him like':'struck him as',
-      'at the end of the day':'ultimately','few and far between':'rare',
-      'in the nick of time':'just barely in time','beat around the bush':'avoid the point',
-      'bite the bullet':'face it directly','break the ice':'ease the tension',
-      'cold as ice':'frigid','cool as a cucumber':'completely calm',
-      'dead as a doornail':'lifeless','easy as pie':'effortless',
-      'heart of gold':'genuinely kind','piece of cake':'simple',
-      'once in a blue moon':'very rarely','under the weather':'feeling ill',
-      'tip of the iceberg':'only the surface','needle in a haystack':'nearly impossible to find',
-      'on thin ice':'in a precarious position','raining cats and dogs':'pouring rain',
-      'the elephant in the room':'the obvious unspoken issue',
-      'water under the bridge':'already past','head over heels':'completely captivated',
-      'every cloud has a silver lining':'there is an upside',
-      'butterflies in my stomach':'a nervous flutter',
-      'light at the end of the tunnel':'a sign of hope ahead',
-      'back to the drawing board':'starting over','add insult to injury':'making it worse',
-      'caught between a rock and a hard place':'trapped with no good option'
-    };
-    const lo=original.toLowerCase().trim();
-    replacement=fixes[lo]||Object.entries(fixes).find(([k])=>lo.includes(k))?.[1]||'';
-    if(!replacement){
-      // Generic: strip the cliche structure, keep core meaning
-      replacement=original.replace(/\b(like|as)\s+a\s+/gi,'').trim();
-      if(replacement===original)replacement=original+' [replace with original phrasing]';
-    }
-  }else if(type==='repetition'){
-    // First try: extract synonym from the issue's suggestion ("Try: stated, replied, remarked")
-    const tryMatch=suggestion.match(/Try:\s*(.+)/i);
-    if(tryMatch){
-      const alts=tryMatch[1].split(',').map(s=>s.trim()).filter(Boolean);
-      replacement=pickContextSynonym(hlElement,alts)||alts[0]||original;
-    }else{
-      // Fallback: expanded synonym map
-      const synonyms={said:['stated','replied','remarked','noted','added'],looked:['glanced','gazed','peered','watched','studied'],walked:['strode','moved','paced','strolled','crossed'],made:['created','crafted','formed','produced','built'],came:['arrived','appeared','emerged','approached','entered'],went:['headed','moved','traveled','crossed','departed'],turned:['pivoted','shifted','swung','rotated','spun'],stood:['rose','remained','lingered','waited','stayed'],knew:['understood','recognized','realized','sensed','grasped'],thought:['considered','wondered','reflected','believed','imagined'],felt:['sensed','experienced','noticed','detected','perceived'],took:['grabbed','seized','claimed','accepted','retrieved'],gave:['offered','handed','presented','provided','delivered'],started:['began','initiated','launched','commenced','opened'],seemed:['appeared','looked','sounded','suggested','indicated'],told:['informed','explained','revealed','instructed','described'],asked:['questioned','inquired','wondered','requested','demanded'],eyes:['gaze','stare','glance','look','vision'],face:['expression','features','countenance','visage','look'],hand:['grip','palm','fingers','fist','grasp'],head:['mind','thoughts','skull','brow','temple'],voice:['tone','words','speech','whisper','sound'],door:['entrance','doorway','threshold','entry','gate'],room:['chamber','space','quarters','hall','area'],time:['moment','occasion','instance','period','while'],back:['spine','rear','return','retreat','behind'],long:['extended','prolonged','lengthy','enduring','sustained'],dark:['dim','shadowed','unlit','gloomy','murky'],small:['little','slight','tiny','compact','modest'],found:['discovered','located','uncovered','encountered','spotted'],called:['named','summoned','addressed','hailed','dubbed'],people:['individuals','figures','crowd','group','folk'],world:['realm','domain','land','sphere','landscape'],place:['location','spot','position','site','area'],still:['motionless','calm','quiet','unmoving','yet'],words:['speech','language','phrases','remarks','terms'],woman:['figure','lady','person','character','she'],never:['rarely','seldom','hardly','not once','at no point'],always:['constantly','perpetually','inevitably','forever','endlessly'],around:['surrounding','about','nearby','encircling','throughout'],before:['earlier','previously','prior','ahead','formerly'],every:['each','all','entire','whole','total'],mother:['parent','matriarch','her mother','mama','the woman'],taught:['instructed','showed','trained','guided','schooled'],knew:['understood','recognized','realized','grasped','comprehended']};
-      const lo=original.toLowerCase().trim();
-      const syns=synonyms[lo];
-      if(syns){replacement=pickContextSynonym(hlElement,syns)||syns[0]}
-      else{replacement=original}
-    }
-  }else if(type==='sentence-length'){
-    mode='split';
-    let text=original;
-    const midpoint=text.length/2;
-
-    // Phase 1: Try splitting at comma+conjunction (strongest break)
-    const phase1=[/, and\s/i,/, but\s/i,/, or\s/i,/;\s/,/ — /,/ -- /];
-    // Phase 2: Bare conjunctions (no comma)
-    const phase2=[/\s+and\s+/i,/\s+but\s+/i,/\s+or\s+/i];
-    // Phase 3: Relative/subordinate clauses
-    const phase3=[/\s+who\s+/i,/\s+which\s+/i,/\s+where\s+/i,/\s+when\s+/i,/\s+that\s+/i,/\s+while\s+/i,/\s+although\s+/i,/\s+because\s+/i];
-    // Phase 4: Any comma at all
-    const phase4=[/,\s+/];
-
-    function findBestSplit(patterns,minPos){
-      let best=-1,bestPat=null;
-      for(const pat of patterns){
-        const r=new RegExp(pat.source,'gi');
-        let m;
-        while((m=r.exec(text))!==null){
-          const pos=m.index;
-          if(pos<(minPos||15)||pos>text.length-15)continue;
-          if(best===-1||Math.abs(pos-midpoint)<Math.abs(best-midpoint)){best=pos;bestPat=m[0]}
-        }
-      }
-      return {pos:best,pat:bestPat};
-    }
-
-    let split=findBestSplit(phase1,15);
-    if(split.pos===-1)split=findBestSplit(phase2,20);
-    if(split.pos===-1)split=findBestSplit(phase3,20);
-    if(split.pos===-1)split=findBestSplit(phase4,15);
-
-    if(split.pos>10){
-      const splitStr=split.pat;
-      const part1=text.substring(0,split.pos).trim();
-      let part2=text.substring(split.pos+splitStr.length).trim();
-      // Capitalize first letter of part2
-      if(part2.length>0)part2=part2.charAt(0).toUpperCase()+part2.slice(1);
-      // Add period to part1 if it doesn't end with punctuation
-      const p1end=/[.!?]$/.test(part1)?'':'.';
-      replacement=part1+p1end+' '+part2;
-      // Clean up: if part2 starts with "and "/"but " from a bare conjunction split, keep it
-    }else{
-      // Last resort: hard split near midpoint at a word boundary
-      const words=text.split(/\s+/);
-      const halfIdx=Math.floor(words.length/2);
-      const p1=words.slice(0,halfIdx).join(' ').trim()+'.';
-      let p2=words.slice(halfIdx).join(' ').trim();
-      if(p2.length>0)p2=p2.charAt(0).toUpperCase()+p2.slice(1);
-      replacement=p1+' '+p2;
-    }
-  }
+  const sentContext=hlElement.parentNode?.textContent||'';
+  const result=Fixer.computeReplacement(type,original,suggestion,sentContext);
+  let replacement=result.replacement;
+  let mode=result.mode;
 
   // Apply: select the highlight's text range, then use insertText to replace
   // This works with native undo and properly updates contenteditable
@@ -549,6 +460,9 @@ function replaceAndFix(hlElement){
     hlElement.focus();
     return;
   }
+
+  // Save undo state after computing replacement, before applying
+  pushUndo();
 
   // Select the highlight span's content
   const sel=window.getSelection();
@@ -587,26 +501,33 @@ function extractTextFromEditor(){
   return parts.join('\n\n');
 }
 
+function _onAnalysisComplete(newResult){
+    if(newResult.error)return;
+    if(_initialIssueCount===null)_initialIssueCount=newResult.issues.length;
+    const prevCount=analysisResult?analysisResult.issues.length:_initialIssueCount;
+    const newCount=newResult.issues.length;
+    if(newCount<prevCount)_issuesResolved+=(prevCount-newCount);
+    analysisResult=newResult;
+    _batchFixDone=false;_smartScanDone=false;
+    diffHighlights(newResult.issues);
+    updateScoresOnly(newResult);
+    document.querySelectorAll('.rsc,.rp-detail,.gauge-wrap').forEach(el=>el.classList.remove('scores-pending'));
+}
+
 function scheduleReanalyze(){
   clearTimeout(_reanalyzeTimer);
   _reanalyzeTimer=setTimeout(()=>{
     const page=$('ed-annotated');
     if(!page)return;
     extractedText=extractTextFromEditor();
-    const newResult=Analyzer.analyze(extractedText);
-    if(newResult.error)return;
-
-    // Track resolved issues
-    if(_initialIssueCount===null)_initialIssueCount=newResult.issues.length;
-    const prevCount=analysisResult?analysisResult.issues.length:_initialIssueCount;
-    const newCount=newResult.issues.length;
-    if(newCount<prevCount)_issuesResolved+=(prevCount-newCount);
-
-    analysisResult=newResult;
-    // Surgically remove resolved highlights from editor DOM
-    diffHighlights(newResult.issues);
-    // Update scores, sidebar, gauge — NOT the editor content
-    updateScoresOnly(newResult);
+    _pushTypingSnapshot();
+    document.querySelectorAll('.rsc,.gauge-wrap').forEach(el=>el.classList.add('scores-pending'));
+    if(_analyzerWorker){
+      _analyzeVersion++;
+      _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:_analyzeVersion});
+    }else{
+      _onAnalysisComplete(Analyzer.analyze(extractedText));
+    }
   },2000);
 }
 
@@ -753,6 +674,23 @@ const _issueWhy={
 
 const _REWRITE_TYPES = new Set(['passive','adverb','weak-verb','show-tell','wordy','cliche']);
 
+function _isPaid() {
+  return window.__isAdmin || window.__userPlan === 'starter' || window.__userPlan === 'premium';
+}
+
+function _cardBtnsHtml(card) {
+  const hasFix = card.dataset.hasFix === '1';
+  const type = card.dataset.issueType || '';
+  const canAIFix = _REWRITE_TYPES.has(type) && _isPaid();
+  const fixHtml = hasFix
+    ? '<button class="tip-fix rpd-fix-btn">Apply Fix</button>'
+    : canAIFix
+      ? '<button class="rpd-fix-btn rpd-ai-fix-btn">Fix</button>'
+      : '<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
+  const rwHtml = (hasFix && canAIFix) ? '<button class="rpd-rewrite-btn">✶ Rewrite</button>' : '';
+  return fixHtml + '<button class="tip-ign rpd-ign-btn">Dismiss</button>' + rwHtml;
+}
+
 function wireCardBtns(card, btns) {
   btns.querySelector('.rpd-fix-btn')?.addEventListener('click', () => {
     const page = $('ed-annotated');
@@ -779,6 +717,7 @@ function wireCardBtns(card, btns) {
     card.remove();
   });
   btns.querySelector('.rpd-rewrite-btn')?.addEventListener('click', () => doRewrite(card));
+  btns.querySelector('.rpd-ai-fix-btn')?.addEventListener('click', () => doRewrite(card));
 }
 
 async function doRewrite(card) {
@@ -807,11 +746,10 @@ async function doRewrite(card) {
 
     btns.innerHTML =
       '<div class="rpd-rewrite-result">' +
-        '<div class="rpd-rewrite-label">✦ AI suggestion <span class="rpd-exp-badge">Experimental</span></div>' +
-        '<div class="rpd-rewrite-voice-note">Inspiration only — your voice, your words.</div>' +
+        '<div class="rpd-rewrite-label">✦ Suggested fix</div>' +
         '<div class="rpd-rewrite-text">' + esc(rewrite) + '</div>' +
         '<div class="rpd-rewrite-actions">' +
-          '<button class="rpd-use-btn">Apply Suggestion</button>' +
+          '<button class="rpd-use-btn">Apply</button>' +
           '<button class="rpd-retry-btn">Try Again</button>' +
           '<button class="rpd-skip-btn">Skip</button>' +
         '</div>' +
@@ -826,6 +764,7 @@ async function doRewrite(card) {
       document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
       $('ed-annotated')?.classList.add('active');
       if (hl) {
+        pushUndo();
         const sel = window.getSelection(); const range = document.createRange();
         range.selectNodeContents(hl); sel.removeAllRanges(); sel.addRange(range);
         document.execCommand('insertText', false, rewrite);
@@ -838,12 +777,7 @@ async function doRewrite(card) {
     btns.querySelector('.rpd-retry-btn').addEventListener('click', () => doRewrite(card));
 
     btns.querySelector('.rpd-skip-btn').addEventListener('click', () => {
-      const hasFix = card.dataset.hasFix === '1';
-      const fixBtnHtml = hasFix
-        ? '<button class="tip-fix rpd-fix-btn">Apply Fix</button>'
-        : '<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
-      btns.innerHTML = fixBtnHtml + '<button class="tip-ign rpd-ign-btn">Dismiss</button>'
-        + '<button class="rpd-rewrite-btn">✦ Rewrite</button>';
+      btns.innerHTML = _cardBtnsHtml(card);
       wireCardBtns(card, btns);
     });
 
@@ -856,12 +790,7 @@ async function doRewrite(card) {
       '</div>';
     btns.querySelector('.rpd-retry-btn').addEventListener('click', () => doRewrite(card));
     btns.querySelector('.rpd-skip-btn').addEventListener('click', () => {
-      const hasFix = card.dataset.hasFix === '1';
-      const fixBtnHtml = hasFix
-        ? '<button class="tip-fix rpd-fix-btn">Apply Fix</button>'
-        : '<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
-      btns.innerHTML = fixBtnHtml + '<button class="tip-ign rpd-ign-btn">Dismiss</button>'
-        + '<button class="rpd-rewrite-btn">✦ Rewrite</button>';
+      btns.innerHTML = _cardBtnsHtml(card);
       wireCardBtns(card, btns);
     });
   }
@@ -894,8 +823,9 @@ function showDetail(cat){
     (_issueWhy[t]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+_issueWhy[t]+'</div>':'')+
     (shown.length===0?(cat==='plot'&&r.scores.plot<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the plot structure score is <strong style="color:var(--yellow)">'+r.scores.plot+'/100</strong>.</p><p style="margin-top:.3rem">The engine evaluates arc progression, conflict setup, and tension distribution. Consider whether your opening establishes clear stakes and whether tension builds through the middle.</p></div>':cat==='dialogue'&&r.scores.dialogue<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the dialogue score is <strong style="color:var(--yellow)">'+r.scores.dialogue+'/100</strong>.</p><p style="margin-top:.3rem">Review dialogue for natural rhythm, distinct character voices, and balance between dialogue and narration.</p></div>':'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No issues in this category. Nice work!</p>'):
     shown.map((iss,idx)=>{
-      const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Apply Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
-      const rwBtn=_REWRITE_TYPES.has(iss.type)?'<button class="rpd-rewrite-btn">✶ Rewrite</button>':'';
+      const canAIFix=_REWRITE_TYPES.has(iss.type)&&_isPaid();
+      const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Apply Fix</button>':canAIFix?'<button class="rpd-fix-btn rpd-ai-fix-btn">Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
+      const rwBtn=(hasConcreteFix(iss)&&canAIFix)?'<button class="rpd-rewrite-btn">✶ Rewrite</button>':'';
       const sevColor=iss.severity==='high'?'var(--red)':iss.severity==='medium'?'var(--yellow)':'var(--muted)';
       return '<div class="rpd-issue" data-issue-text="'+escA(iss.text)+'" data-issue-sug="'+escA(iss.suggestion)+'" data-has-fix="'+(hasConcreteFix(iss)?'1':'0')+'" data-issue-type="'+escA(iss.type)+'" data-issue-index="'+(iss.index||0)+'">'+
         '<div class="rpd-issue-head"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+sevColor+';margin-right:5px"></span>'+(typeLabels[iss.type]||iss.type)+'</div>'+
@@ -948,6 +878,9 @@ function showDetail(cat){
     card.remove();
   })});
   d.querySelectorAll('.rpd-rewrite-btn').forEach(btn=>{btn.addEventListener('click',()=>{
+    doRewrite(btn.closest('.rpd-issue'));
+  })});
+  d.querySelectorAll('.rpd-ai-fix-btn').forEach(btn=>{btn.addEventListener('click',()=>{
     doRewrite(btn.closest('.rpd-issue'));
   })});
 }
@@ -1950,7 +1883,10 @@ function renderAnnotatedAsPages(text,issues){
   p.style.cssText='background:#faf6ee !important;color:#000 !important';
   p.setAttribute('contenteditable','true');
   p.setAttribute('spellcheck','false');
-  p.addEventListener('input',()=>{scheduleReanalyze();syncPreview();});
+  if(!p._hasInputListener){
+    p.addEventListener('input',()=>{scheduleReanalyze();syncPreview();});
+    p._hasInputListener=true;
+  }
 
   const chapterRe=/^(chapter\s+\d+\s*:?[^\n]*|chapter\s+[a-z]+\s*:?[^\n]*|part\s+\d+\s*:?[^\n]*|part\s+[a-z]+\s*:?[^\n]*|prologue\s*:?[^\n]*|epilogue\s*:?[^\n]*)/i;
   const sceneBreakRe=/^\s*(\*\s*\*\s*\*|#\s*#\s*#|---+|~~~+|\* \* \*)\s*$/;
@@ -2006,6 +1942,8 @@ function renderAnnotatedAsPages(text,issues){
   // Wire tooltip on highlights
   const tip=$('tip');
   let activeHL=null;
+  if(!p._hasClickListener){
+  p._hasClickListener=true;
   p.addEventListener('click',e=>{
     const hl=e.target.closest('.hl');
     if(hl&&!hl.classList.contains('off')){
@@ -2039,6 +1977,7 @@ function renderAnnotatedAsPages(text,issues){
       $('tip-ign-btn').onclick=()=>{activeHL.classList.add('off');tip.classList.remove('on')};
     }else if(!e.target.closest('.tip')){tip.classList.remove('on')}
   });
+  } // end click listener guard
 
   // Build chapter nav after rendering
   buildChapterNav();

@@ -237,6 +237,20 @@ const Analyzer = {
     return issues;
   },
 
+  // Irregular past participle → simple past for active voice conversion
+  PARTICIPLE_TO_PAST: {
+    built:’built’,caught:’caught’,chosen:’chose’,cut:’cut’,done:’did’,drawn:’drew’,
+    driven:’drove’,eaten:’ate’,fallen:’fell’,felt:’felt’,found:’found’,forgotten:’forgot’,
+    fought:’fought’,given:’gave’,gone:’went’,grown:’grew’,heard:’heard’,held:’held’,
+    hidden:’hid’,hit:’hit’,hung:’hung’,hurt:’hurt’,kept:’kept’,known:’knew’,laid:’laid’,
+    led:’led’,left:’left’,lent:’lent’,let:’let’,lost:’lost’,made:’made’,meant:’meant’,
+    met:’met’,paid:’paid’,put:’put’,read:’read’,rid:’rid’,run:’ran’,said:’said’,sat:’sat’,
+    seen:’saw’,sent:’sent’,set:’set’,shot:’shot’,shown:’showed’,shut:’shut’,sold:’sold’,
+    spent:’spent’,spoken:’spoke’,stood:’stood’,stuck:’stuck’,struck:’struck’,sung:’sang’,
+    sworn:’swore’,taken:’took’,taught:’taught’,thought:’thought’,thrown:’threw’,told:’told’,
+    torn:’tore’,understood:’understood’,woken:’woke’,won:’won’,worn:’wore’,written:’wrote’
+  },
+
   // ========================
   // PASSIVE VOICE
   // ========================
@@ -249,11 +263,28 @@ const Analyzer = {
         // Skip passive-looking adjectives ("was interested", "was tired")
         const lastWord = match[0].split(/\s+/).pop().toLowerCase();
         if (this.PASSIVE_EXCEPTIONS.has(lastWord)) continue;
+
+        // Try to extract “by [agent]” for a concrete active-voice fix
+        const afterMatch = text.substring(match.index + match[0].length, match.index + match[0].length + 80);
+        const byAgent = afterMatch.match(/^\s+by\s+([A-Z][\w]*(?:\s+[A-Z][\w]*)*|(?:the|a|an|his|her|their|my|our|its)\s+[\w]+(?:\s+[\w]+)?)/);
+        let suggestion, issueText = match[0], issueLen = match[0].length;
+        if (byAgent) {
+          const agent = byAgent[1].trim();
+          const participle = lastWord;
+          const simplePast = this.PARTICIPLE_TO_PAST[participle] || participle;
+          const fixText = agent + ‘ ‘ + simplePast;
+          issueText = match[0] + byAgent[0];
+          issueLen = issueText.length;
+          suggestion = ‘Replace with: “’ + fixText + ‘”’;
+        } else {
+          suggestion = ‘The subject isn’t doing the action. Flip it: “was opened by her” → “she opened.”’;
+        }
+
         issues.push({
-          type: 'passive', text: match[0], index: match.index, length: match[0].length,
-          severity: 'medium', confidence: 0.85,
-          message: `Passive voice: "${match[0]}"`,
-          suggestion: 'The subject isn’t doing the action. Flip it: "was opened by her" → "she opened." Click Rewrite for a suggestion.'
+          type: ‘passive’, text: issueText, index: match.index, length: issueLen,
+          severity: ‘medium’, confidence: 0.85,
+          message: `Passive voice: “${match[0]}”`,
+          suggestion
         });
       }
     }
@@ -2731,7 +2762,9 @@ const Analyzer = {
         cliche: clicheIssues.length, 'weak-verb': weakVerbIssues.length,
         wordy: wordyIssues.length, repetition: repetitionIssues.length,
         'sentence-length': longSentenceIssues.length, 'show-tell': showTellIssues.length,
-        'confused-word': confusedWordIssues.length
+        'confused-word': confusedWordIssues.length,
+        pov: lineEditing.findings ? lineEditing.findings.filter(f => f.type === 'pov').length : 0,
+        dialogue: dialogue.findings ? dialogue.findings.length : 0
       }
     };
   },
