@@ -222,8 +222,8 @@ async function maybeRunSmartScan(r){
       }
     });
 
-    // Re-render annotated view to show updated suggestions
-    renderAnnotated(extractedText,r.issues);
+    // Re-render right panel only — do NOT call renderAnnotated here
+    // because it replaces the entire editor DOM, destroying cursor/selection/undo
     renderRight(r);
 
     // Show a subtle toast
@@ -280,7 +280,6 @@ function _hydrateFromBatchCache(r,cached){
     }
   });
   if(hydrated>0){
-    renderAnnotated(extractedText,r.issues);
     renderRight(r);
   }
 }
@@ -472,9 +471,6 @@ function replaceAndFix(hlElement){
   let replacement='';
   let mode='replace'; // 'replace', 'remove', 'split'
 
-  // Save undo state BEFORE any changes
-  pushUndo();
-
   // Priority: use AI-generated replacement if available (from SmartScan)
   const aiMatch=suggestion.match(/Replace with:\s*"(.+?)"/);
   if(aiMatch&&aiMatch[1]&&aiMatch[1]!==original){
@@ -588,6 +584,8 @@ function replaceAndFix(hlElement){
       if(p2.length>0)p2=p2.charAt(0).toUpperCase()+p2.slice(1);
       replacement=p1+' '+p2;
     }
+  }else{
+    replacement=original;
   }
 
   // Apply: select the highlight's text range, then use insertText to replace
@@ -602,6 +600,9 @@ function replaceAndFix(hlElement){
     hlElement.focus();
     return;
   }
+
+  // Save undo state after computing replacement, before applying
+  pushUndo();
 
   // Select the highlight span's content
   const sel=window.getSelection();
@@ -656,6 +657,7 @@ function scheduleReanalyze(){
     if(newCount<prevCount)_issuesResolved+=(prevCount-newCount);
 
     analysisResult=newResult;
+    _batchFixDone=false;_smartScanDone=false;
     // Surgically remove resolved highlights from editor DOM
     diffHighlights(newResult.issues);
     // Update scores, sidebar, gauge — NOT the editor content
@@ -896,6 +898,7 @@ async function doRewrite(card) {
       document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
       $('ed-annotated')?.classList.add('active');
       if (hl) {
+        pushUndo();
         const sel = window.getSelection(); const range = document.createRange();
         range.selectNodeContents(hl); sel.removeAllRanges(); sel.addRange(range);
         document.execCommand('insertText', false, rewrite);
@@ -2014,7 +2017,10 @@ function renderAnnotatedAsPages(text,issues){
   p.style.cssText='background:#faf6ee !important;color:#000 !important';
   p.setAttribute('contenteditable','true');
   p.setAttribute('spellcheck','false');
-  p.addEventListener('input',()=>{scheduleReanalyze();syncPreview();});
+  if(!p._hasInputListener){
+    p.addEventListener('input',()=>{scheduleReanalyze();syncPreview();});
+    p._hasInputListener=true;
+  }
 
   const chapterRe=/^(chapter\s+\d+\s*:?[^\n]*|chapter\s+[a-z]+\s*:?[^\n]*|part\s+\d+\s*:?[^\n]*|part\s+[a-z]+\s*:?[^\n]*|prologue\s*:?[^\n]*|epilogue\s*:?[^\n]*)/i;
   const sceneBreakRe=/^\s*(\*\s*\*\s*\*|#\s*#\s*#|---+|~~~+|\* \* \*)\s*$/;
@@ -2070,6 +2076,8 @@ function renderAnnotatedAsPages(text,issues){
   // Wire tooltip on highlights
   const tip=$('tip');
   let activeHL=null;
+  if(!p._hasClickListener){
+  p._hasClickListener=true;
   p.addEventListener('click',e=>{
     const hl=e.target.closest('.hl');
     if(hl&&!hl.classList.contains('off')){
@@ -2103,6 +2111,7 @@ function renderAnnotatedAsPages(text,issues){
       $('tip-ign-btn').onclick=()=>{activeHL.classList.add('off');tip.classList.remove('on')};
     }else if(!e.target.closest('.tip')){tip.classList.remove('on')}
   });
+  } // end click listener guard
 
   // Build chapter nav after rendering
   buildChapterNav();
