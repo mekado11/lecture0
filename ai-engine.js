@@ -76,7 +76,9 @@ const AIEngine = {
     const headers = { 'content-type': 'application/json' };
     const currentUser = typeof firebase !== 'undefined' && firebase.auth().currentUser ? firebase.auth().currentUser : null;
     headers['x-user-id'] = currentUser ? currentUser.uid : 'anon';
-    headers['x-user-email'] = currentUser ? currentUser.email : '';
+    if (currentUser) {
+      try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch (e) {}
+    }
     headers['x-model'] = this._routeModel(feature);
 
     const response = await fetch(endpoint, {
@@ -156,7 +158,7 @@ const AIEngine = {
       try {
         results[f.key] = await f.fn();
       } catch (err) {
-        results[f.key] = { error: err.message };
+        results[f.key] = { error: err?.message || String(err) };
       }
     }
     return results;
