@@ -722,19 +722,19 @@ function renderRight(r){
   const highSev=type=>r.issues.filter(i=>i.type===type&&i.severity==='high').length;
   const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
   const cats=[
-    {k:'plot',name:'Plot Structure',score:r.scores.plot,issues:0,weight:'10%'},
+    {k:'plot',name:'Plot Structure',score:r.scores.plot,issues:countType('pov'),weight:'10%'},
     {k:'clarity',name:'Clarity',score:r.readerPerspective.clarityScore,issues:countType('passive'),weight:'10%'},
     {k:'pacing',name:'Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),issues:countType('sentence-length'),badge:r.readerPerspective.pacingFeel.includes('Rushed')?'Rushed':null,weight:'8%'},
     {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:countType('adverb'),weight:'7%'},
     {k:'style',name:'Style & Voice',score:r.scores.style,issues:countType('weak-verb'),weight:'8%'},
-    {k:'dialogue',name:'Dialogue',score:r.scores.dialogue,issues:0,weight:'7%'},
+    {k:'dialogue',name:'Dialogue',score:r.scores.dialogue,issues:countType('dialogue'),weight:'7%'},
     {k:'showTell',name:'Show vs Tell',score:r.scores.showTell,issues:stIssues,weight:'8%'},
     {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:cpIssues,weight:'12%'}
   ];
   const container=$('rp-scores');
   container.innerHTML=cats.map(c=>{
     const col=scHex(c.score);const id='rsc-'+Math.random().toString(36).substr(2,5);
-    const issueLabel=c.issues>0?c.issues+' issue'+(c.issues===1?'':'s'):'Clean';
+    const issueLabel=c.issues>0?c.issues+' issue'+(c.issues===1?'':'s'):c.score>=80?'Clean':'—';
     const issueColor=c.issues>10?'var(--red)':c.issues>3?'var(--yellow)':'var(--green)';
     return '<div class="rsc" data-cat="'+c.k+'"><div class="rsc-ring"><canvas id="'+id+'" width="34" height="34"></canvas><span class="rsc-n" style="color:'+col+'">'+c.score+'</span></div><div class="rsc-info"><div class="rsc-name">'+c.name+'<span style="font-size:.55rem;color:var(--dim);margin-left:4px">'+c.weight+'</span></div><div class="rsc-sub" style="color:'+issueColor+'">'+issueLabel+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="rsc-val" style="color:'+col+'">'+c.score+'</span>')+'</div>';
   }).join('');
@@ -760,7 +760,7 @@ const _issueWhy={
 
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
-  const typeMap={plot:null,clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:null,showTell:'show-tell',copy:null};
+  const typeMap={plot:'pov',clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:'dialogue',showTell:'show-tell',copy:null};
   const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing'};
   const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence'};
   const t=typeMap[cat];
