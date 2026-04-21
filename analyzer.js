@@ -253,7 +253,7 @@ const Analyzer = {
           type: 'passive', text: match[0], index: match.index, length: match[0].length,
           severity: 'medium', confidence: 0.85,
           message: `Passive voice: "${match[0]}"`,
-          suggestion: 'Rewrite in active voice for stronger prose.'
+          suggestion: 'The subject isn’t doing the action. Flip it: "was opened by her" → "she opened." Click Rewrite for a suggestion.'
         });
       }
     }
@@ -354,6 +354,114 @@ const Analyzer = {
           type: 'show-tell', text: match[0], index: match.index, length: match[0].length,
           severity: 'medium', confidence: 0.85, message: `${msg}: "${match[0]}"`,
           suggestion: 'Show through action, dialogue, or sensory detail instead.'
+        });
+      }
+    }
+    return issues;
+  },
+
+  // ========================
+  // COMMONLY CONFUSED WORDS
+  // ========================
+  findConfusedWords(text) {
+    const issues = [];
+    const patterns = [
+      { regex: /\b(could|would|should|must|might)\s+of\b/gi,
+        fix: (m) => m[1] + ' have',
+        msg: '"$0" should be "$1 have." "Of" is not a verb.' },
+      { regex: /\balot\b/g,
+        fix: () => 'a lot',
+        msg: '"Alot" is not a word. Use "a lot" (two words).' },
+      { regex: /\bsneak\s+peak\b/gi,
+        fix: () => 'sneak peek',
+        msg: '"Peak" is a mountain top. "Peek" is a quick look.' },
+      { regex: /\bpeaked\s+(my|his|her|their|our|your|its)\s+(interest|curiosity)\b/gi,
+        fix: (m) => 'piqued ' + m[1] + ' ' + m[2],
+        msg: '"Peaked" means reached a summit. "Piqued" means stimulated.' },
+      { regex: /\bpeeked\s+(my|his|her|their|our|your|its)\s+(interest|curiosity)\b/gi,
+        fix: (m) => 'piqued ' + m[1] + ' ' + m[2],
+        msg: '"Peeked" means looked furtively. "Piqued" means stimulated.' },
+      { regex: /\bbare\s+with\s+me\b/gi,
+        fix: () => 'bear with me',
+        msg: '"Bare" means naked or to expose. "Bear with me" means be patient.' },
+      { regex: /\bfree\s+reign\b/gi,
+        fix: () => 'free rein',
+        msg: '"Reign" is a monarch\'s rule. "Rein" is a strap — giving slack, not authority.' },
+      { regex: /\breign(ed|s|ing)\s+(in|back)\b/gi,
+        fix: (m) => 'rein' + (m[1]||'') + ' ' + m[2],
+        msg: '"Reign" is a monarch\'s rule. "Rein in/back" means to restrain, from horsemanship.' },
+      { regex: /\bbaited\s+breath\b/gi,
+        fix: () => 'bated breath',
+        msg: '"Baited" means set a trap. "Bated" means held back (abated).' },
+      { regex: /\btake\s+a\s+breathe\b/gi,
+        fix: () => 'take a breath',
+        msg: '"Breathe" is the verb. "Breath" is the noun.' },
+      { regex: /\b(couldn't|can't|didn't|won't|cannot|could\s+not|don't)\s+breath\b/gi,
+        fix: (m) => m[1] + ' breathe',
+        msg: '"Breath" is the noun. "Breathe" is the verb — use it after verbs.' },
+      { regex: /\bfor\s+all\s+intensive\s+purposes\b/gi,
+        fix: () => 'for all intents and purposes',
+        msg: 'The phrase is "intents and purposes," not "intensive purposes."' },
+      { regex: /\bsupposably\b/gi,
+        fix: () => 'supposedly',
+        msg: '"Supposably" is not standard. Use "supposedly."' },
+      { regex: /\birregardless\b/gi,
+        fix: () => 'regardless',
+        msg: '"Irregardless" is a double negative. Use "regardless."' },
+      { regex: /\bcould\s+care\s+less\b/gi,
+        fix: () => 'couldn\'t care less',
+        msg: '"Could care less" means you still care. "Couldn\'t care less" means you don\'t.' },
+      { regex: /\bhoning\s+in\b/gi,
+        fix: () => 'homing in',
+        msg: '"Hone" means to sharpen. "Home in" means to move toward a target.' },
+      { regex: /\bflush\s+out\s+(the\s+)?(idea|plan|concept|detail|strategy|proposal|thought|story|plot|character|scene|chapter|outline|draft|manuscript)\b/gi,
+        fix: (m) => 'flesh out ' + (m[1]||'') + m[2],
+        msg: '"Flush out" means to drive from hiding. "Flesh out" means to add substance.' },
+      { regex: /\btow\s+the\s+line\b/gi,
+        fix: () => 'toe the line',
+        msg: '"Tow" means to pull. "Toe the line" means to conform — standing with toes at a line.' },
+      { regex: /\bwet\s+(my|his|her|their|our|your|its|the)\s+appetite\b/gi,
+        fix: (m) => 'whet ' + m[1] + ' appetite',
+        msg: '"Wet" means to dampen. "Whet" means to sharpen or stimulate.' },
+      { regex: /\bper\s+say\b/gi,
+        fix: () => 'per se',
+        msg: '"Per se" is Latin for "by itself." "Per say" is a misspelling.' },
+      { regex: /\bdeep[\s-]seeded\b/gi,
+        fix: () => 'deep-seated',
+        msg: '"Deep-seated" means firmly established — like a seat, not a seed.' },
+      { regex: /\bbeckon\s+call\b/gi,
+        fix: () => 'beck and call',
+        msg: '"Beck" is a gesture of summoning. "Beck and call" — at someone\'s gesture and voice.' },
+      { regex: /\bmute\s+point\b/gi,
+        fix: () => 'moot point',
+        msg: '"Mute" means silent. "Moot" means debatable or irrelevant.' },
+      { regex: /\bwreck\s+havoc\b/gi,
+        fix: () => 'wreak havoc',
+        msg: '"Wreck" means to destroy. "Wreak" means to cause or inflict.' },
+      { regex: /\bon\s+accident\b/gi,
+        fix: () => 'by accident',
+        msg: 'Standard English uses "by accident," not "on accident."' },
+      { regex: /\b(the\s+)?throws?\s+of\s+(passion|grief|agony|ecstasy|death|despair|anger|rage)\b/gi,
+        fix: (m) => (m[1]||'') + 'throes of ' + m[2],
+        msg: '"Throws" means to hurl. "Throes" means intense struggle or suffering.' },
+      { regex: /\bwrecking\s+havoc\b/gi,
+        fix: () => 'wreaking havoc',
+        msg: '"Wrecking" means demolishing. "Wreaking" means causing or inflicting.' },
+      { regex: /\b(taught|taunt)\s+(rope|wire|string|line|chain|cable|muscle|fabric|cloth|skin|bow|sail)\b/gi,
+        fix: (m) => 'taut ' + m[2],
+        msg: '"Taught" is past tense of teach. "Taut" means tight or stretched.' },
+    ];
+
+    for (const p of patterns) {
+      let match;
+      const r = new RegExp(p.regex.source, p.regex.flags);
+      while ((match = r.exec(text)) !== null) {
+        const fixText = p.fix(match);
+        const msg = p.msg.replace('$0', match[0]).replace('$1', match[1] || '');
+        issues.push({
+          type: 'confused-word', text: match[0], index: match.index, length: match[0].length,
+          severity: 'high', confidence: 0.95, message: msg,
+          suggestion: 'Replace with: "' + fixText + '"'
         });
       }
     }
@@ -2509,11 +2617,12 @@ const Analyzer = {
     const repetitionIssues = this.findRepetitions(text);
     const longSentenceIssues = this.findLongSentences(text);
     const showTellIssues = this.findShowVsTell(text);
+    const confusedWordIssues = this.findConfusedWords(text);
 
     const rawIssues = [
       ...passiveIssues, ...adverbIssues, ...clicheIssues,
       ...weakVerbIssues, ...wordyIssues, ...repetitionIssues,
-      ...longSentenceIssues, ...showTellIssues
+      ...longSentenceIssues, ...showTellIssues, ...confusedWordIssues
     ];
 
     // ========================================================
@@ -2621,7 +2730,8 @@ const Analyzer = {
         passive: passiveIssues.length, adverb: adverbIssues.length,
         cliche: clicheIssues.length, 'weak-verb': weakVerbIssues.length,
         wordy: wordyIssues.length, repetition: repetitionIssues.length,
-        'sentence-length': longSentenceIssues.length, 'show-tell': showTellIssues.length
+        'sentence-length': longSentenceIssues.length, 'show-tell': showTellIssues.length,
+        'confused-word': confusedWordIssues.length
       }
     };
   },

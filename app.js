@@ -437,8 +437,6 @@ function replaceAndFix(hlElement){
     replacement=m?m[1]:'';
     if(replacement==='(omit)'||replacement==='(omit or rephrase)'){replacement='';mode='remove'}
     else if(!replacement){mode='remove';replacement=''}
-  }else if(type==='passive'){
-    replacement=original.replace(/\b(was|were)\s+(being\s+)?/i,'').trim();
   }else if(type==='adverb'){
     replacement='';mode='remove';
   }else if(type==='cliche'){
@@ -470,12 +468,6 @@ function replaceAndFix(hlElement){
       // Generic: strip the cliche structure, keep core meaning
       replacement=original.replace(/\b(like|as)\s+a\s+/gi,'').trim();
       if(replacement===original)replacement=original+' [replace with original phrasing]';
-    }
-  }else if(type==='show-tell'){
-    replacement=original.replace(/\b(felt|feeling|could feel|could sense|could tell|could see|obviously|clearly|evidently|apparently)\s*/i,'').trim();
-    if(!replacement||replacement===original){
-      // "was beautiful" -> "beautiful" (let writer expand into showing)
-      replacement=original.replace(/\b(was|were|seemed|looked)\s+/i,'').trim();
     }
   }else if(type==='repetition'){
     // First try: extract synonym from the issue's suggestion ("Try: stated, replied, remarked")
@@ -755,7 +747,8 @@ const _issueWhy={
   'show-tell':'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',
   wordy:'Extra words slow pacing and dilute impact. Tight prose holds attention.',
   repetition:'Repeated words in close proximity suggest limited vocabulary and can feel monotonous to readers.',
-  'sentence-length':'Long sentences tax working memory. Varying length creates rhythm and controls pacing.'
+  'sentence-length':'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',
+  'confused-word':'Wrong word — sounds right but means something different. These slip past spell-check.'
 };
 
 const _REWRITE_TYPES = new Set(['passive','adverb','weak-verb','show-tell','wordy','cliche']);
@@ -814,10 +807,11 @@ async function doRewrite(card) {
 
     btns.innerHTML =
       '<div class="rpd-rewrite-result">' +
-        '<div class="rpd-rewrite-label">✦ Suggested rewrite <span class="rpd-exp-badge">Experimental</span></div>' +
+        '<div class="rpd-rewrite-label">✦ AI suggestion <span class="rpd-exp-badge">Experimental</span></div>' +
+        '<div class="rpd-rewrite-voice-note">Inspiration only — your voice, your words.</div>' +
         '<div class="rpd-rewrite-text">' + esc(rewrite) + '</div>' +
         '<div class="rpd-rewrite-actions">' +
-          '<button class="rpd-use-btn">Use This</button>' +
+          '<button class="rpd-use-btn">Apply Suggestion</button>' +
           '<button class="rpd-retry-btn">Try Again</button>' +
           '<button class="rpd-skip-btn">Skip</button>' +
         '</div>' +
@@ -846,7 +840,7 @@ async function doRewrite(card) {
     btns.querySelector('.rpd-skip-btn').addEventListener('click', () => {
       const hasFix = card.dataset.hasFix === '1';
       const fixBtnHtml = hasFix
-        ? '<button class="tip-fix rpd-fix-btn">Accept Fix</button>'
+        ? '<button class="tip-fix rpd-fix-btn">Apply Fix</button>'
         : '<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
       btns.innerHTML = fixBtnHtml + '<button class="tip-ign rpd-ign-btn">Dismiss</button>'
         + '<button class="rpd-rewrite-btn">✦ Rewrite</button>';
@@ -864,7 +858,7 @@ async function doRewrite(card) {
     btns.querySelector('.rpd-skip-btn').addEventListener('click', () => {
       const hasFix = card.dataset.hasFix === '1';
       const fixBtnHtml = hasFix
-        ? '<button class="tip-fix rpd-fix-btn">Accept Fix</button>'
+        ? '<button class="tip-fix rpd-fix-btn">Apply Fix</button>'
         : '<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
       btns.innerHTML = fixBtnHtml + '<button class="tip-ign rpd-ign-btn">Dismiss</button>'
         + '<button class="rpd-rewrite-btn">✦ Rewrite</button>';
@@ -877,7 +871,7 @@ function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
   const typeMap={plot:'pov',clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:'dialogue',showTell:'show-tell',copy:null};
   const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing'};
-  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence'};
+  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word'};
   const t=typeMap[cat];
 
   // Sort by severity: high first, then medium, then low
@@ -889,7 +883,7 @@ function showDetail(cat){
 
   // Determine if suggestion has a concrete replacement
   function hasConcreteFix(iss){
-    return !!iss.suggestion.match(/Replace with:\s*".+?"/)||!!iss.suggestion.match(/Try:\s*.+/i)||iss.type==='adverb'||iss.type==='passive'||iss.type==='wordy'||iss.type==='cliche';
+    return !!iss.suggestion.match(/Replace with:\s*".+?"/)||!!iss.suggestion.match(/Try:\s*.+/i)||iss.type==='adverb'||iss.type==='wordy'||iss.type==='cliche';
   }
 
   // Progress indicator
@@ -898,9 +892,9 @@ function showDetail(cat){
   d.innerHTML=progressHtml+
     '<div class="rpd-title"><span style="font-size:1.1rem">'+titles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">'+totalForCat+' issue'+(totalForCat===1?'':'s')+'</span></div>'+
     (_issueWhy[t]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+_issueWhy[t]+'</div>':'')+
-    (shown.length===0?'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No issues in this category. Nice work!</p>':
+    (shown.length===0?(cat==='plot'&&r.scores.plot<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the plot structure score is <strong style="color:var(--yellow)">'+r.scores.plot+'/100</strong>.</p><p style="margin-top:.3rem">The engine evaluates arc progression, conflict setup, and tension distribution. Consider whether your opening establishes clear stakes and whether tension builds through the middle.</p></div>':cat==='dialogue'&&r.scores.dialogue<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the dialogue score is <strong style="color:var(--yellow)">'+r.scores.dialogue+'/100</strong>.</p><p style="margin-top:.3rem">Review dialogue for natural rhythm, distinct character voices, and balance between dialogue and narration.</p></div>':'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No issues in this category. Nice work!</p>'):
     shown.map((iss,idx)=>{
-      const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Accept Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
+      const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Apply Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
       const rwBtn=_REWRITE_TYPES.has(iss.type)?'<button class="rpd-rewrite-btn">✶ Rewrite</button>':'';
       const sevColor=iss.severity==='high'?'var(--red)':iss.severity==='medium'?'var(--yellow)':'var(--muted)';
       return '<div class="rpd-issue" data-issue-text="'+escA(iss.text)+'" data-issue-sug="'+escA(iss.suggestion)+'" data-has-fix="'+(hasConcreteFix(iss)?'1':'0')+'" data-issue-type="'+escA(iss.type)+'" data-issue-index="'+(iss.index||0)+'">'+
@@ -2016,14 +2010,14 @@ function renderAnnotatedAsPages(text,issues){
     const hl=e.target.closest('.hl');
     if(hl&&!hl.classList.contains('off')){
       activeHL=hl;
-      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence'};
+      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence','confused-word':'Wrong word'};
       const t=hl.dataset.t;
       const sug=hl.dataset.s||'';
       // Determine if this issue has an auto-replacement available
       const hasAI=!!sug.match(/Replace with:\s*".+?"/);
       const hasTry=!!sug.match(/Try:\s*.+/i);
       // Types with reliable auto-fix: wordy (has "Replace with"), weak-verb/repetition (has "Try:"), adverb (remove), passive (restructure), cliche (has map)
-      const canAutoFix=hasAI||hasTry||t==='adverb'||t==='passive'||t==='wordy'||t==='cliche';
+      const canAutoFix=hasAI||hasTry||t==='adverb'||t==='wordy'||t==='cliche';
       const fixLabel=canAutoFix?'Replace &amp; Fix':'Edit Here';
       tip.innerHTML='<div class="tip-cat">'+(labels[t]||t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+sug+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+fixLabel+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
       tip.classList.add('on');
@@ -2104,8 +2098,11 @@ document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{
   const d=$('rp-detail');const r=analysisResult;
   if(mode==='suggestions'){renderRight(r);return}
   if(mode==='rewrite'){
-    const samples=r.issues.filter(i=>['passive','weak-verb','wordy'].includes(i.type)).slice(0,5);
-    d.innerHTML='<div class="rpd-title">Rewrite Suggestions</div>'+(samples.length===0?'<p style="color:var(--muted);font-size:.78rem">No rewrite targets found.</p>':samples.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">Rewrite: "'+esc(i.text.substring(0,40))+'"</div><div class="rpd-desc">'+esc(i.suggestion)+'</div><div class="rpd-quote">Original: \u201C'+esc(i.text)+'\u201D</div></div>').join(''));
+    const samples=r.issues.filter(i=>_REWRITE_TYPES.has(i.type)).slice(0,8);
+    d.innerHTML='<div class="rpd-title">Rewrite Suggestions <span class="rpd-exp-badge" style="margin-left:.4rem">Experimental</span></div>'+(samples.length===0?'<p style="color:var(--muted);font-size:.78rem">No rewrite targets found.</p>':samples.map(i=>'<div class="rpd-issue" data-issue-text="'+escA(i.text)+'" data-issue-sug="'+escA(i.suggestion)+'" data-has-fix="'+(i.type==='adverb'||i.type==='passive'||i.type==='wordy'||i.type==='cliche'?'1':'0')+'" data-issue-type="'+escA(i.type)+'" data-issue-index="'+(i.index||0)+'"><div class="rpd-issue-head">'+esc(i.text.substring(0,40))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div><div class="rpd-quote rpd-navigate" style="cursor:pointer" title="Click to jump to this text">\u2018'+esc(i.text.substring(0,60))+'\u2019</div><div class="rpd-btns"><button class="rpd-rewrite-btn">\u2736 Rewrite</button><button class="tip-ign rpd-ign-btn">Dismiss</button></div></div>').join(''));
+    d.querySelectorAll('.rpd-navigate').forEach(q=>{q.addEventListener('click',()=>{const card=q.closest('.rpd-issue');const issueText=card.dataset.issueText;document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));const ab=document.querySelector('.btab[data-p="annotated"]');if(ab)ab.classList.add('active');$('ed-annotated')?.classList.add('active');const page=$('ed-annotated');const q2=issueText.substring(0,60).replace(/"/g,'&quot;');const hl=page?.querySelector('.hl[data-q="'+q2+'"]');if(hl){hl.scrollIntoView({behavior:'smooth',block:'center'});hl.style.outline='3px solid var(--gold)';hl.style.outlineOffset='3px';setTimeout(()=>{hl.style.outline=''},3000)}})});
+    d.querySelectorAll('.rpd-rewrite-btn').forEach(btn=>{btn.addEventListener('click',()=>{doRewrite(btn.closest('.rpd-issue'))})});
+    d.querySelectorAll('.rpd-ign-btn').forEach(btn=>{btn.addEventListener('click',()=>{const card=btn.closest('.rpd-issue');const page=$('ed-annotated');const q=card.dataset.issueText.substring(0,60).replace(/"/g,'&quot;');const hl=page?.querySelector('.hl[data-q="'+q+'"]');if(hl)hl.classList.add('off');card.remove()})});
   }
   if(mode==='tone shift'){
     d.innerHTML='<div class="rpd-title">Tone Analysis</div><div class="rpd-issue"><div class="rpd-issue-head">Current Tone</div><div class="rpd-desc">POV: '+esc(r.style.pov)+'<br>Lexical Diversity: '+r.style.lexicalDiversity+'/100<br>Avg Word Length: '+r.style.avgWordLength+' chars</div></div><div class="rpd-issue"><div class="rpd-issue-head">Emotional Tone</div><div class="rpd-desc">'+r.readerPerspective.emotionalJourney.map(e=>e.emotion+': '+e.intensity+'%').join(' &middot; ')+'</div></div><div class="rpd-issue"><div class="rpd-issue-head">Suggestion</div><div class="rpd-desc">'+(r.style.lexicalDiversity<40?'Consider using more varied vocabulary to enrich the tone.':r.style.lexicalDiversity>70?'Strong vocabulary variety. Consider if some words are too obscure for your audience.':'Good tonal balance. The vocabulary suits the genre well.')+'</div></div>';
