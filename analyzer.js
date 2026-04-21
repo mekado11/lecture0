@@ -2640,5 +2640,43 @@ const Analyzer = {
     if (score >= 48) return 'C-';
     if (score >= 40) return 'D';
     return 'F';
+  },
+
+  extractStyleFingerprint(text) {
+    if (!text || text.length < 100) return null;
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+    const lengths = sentences.map(s => s.trim().split(/\s+/).length);
+    const avg = lengths.length ? Math.round(lengths.reduce((a,b)=>a+b,0)/lengths.length) : 15;
+    const variance = lengths.length > 1
+      ? Math.sqrt(lengths.reduce((a,b)=>a+(b-avg)**2,0)/lengths.length) : 0;
+    const firstP = (text.match(/\b(I|me|my|mine|myself)\b/g)||[]).length;
+    const thirdP = (text.match(/\b(he|she|they|him|her|them|his|hers|their)\b/gi)||[]).length;
+    const pov = firstP > thirdP * 0.6 ? 'first-person' : 'third-person';
+    const pastV = (text.match(/\b(was|were|had|said|felt|walked|ran|saw|knew|thought|looked|turned|moved|stood|sat|came|went|took|made|found)\b/gi)||[]).length;
+    const presV = (text.match(/\b(is|are|has|says|feels|walks|runs|sees|knows|thinks|looks|turns|moves|stands|sits|comes|goes|takes|makes|finds)\b/gi)||[]).length;
+    const tense = pastV >= presV ? 'past' : 'present';
+    const sample = text.split(/\s+/).slice(0,600).map(w=>w.toLowerCase().replace(/[^a-z]/g,''));
+    const vocabRichness = Math.round(new Set(sample).size / Math.max(sample.length,1) * 100);
+    const emDashes = (text.match(/—/g)||[]).length;
+    const ellipses = (text.match(/\.\.\./g)||[]).length;
+    return {
+      avgSentenceLen: avg,
+      sentenceVariety: variance > 6 ? 'varied' : variance > 3 ? 'moderate' : 'uniform',
+      pov, tense, vocabRichness,
+      emDashes: emDashes > 3 ? 'frequent' : emDashes > 0 ? 'occasional' : 'rare',
+      ellipses: ellipses > 2 ? 'uses' : 'avoids'
+    };
+  },
+
+  fingerprintToPrompt(fp) {
+    if (!fp) return '';
+    return [
+      fp.pov + ' narrator',
+      fp.tense + ' tense',
+      'avg ' + fp.avgSentenceLen + '-word sentences (' + fp.sentenceVariety + ' length)',
+      fp.emDashes !== 'rare' ? fp.emDashes + ' em dashes' : null,
+      fp.ellipses === 'uses' ? 'uses ellipses' : null,
+      fp.vocabRichness > 65 ? 'rich vocabulary' : fp.vocabRichness > 45 ? 'moderate vocabulary' : 'plain vocabulary'
+    ].filter(Boolean).join(', ');
   }
 };
