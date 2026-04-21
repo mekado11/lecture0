@@ -10,6 +10,24 @@ const https = require("https");
 admin.initializeApp();
 const db = admin.firestore();
 
+const rateLimitMap = new Map();
+const LIMITS = { dev: 9999, premium: 5, starter: 1, free: 0 };
+const DEV_UIDS = new Set([]);
+const tierCache = new Map();
+const TIER_CACHE_TTL = 60000;
+
+async function getUserTier(uid) {
+  if (DEV_UIDS.has(uid)) return 'dev';
+  const cached = tierCache.get(uid);
+  if (cached && Date.now() - cached.ts < TIER_CACHE_TTL) return cached.tier;
+  try {
+    const doc = await db.collection('users').doc(uid).get();
+    const tier = doc.exists ? (doc.data().tier || 'free') : 'free';
+    tierCache.set(uid, { tier, ts: Date.now() });
+    return tier;
+  } catch (e) { return 'free'; }
+}
+
 // API key stored as Firebase secret (never in code)
 const claudeApiKey = defineSecret("CLAUDE_API_KEY");
 const vapidPublicKey = defineSecret("VAPID_PUBLIC_KEY");
@@ -37,6 +55,41 @@ exports.claude = onRequest(
       res.status(400).json({ error: { message: "Missing model or messages" } });
       return;
     }
+
+    // Verify Firebase ID token
+    const authHeader = req.headers.authorization || "";
+    if (!authHeader.startsWith("Bearer ")) {
+      res.status(401).json({ error: { message: "Authentication required", code: "UNAUTHENTICATED" } });
+      return;
+    }
+    let decoded;
+    try {
+      decoded = await admin.auth().verifyIdToken(authHeader.slice(7));
+    } catch (e) {
+      res.status(401).json({ error: { message: "Invalid or expired token", code: "UNAUTHENTICATED" } });
+      return;
+    }
+
+    // Tier-based rate limiting
+    const uid = decoded.uid;
+    const today = new Date().toISOString().split("T")[0];
+    const key = uid + ":" + today;
+    const userTier = await getUserTier(uid);
+    const limit = LIMITS[userTier] ?? LIMITS.free;
+    const current = rateLimitMap.get(key) || 0;
+    if (current >= limit) {
+      res.status(429).json({
+        error: {
+          message: userTier === "free"
+            ? "AI features require a subscription. Upgrade to Starter ($5/mo)."
+            : "Daily AI limit reached (" + limit + "/day). Resets at midnight UTC.",
+          code: "RATE_LIMITED", limit, used: current, tier: userTier
+        }
+      });
+      return;
+    }
+    rateLimitMap.set(key, current + 1);
+
     const body = { ...req.body };
     if (body.max_tokens > 2048) body.max_tokens = 2048;
     const payload = JSON.stringify(body);
