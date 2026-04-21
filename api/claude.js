@@ -2,22 +2,38 @@
 // Routes: OpenAI (fast/cheap) for most tasks, Claude (premium) for deep analysis
 // Rate limited per user per day
 const https = require('https');
+const { verifyToken, getAdmin } = require('./_auth');
+const { checkAndIncrement, getCount } = require('./_ratelimit');
 
-const rateLimitMap = new Map();
-const FREE_AI_LIMIT = 0;    // Free users: no AI
-const STARTER_AI_LIMIT = 1; // Starter $5: 1 AI call/day
-const PREMIUM_AI_LIMIT = 5; // Premium $15: 5 AI calls/day
-const DEV_LIMIT = 9999;     // Developer: unlimited
+const LIMITS = { dev: 9999, premium: 5, starter: 1, free: 0 };
 
 // Developer admin UIDs (your Firebase UID — unlimited access)
 const DEV_UIDS = new Set([
   // Add your Firebase UID here after first sign-in
 ]);
 
-// Admin emails — these get dev-tier access regardless of UID
-const ADMIN_EMAILS = new Set([
-  'admin@authorscrolls.com'
-]);
+// Brief in-memory tier cache to avoid hitting Firestore on every request
+const tierCache = new Map();
+const TIER_CACHE_TTL = 60000; // 1 minute
+
+async function getUserTier(userId) {
+  const isDev = DEV_UIDS.has(userId);
+  if (isDev) return 'dev';
+
+  const cached = tierCache.get(userId);
+  if (cached && Date.now() - cached.ts < TIER_CACHE_TTL) return cached.tier;
+
+  const fb = getAdmin();
+  if (fb) {
+    try {
+      const doc = await fb.firestore().collection('users').doc(userId).get();
+      const tier = doc.exists ? (doc.data().tier || 'free') : 'free';
+      tierCache.set(userId, { tier, ts: Date.now() });
+      return tier;
+    } catch (e) { /* Firestore unavailable — fall through */ }
+  }
+  return 'free';
+}
 
 module.exports = async (req, res) => {
   const origin = req.headers.origin || '';
@@ -34,44 +50,53 @@ module.exports = async (req, res) => {
 
   if (req.body.test === true && process.env.NODE_ENV !== 'production') { res.json({ ok: true }); return; }
 
-  // Rate limiting
-  // IMPORTANT: userId comes from client — never use it to grant elevated privileges.
-  // Admin/dev status is only determined by DEV_UIDS (server-side list), never from client headers.
-  const userId = req.headers['x-user-id'] || 'anonymous';
-  const today = new Date().toISOString().split('T')[0];
-  const key = userId + ':' + today;
-  const current = rateLimitMap.get(key) || 0;
-  const isDev = DEV_UIDS.has(userId);
-  // TODO: check Firestore for user tier. For now, all non-dev users are free.
-  const userTier = isDev ? 'dev' : 'free';
-  const limitMap = { dev: DEV_LIMIT, premium: PREMIUM_AI_LIMIT, starter: STARTER_AI_LIMIT, free: FREE_AI_LIMIT };
-  const limit = limitMap[userTier] || FREE_AI_LIMIT;
+  // Verify Firebase ID token — fail-closed if configured, warn if not
+  const decoded = await verifyToken(req);
+  const hasFbAdmin = !!process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (hasFbAdmin && !decoded) {
+    res.status(401).json({ error: { message: 'Authentication required', code: 'UNAUTHENTICATED' } });
+    return;
+  }
 
-  if (current >= limit) {
+  // Rate limiting — use verified UID when available, fall back to header only in dev
+  const userId = decoded ? decoded.uid : (req.headers['x-user-id'] || 'anonymous');
+  const today = new Date().toISOString().split('T')[0];
+
+  const userTier = await getUserTier(userId);
+  const limit = LIMITS[userTier] || LIMITS.free;
+  const used = await getCount(userId, today);
+
+  if (used >= limit) {
     res.status(429).json({
       error: {
         message: userTier === 'free'
           ? 'AI features require a subscription. Upgrade to Starter ($5/mo) for 1 AI analysis per day.'
           : 'Daily AI limit reached (' + limit + '/day). Upgrade for more, or wait until midnight UTC.',
-        code: 'RATE_LIMITED', limit, used: current, tier: userTier
+        code: 'RATE_LIMITED', limit, used, tier: userTier
       }
     });
     return;
   }
-  rateLimitMap.set(key, current + 1);
-  for (const [k] of rateLimitMap) { if (!k.endsWith(today)) rateLimitMap.delete(k); }
+  await checkAndIncrement(userId, today);
 
   // Determine which model/provider to use
-  const requestedModel = req.headers['x-model'] || req.body._model || 'openai-fast';
-  delete req.body._model;
-  delete req.body._userId;
+  const ALLOWED_ROUTES = new Set(['claude','claude-premium','openai-fast','openai-nano','openai-premium']);
+  const requestedModel = req.headers['x-model'] || 'openai-fast';
+  if (!ALLOWED_ROUTES.has(requestedModel)) {
+    res.status(400).json({ error: { message: 'Invalid model route' } }); return;
+  }
+
+  // Extract only allowed fields — never forward arbitrary client payload
+  const sanitized = {
+    system: req.body.system || [],
+    messages: req.body.messages || [],
+    max_tokens: Math.min(Number(req.body.max_tokens) || 2048, 2048)
+  };
 
   if (requestedModel === 'claude' || requestedModel === 'claude-premium') {
-    // === CLAUDE (premium deep analysis) ===
-    return callClaude(req.body, res);
+    return callClaude(sanitized, res);
   } else {
-    // === OPENAI (fast/cheap for most tasks) ===
-    return callOpenAI(req.body, requestedModel, res);
+    return callOpenAI(sanitized, requestedModel, res);
   }
 };
 
@@ -79,8 +104,12 @@ function callClaude(body, res) {
   const apiKey = process.env.CLAUDE_API_KEY;
   if (!apiKey) { res.status(500).json({ error: { message: 'Claude API key not configured' } }); return Promise.resolve(); }
 
-  if (body.max_tokens > 2048) body.max_tokens = 2048;
-  const payload = JSON.stringify(body);
+  const payload = JSON.stringify({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: body.max_tokens,
+    system: body.system,
+    messages: body.messages
+  });
 
   const options = {
     hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST',

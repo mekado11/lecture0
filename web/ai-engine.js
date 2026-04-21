@@ -75,8 +75,10 @@ const AIEngine = {
     const endpoint = this.API_ENDPOINT;
     const headers = { 'content-type': 'application/json' };
     const currentUser = typeof firebase !== 'undefined' && firebase.auth().currentUser ? firebase.auth().currentUser : null;
+    if (currentUser) {
+      try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch (e) {}
+    }
     headers['x-user-id'] = currentUser ? currentUser.uid : 'anon';
-    headers['x-user-email'] = currentUser ? currentUser.email : '';
     headers['x-model'] = this._routeModel(feature);
 
     const response = await fetch(endpoint, {

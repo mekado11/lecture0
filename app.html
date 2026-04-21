@@ -8,6 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 
@@ -363,6 +364,26 @@
     </div>
   </div>
 
+  <!-- DEBUG OVERLAY -->
+  <div id="debug-overlay" style="display:none;position:fixed;bottom:0;left:0;right:0;max-height:40vh;overflow:auto;background:#0d0c0b;border-top:2px solid #5dba7d;font-family:monospace;font-size:11px;color:#c8c4c0;z-index:9999;padding:.5rem 1rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.4rem">
+      <strong style="color:#5dba7d">&#128030; Debug Mode — Analysis Trace</strong>
+      <span style="color:#888;font-size:10px">Ctrl+Shift+D to close &nbsp;|&nbsp; <span id="dbg-count">0 raw, 0 passed</span></span>
+    </div>
+    <table id="debug-table" style="width:100%;border-collapse:collapse;font-size:10.5px">
+      <thead><tr style="color:#888;border-bottom:1px solid #333">
+        <th style="text-align:left;padding:2px 6px">TYPE</th>
+        <th style="text-align:left;padding:2px 6px">DETECTED TEXT</th>
+        <th style="text-align:left;padding:2px 6px">IDX</th>
+        <th style="text-align:left;padding:2px 6px">LEN</th>
+        <th style="text-align:left;padding:2px 6px">CONF</th>
+        <th style="text-align:left;padding:2px 6px">STATUS</th>
+        <th style="text-align:left;padding:2px 6px;max-width:260px">SUGGESTION</th>
+      </tr></thead>
+      <tbody id="debug-tbody"></tbody>
+    </table>
+  </div>
+
   <!-- PRICING MODAL -->
   <div id="pricing-modal" class="modal hidden">
     <div class="modal-box" style="max-width:500px;position:relative;text-align:center">
@@ -418,44 +439,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-  <script>
-    // Same Firebase config as index.html
-    const firebaseConfig = {
-      apiKey: "AIzaSyBkLqqoxn7gkE9EBvGeuRz54-7xEN9dAWI",
-      authDomain: "writers-manuscript.firebaseapp.com",
-      projectId: "writers-manuscript",
-      storageBucket: "writers-manuscript.appspot.com",
-      messagingSenderId: "420138585851",
-      appId: "1:420138585851:web:09c683cf202c9dde50aa5e"
-    };
-    firebase.initializeApp(firebaseConfig);
-    // Admin emails — unlimited AI access
-    const ADMIN_EMAILS = ['admin@authorscrolls.com'];
-    window.__isAdmin = false;
-    // Auth gate: redirect to landing if not signed in
-    firebase.auth().onAuthStateChanged(user => {
-      if (!user) { window.location.href = 'index.html'; return; }
-      window.__isAdmin = ADMIN_EMAILS.includes((user.email||'').toLowerCase());
-      // Show user name in top bar
-      const brand = document.querySelector('.brand');
-      if (brand) brand.textContent = 'AuthorScrolls';
-      // Admin badge
-      if (window.__isAdmin) {
-        const pill = document.getElementById('top-status');
-        if (pill) pill.insertAdjacentHTML('afterend','<span style="font-size:.6rem;background:var(--gold-d);color:#fff;padding:.1rem .4rem;border-radius:3px;margin-left:.3rem;font-family:Inter,sans-serif">ADMIN</span>');
-      }
-      // Add sign out button
-      const topRight = document.querySelector('.topbar-r');
-      if (topRight && !document.getElementById('signout-btn')) {
-        const btn = document.createElement('button');
-        btn.id = 'signout-btn';
-        btn.className = 'tb-btn';
-        btn.textContent = 'Sign Out';
-        btn.onclick = () => { firebase.auth().signOut().then(()=>{ localStorage.removeItem('ml_autosave'); localStorage.removeItem('ml_session'); localStorage.removeItem('ml_last_open'); localStorage.removeItem('ml_push_subscribed'); sessionStorage.clear(); window.location.href = 'index.html'; }); };
-        topRight.appendChild(btn);
-      }
-    });
-  </script>
+  <script src="firebase-config.js"></script>
+  <script src="init.js"></script>
   <!-- COOKIE BANNER -->
   <div id="cookie-banner" class="cookie-banner hidden">
     <div class="cookie-inner">

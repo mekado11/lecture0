@@ -439,44 +439,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-  <script>
-    // Same Firebase config as index.html
-    const firebaseConfig = {
-      apiKey: "AIzaSyBkLqqoxn7gkE9EBvGeuRz54-7xEN9dAWI",
-      authDomain: "writers-manuscript.firebaseapp.com",
-      projectId: "writers-manuscript",
-      storageBucket: "writers-manuscript.appspot.com",
-      messagingSenderId: "420138585851",
-      appId: "1:420138585851:web:09c683cf202c9dde50aa5e"
-    };
-    firebase.initializeApp(firebaseConfig);
-    // Admin emails — unlimited AI access
-    const ADMIN_EMAILS = ['admin@authorscrolls.com'];
-    window.__isAdmin = false;
-    // Auth gate: redirect to landing if not signed in
-    firebase.auth().onAuthStateChanged(user => {
-      if (!user) { window.location.href = 'index.html'; return; }
-      window.__isAdmin = ADMIN_EMAILS.includes((user.email||'').toLowerCase());
-      // Show user name in top bar
-      const brand = document.querySelector('.brand');
-      if (brand) brand.textContent = 'AuthorScrolls';
-      // Admin badge
-      if (window.__isAdmin) {
-        const pill = document.getElementById('top-status');
-        if (pill) pill.insertAdjacentHTML('afterend','<span style="font-size:.6rem;background:var(--gold-d);color:#fff;padding:.1rem .4rem;border-radius:3px;margin-left:.3rem;font-family:Inter,sans-serif">ADMIN</span>');
-      }
-      // Add sign out button
-      const topRight = document.querySelector('.topbar-r');
-      if (topRight && !document.getElementById('signout-btn')) {
-        const btn = document.createElement('button');
-        btn.id = 'signout-btn';
-        btn.className = 'tb-btn';
-        btn.textContent = 'Sign Out';
-        btn.onclick = () => { firebase.auth().signOut().then(()=>{ localStorage.removeItem('ml_autosave'); localStorage.removeItem('ml_session'); localStorage.removeItem('ml_last_open'); localStorage.removeItem('ml_push_subscribed'); sessionStorage.clear(); window.location.href = 'index.html'; }); };
-        topRight.appendChild(btn);
-      }
-    });
-  </script>
+  <script src="firebase-config.js"></script>
+  <script src="init.js"></script>
   <!-- COOKIE BANNER -->
   <div id="cookie-banner" class="cookie-banner hidden">
     <div class="cookie-inner">
