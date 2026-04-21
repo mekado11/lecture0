@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AuthorScrolls - Resources & How-To</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',sans-serif;background:#0a0705;color:#e8dfd4;min-height:100vh}
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,7,5,.88);backdrop-filter:blur(12px);border-bottom:1px solid rgba(200,149,108,.12);padding:.55rem 2rem;display:flex;justify-content:space-between;align-items:center}
+.nb{display:flex;align-items:center;gap:.4rem;font-family:'Lora',serif;font-size:1.1rem;font-weight:700;color:#dbb08a;text-decoration:none}
+.nav-links{display:flex;gap:.7rem;align-items:center}
+.nav-links a{color:#9c9085;font-size:.82rem;text-decoration:none;font-family:'Inter',sans-serif}
+.nav-links a:hover{color:#dbb08a}
+
+.container{max-width:900px;margin:80px auto 40px;padding:0 1.5rem}
+h1{font-family:'Lora',serif;font-size:2.2rem;color:#dbb08a;margin-bottom:.5rem;text-align:center}
+.sub{color:#9c9085;font-size:.95rem;margin-bottom:2.5rem;text-align:center}
+
+.section{margin-bottom:2.5rem}
+.section-title{font-family:'Lora',serif;font-size:1.3rem;color:#dbb08a;margin-bottom:.8rem;padding-bottom:.4rem;border-bottom:1px solid rgba(200,149,108,.15)}
+
+.faq-item{border-bottom:1px solid rgba(200,149,108,.08);padding:.7rem 0}
+.faq-q{font-size:.88rem;font-weight:600;color:#e8dfd4;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:.5rem}
+.faq-q::after{content:'+';color:#9c9085;font-size:1.1rem;flex-shrink:0}
+.faq-a{font-size:.82rem;color:#9c9085;line-height:1.7;max-height:0;overflow:hidden;transition:max-height .3s ease,padding .3s ease}
+.faq-item.open .faq-a{max-height:600px;padding-top:.5rem}
+.faq-item.open .faq-q::after{content:'\2212'}
+.faq-a strong{color:#c8956c}
+.faq-a code{background:rgba(200,149,108,.1);padding:.1rem .35rem;border-radius:3px;font-size:.78rem;color:#dbb08a}
+.faq-a ul{margin:.4rem 0 .2rem 1.2rem}
+.faq-a li{margin-bottom:.25rem}
+
+.tip-box{background:rgba(200,149,108,.06);border:1px solid rgba(200,149,108,.12);border-radius:8px;padding:.7rem 1rem;margin-top:.5rem;font-size:.8rem;color:#c8956c;line-height:1.6}
+
+.footer{text-align:center;padding:2rem;color:#6b6158;font-size:.75rem;border-top:1px solid rgba(200,149,108,.08)}
+.footer a{color:#9c9085;text-decoration:none}
+.footer a:hover{color:#dbb08a}
+
+@media(max-width:600px){
+  nav{padding:.5rem 1rem}
+  .container{padding:0 1rem}
+  h1{font-size:1.6rem}
+  .section-title{font-size:1.1rem}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="nb" href="index.html"><span>&#127807;</span> AuthorScrolls</a>
+  <div class="nav-links">
+    <a href="index.html">&larr; Home</a>
+    <a href="pricing.html">Pricing</a>
+  </div>
+</nav>
+
+<div class="container">
+  <h1>Resources & How-To</h1>
+  <p class="sub">Everything you need to get the most out of AuthorScrolls.</p>
+
+  <!-- GETTING STARTED -->
+  <div class="section">
+    <div class="section-title">Getting Started</div>
+
+    <div class="faq-item">
+      <div class="faq-q">How do I upload my manuscript?</div>
+      <div class="faq-a">
+        Click the upload area on the library dashboard or drag and drop your file directly onto it. AuthorScrolls accepts <strong>.docx</strong> (Word), <strong>.pdf</strong>, and <strong>.txt</strong> files up to 10MB.
+        <div class="tip-box">For best results, use .docx or .txt. PDF extraction can sometimes lose formatting, especially with scanned or image-based PDFs.</div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">What happens after I upload?</div>
+      <div class="faq-a">
+        AuthorScrolls runs a full analysis in your browser — no data leaves your device during this step. You'll see:
+        <ul>
+          <li><strong>Overall score</strong> (0-100) in the top gauge</li>
+          <li><strong>Category scores</strong> in the right panel (Plot Structure, Clarity, Pacing, etc.)</li>
+          <li><strong>Highlighted issues</strong> in the annotated editor view</li>
+          <li><strong>Genre detection</strong> and mode (novel, short story, memoir, etc.)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Can I edit my manuscript directly in AuthorScrolls?</div>
+      <div class="faq-a">
+        Yes. The annotated editor is fully editable. Click any text to start typing. Your changes are auto-saved, and the analysis updates automatically as you edit. Use <strong>Ctrl+Z</strong> (or Cmd+Z on Mac) to undo any change, including applied fixes.
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">How do I save or export my work?</div>
+      <div class="faq-a">
+        Your manuscript auto-saves to the cloud (if signed in) and to your browser's local storage as a fallback. To export, click the <strong>Export</strong> button in the toolbar to download a Word-compatible .doc file with your edits applied.
+      </div>
+    </div>
+  </div>
+
+  <!-- UNDERSTANDING YOUR SCORES -->
+  <div class="section">
+    <div class="section-title">Understanding Your Scores</div>
+
+    <div class="faq-item">
+      <div class="faq-q">What does the overall score mean?</div>
+      <div class="faq-a">
+        The overall score (0-100) is a weighted average of eight category scores: Plot Structure, Clarity, Pacing, Hook Strength, Style & Voice, Dialogue, Show vs Tell, and Copy Editing. It measures <strong>narrative craft quality</strong> — how well the writing works as fiction, not just grammar correctness.
+        <div class="tip-box">A score of 70+ means the fundamentals are solid. 80+ is strong. 90+ is polished and submission-ready.</div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">What do the individual category scores measure?</div>
+      <div class="faq-a">
+        <ul>
+          <li><strong>Plot Structure (10%)</strong> — Arc progression, conflict setup, tension distribution, POV consistency</li>
+          <li><strong>Clarity (10%)</strong> — Passive voice frequency, sentence directness</li>
+          <li><strong>Pacing (8%)</strong> — Sentence length variation, rhythm, rush/drag balance</li>
+          <li><strong>Hook Strength (7%)</strong> — Opening engagement, adverb density (signals weak verbs)</li>
+          <li><strong>Style & Voice (8%)</strong> — Verb strength, vocabulary, distinctive voice markers</li>
+          <li><strong>Dialogue (7%)</strong> — Tag discipline, naturalness, character voice distinction</li>
+          <li><strong>Show vs Tell (8%)</strong> — Emotion showing through action vs telling through narration</li>
+          <li><strong>Copy Editing (12%)</strong> — Total issue density (all types combined)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Why does a category show a low score but "0 issues"?</div>
+      <div class="faq-a">
+        Some categories like Plot Structure and Dialogue are scored based on <strong>structural analysis</strong> (arc progression, tag discipline, pacing) rather than individual flagged issues. A low score means the engine found structural weaknesses, even if no single sentence was flagged. Click the category to see the detailed explanation.
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">What does the genre detection do?</div>
+      <div class="faq-a">
+        AuthorScrolls automatically detects your manuscript's genre (Literary Fiction, Thriller, Romance, Sci-Fi, Fantasy, Horror, Mystery, YA, Memoir, etc.) and adjusts its feedback accordingly. A thriller gets different pacing advice than literary fiction. You can override the detected genre using the dropdown in the editor toolbar.
+      </div>
+    </div>
+  </div>
+
+  <!-- FIXING ISSUES -->
+  <div class="section">
+    <div class="section-title">Fixing Issues</div>
+
+    <div class="faq-item">
+      <div class="faq-q">What do the different buttons on issue cards mean?</div>
+      <div class="faq-a">
+        <ul>
+          <li><strong>Apply Fix</strong> — One-click replacement. The engine has a specific fix ready (removing an adverb, swapping a wordy phrase, correcting a confused word). Click to apply instantly.</li>
+          <li><strong>Fix</strong> (gold button) — AI-powered fix. Sends the issue to our AI engine, which generates a context-aware rewrite. Requires a paid plan.</li>
+          <li><strong>Go to Text</strong> — Navigates to the highlighted text in the editor so you can fix it manually.</li>
+          <li><strong>Dismiss</strong> — Removes the issue card and hides the highlight. Use this when the flagged text is intentional.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">How does "Apply Fix" work for each issue type?</div>
+      <div class="faq-a">
+        <ul>
+          <li><strong>Adverb</strong> — Removes the adverb entirely. Strengthen the verb instead.</li>
+          <li><strong>Wordy phrase</strong> — Replaces with a concise alternative (e.g., "make a decision" becomes "decide").</li>
+          <li><strong>Confused word</strong> — Swaps with the correct word (e.g., "could of" becomes "could have").</li>
+          <li><strong>Cliche</strong> — Replaces with a plain-language alternative from our curated map.</li>
+          <li><strong>Repetition</strong> — Suggests a context-aware synonym that matches the surrounding tense.</li>
+          <li><strong>Long sentence</strong> — Splits at the best natural break point (conjunction, clause boundary).</li>
+          <li><strong>Passive voice (with agent)</strong> — Restructures to active voice (e.g., "was opened by Sarah" becomes "Sarah opened").</li>
+        </ul>
+        All fixes support <strong>Ctrl+Z</strong> to undo.
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">What is the AI "Fix" button?</div>
+      <div class="faq-a">
+        For issues that can't be auto-fixed locally (passive voice without a clear agent, show-vs-tell, weak verbs in complex sentences), the AI Fix sends the sentence and surrounding context to our AI engine. It generates a rewrite that preserves your voice using your manuscript's style fingerprint. You see the suggestion before applying — click <strong>Apply</strong> to use it, <strong>Try Again</strong> for a different version, or <strong>Skip</strong> to dismiss.
+        <div class="tip-box">AI Fix uses your daily analysis quota (1/day for Starter, 5/day for Premium). The batch system generates all suggestions in one call, so most fixes come from cache — no extra API usage.</div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Can I undo a fix I applied?</div>
+      <div class="faq-a">
+        Yes. Press <strong>Ctrl+Z</strong> (Cmd+Z on Mac) to undo any fix — including AI rewrites, one-click replacements, and manual edits. Redo with <strong>Ctrl+Shift+Z</strong> or <strong>Ctrl+Y</strong>. AuthorScrolls keeps a full undo history for your editing session (up to 50 states).
+      </div>
+    </div>
+  </div>
+
+  <!-- AI FEATURES -->
+  <div class="section">
+    <div class="section-title">AI Features (Paid Plans)</div>
+
+    <div class="faq-item">
+      <div class="faq-q">What AI features are included?</div>
+      <div class="faq-a">
+        Paid plans unlock AI-powered features that go beyond pattern detection:
+        <ul>
+          <li><strong>Smart Scan</strong> — AI reviews all your flagged issues and enhances suggestions with context-aware replacements.</li>
+          <li><strong>Batch Fix</strong> — Generates AI fix suggestions for passive voice, show-vs-tell, and weak verbs in one call. Results are cached for 24 hours.</li>
+          <li><strong>Deep Critique</strong> — A developmental editor's assessment: strengths, weaknesses, character depth, narrative voice, and priority fixes.</li>
+          <li><strong>Query Letter</strong> — AI drafts a query letter based on your manuscript's genre, themes, and voice.</li>
+          <li><strong>Beta Reader Simulation</strong> — Simulated reader reactions from different perspectives (casual reader, genre fan, literary critic).</li>
+          <li><strong>Comparable Titles</strong> — Suggests published books similar to yours for querying and positioning.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">How does the voice fingerprint work?</div>
+      <div class="faq-a">
+        AuthorScrolls extracts a style fingerprint from your manuscript: average sentence length, sentence variety, POV, tense, vocabulary richness, and punctuation habits (em dashes, ellipses). When the AI generates a rewrite, this fingerprint is injected into the prompt so the suggestion matches <strong>your</strong> voice — not generic "AI voice."
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">How many AI calls do I get per day?</div>
+      <div class="faq-a">
+        <ul>
+          <li><strong>Free</strong> — 0 AI calls. Full local analysis runs in your browser at no cost.</li>
+          <li><strong>Starter ($5/mo)</strong> — 1 AI analysis per day. Covers one batch fix + smart scan.</li>
+          <li><strong>Premium ($15/mo)</strong> — 5 AI analyses per day. Covers batch fix + smart scan + deep critique + query letter + beta readers.</li>
+        </ul>
+        The batch fix system generates suggestions for all your issues in a single call. Once cached, every "Apply Fix" for the next 24 hours costs nothing.
+      </div>
+    </div>
+  </div>
+
+  <!-- EDITOR FEATURES -->
+  <div class="section">
+    <div class="section-title">Editor Features</div>
+
+    <div class="faq-item">
+      <div class="faq-q">What are the different editor views?</div>
+      <div class="faq-a">
+        <ul>
+          <li><strong>Annotated</strong> — Your manuscript with highlighted issues. Click any highlight for a tooltip with the suggestion.</li>
+          <li><strong>Clean</strong> — Your manuscript without highlights, for focused reading.</li>
+          <li><strong>Reader</strong> — A simulated reading experience with readability metrics.</li>
+          <li><strong>Preview</strong> — See how your book would look on Kindle, iPad, or in paperback format.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">What is Focus Mode?</div>
+      <div class="faq-a">
+        Focus Mode hides the left panel, right panel, and preview panel — leaving just your manuscript and a distraction-free editing space. Toggle it from the left panel controls. Click "Exit Focus" at the bottom-right to restore panels.
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">How does chapter navigation work?</div>
+      <div class="faq-a">
+        AuthorScrolls auto-detects chapter headings (Chapter 1, Part Two, Prologue, Epilogue, etc.) and builds a navigation sidebar. Click any chapter name to jump directly to that section. Scene breaks (* * *, ###, ---) are also detected and shown as dividers.
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Keyboard shortcuts</div>
+      <div class="faq-a">
+        <ul>
+          <li><code>Ctrl+Z</code> / <code>Cmd+Z</code> — Undo</li>
+          <li><code>Ctrl+Shift+Z</code> / <code>Ctrl+Y</code> — Redo</li>
+          <li><code>Ctrl+S</code> / <code>Cmd+S</code> — Save manually</li>
+        </ul>
+        Cut, copy, and paste (Ctrl+X/C/V) work natively in the editor.
+      </div>
+    </div>
+  </div>
+
+  <!-- WHAT AUTHORSCROLLS IS (AND ISN'T) -->
+  <div class="section">
+    <div class="section-title">What AuthorScrolls Is (and Isn't)</div>
+
+    <div class="faq-item">
+      <div class="faq-q">Is this a grammar checker like Grammarly?</div>
+      <div class="faq-a">
+        No. AuthorScrolls is a <strong>narrative craft tool</strong>. It analyzes story structure, pacing, dialogue quality, show-vs-tell balance, emotional arc, and voice — things Grammarly doesn't touch. For spelling and basic grammar (subject-verb agreement, punctuation), we recommend using your browser's built-in spell-check or a dedicated tool alongside AuthorScrolls. We do catch commonly confused words that spell-checkers miss (like "could of" instead of "could have").
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">How is this different from AutoCrit or ProWritingAid?</div>
+      <div class="faq-a">
+        AutoCrit and ProWritingAid do great pattern-level analysis. AuthorScrolls adds three things they don't have:
+        <ul>
+          <li><strong>AI-powered critique</strong> — Deep narrative feedback that reads like notes from a literary agent, not just rule-based flags.</li>
+          <li><strong>Genre-aware analysis</strong> — A thriller gets different pacing feedback than literary fiction. DNF risk scoring tells you where readers might put your book down.</li>
+          <li><strong>Voice-preserving rewrites</strong> — AI fix suggestions use your manuscript's style fingerprint to match your voice, not produce generic "AI writing."</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Does AuthorScrolls rewrite my book?</div>
+      <div class="faq-a">
+        No. AuthorScrolls <strong>enhances</strong> your writing — it doesn't replace it. Every suggestion is exactly that: a suggestion. You decide what to apply, what to skip, and what to dismiss. The AI Fix feature shows you a proposed rewrite, but you always click "Apply" or "Skip." Nothing changes without your approval, and everything is undoable.
+      </div>
+    </div>
+  </div>
+
+  <!-- PRIVACY & DATA -->
+  <div class="section">
+    <div class="section-title">Privacy & Data</div>
+
+    <div class="faq-item">
+      <div class="faq-q">Is my manuscript private?</div>
+      <div class="faq-a">
+        Yes. The core analysis (scoring, issue detection, pacing) runs <strong>entirely in your browser</strong> — your manuscript never leaves your device for this. AI features (paid) send short excerpts to our server proxy, which forwards them to Anthropic (Claude) or OpenAI. Neither provider stores or trains on your text. We never share, sell, or access your manuscripts.
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Where is my data stored?</div>
+      <div class="faq-a">
+        Manuscripts are stored in Firebase Firestore (encrypted at rest, Google Cloud). A local copy is also kept in your browser's storage as a fallback. You can delete any manuscript from the library dashboard at any time — it's removed from both cloud and local storage.
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">What happens if I cancel my subscription?</div>
+      <div class="faq-a">
+        You keep access to the free tier (full local analysis, no AI features). Your manuscripts remain in your account for 30 days after cancellation. You can export or re-download them at any time during that period.
+      </div>
+    </div>
+  </div>
+
+  <!-- TROUBLESHOOTING -->
+  <div class="section">
+    <div class="section-title">Troubleshooting</div>
+
+    <div class="faq-item">
+      <div class="faq-q">My manuscript didn't upload — what's wrong?</div>
+      <div class="faq-a">
+        Check that your file is a <strong>.docx</strong>, <strong>.pdf</strong>, or <strong>.txt</strong> and under 10MB. Password-protected or DRM-protected files can't be read. If your PDF is scanned (image-based), the text extraction may fail — try converting to .docx first using Word or Google Docs.
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">The analysis seems slow or the page froze</div>
+      <div class="faq-a">
+        AuthorScrolls runs analysis in a background thread (Web Worker) to avoid freezing the page. If you're on an older device or analyzing a very large manuscript (100K+ words), the initial analysis may take a few seconds. Subsequent edits re-analyze incrementally and should feel instant. Try closing other browser tabs to free up resources.
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">I clicked "Apply Fix" but the text didn't change</div>
+      <div class="faq-a">
+        Make sure you're on the <strong>Annotated</strong> editor tab (not Clean or Reader). The fix targets the highlighted text in the annotated view. If the highlight was already dismissed or the text was manually edited, the fix may not find its target. Press <strong>Ctrl+Z</strong> to undo and try again.
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">AI features aren't working</div>
+      <div class="faq-a">
+        AI features require a paid plan (Starter or Premium). If you're subscribed and still seeing errors:
+        <ul>
+          <li>Check if you've reached your daily limit (shown in the error message).</li>
+          <li>Try signing out and back in — your auth token may have expired.</li>
+          <li>Check your internet connection — AI features require server communication.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <p>AuthorScrolls &middot; Author's Best Buddy &middot; &copy; 2026</p>
+  <p style="margin-top:.3rem"><a href="pricing.html">Pricing</a> &middot; <a href="legal.html#terms">Terms</a> &middot; <a href="legal.html#privacy">Privacy</a> &middot; <a href="legal.html#contact">Contact</a></p>
+</div>
+
+<script>
+document.querySelectorAll('.faq-item').forEach(function(item){
+  item.querySelector('.faq-q').addEventListener('click',function(){
+    item.classList.toggle('open');
+  });
+});
+</script>
+</body>
+</html>
