@@ -540,6 +540,124 @@ Rules:
     const usr = 'Fix ' + issueName + ' in:\n"' + sentence + '"'
       + (context && context !== sentence ? '\n\nContext (do not rewrite):\n"' + context + '"' : '');
     return this._callClaudeRewrite(sys, usr);
+  },
+
+  // ========================
+  // BATCH FIX SUGGESTIONS (one call, all issues, cached 24h)
+  // ========================
+  _shortHash(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    return Math.abs(h).toString(36);
+  },
+
+  getCachedFixes(text) {
+    const cacheKey = 'fixes:' + this._shortHash(text) + ':v1';
+    try {
+      const cached = JSON.parse(localStorage.getItem(cacheKey));
+      if (cached && Date.now() - cached.created_at < 24 * 3600 * 1000) return cached;
+    } catch (e) {}
+    return null;
+  },
+
+  async batchFixSuggestions(text, issues, fingerprint) {
+    const cached = this.getCachedFixes(text);
+    if (cached) return cached;
+
+    const aiTypes = new Set(['passive', 'show-tell', 'weak-verb']);
+    const batch = issues
+      .filter(i => aiTypes.has(i.type) && !/Replace with:\s*".+?"/.test(i.suggestion))
+      .slice(0, 30);
+
+    if (batch.length === 0) {
+      return { manuscript_hash: this._shortHash(text), prompt_version: 'v1', created_at: Date.now(), suggestions: {} };
+    }
+
+    const payload = batch.map(i => {
+      const idx = i.index || 0;
+      const before = text.substring(Math.max(0, idx - 120), idx);
+      const after = text.substring(idx + (i.length || i.text.length), Math.min(text.length, idx + (i.length || i.text.length) + 120));
+      const ctxB = before.substring(Math.max(0, before.lastIndexOf('.') + 1)).trim() || before.substring(Math.max(0, before.length - 80)).trim();
+      const ctxA = (after.indexOf('.') > 0 ? after.substring(0, after.indexOf('.') + 1) : after.substring(0, 80)).trim();
+      return {
+        issue_id: i.type + ':' + idx + ':' + this._shortHash(i.text),
+        issue_type: i.type,
+        original_text: i.text,
+        context_before: ctxB,
+        context_after: ctxA
+      };
+    });
+
+    const fp = fingerprint ? Analyzer.fingerprintToPrompt(fingerprint) : '';
+    const endpoint = this.API_ENDPOINT;
+    const headers = { 'content-type': 'application/json' };
+    const currentUser = typeof firebase !== 'undefined' && firebase.auth().currentUser ? firebase.auth().currentUser : null;
+    if (currentUser) {
+      headers['x-user-id'] = currentUser.uid;
+      try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch(e) {}
+    }
+    headers['x-model'] = 'openai-fast';
+
+    const response = await fetch(endpoint, {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2048,
+        system: [{
+          type: 'text',
+          text: 'You are a fiction editor. For each flagged issue, provide a specific rewrite that preserves the author\'s voice. Return ONLY a valid JSON array — no markdown, no explanation.'
+            + (fp ? '\n\nAuthor voice profile: ' + fp + '.' : '')
+        }],
+        messages: [{ role: 'user', content:
+          'Fix each issue. Return JSON array:\n[{"issue_id":"...","suggestion":"<rewritten text>","explanation":"<1 sentence>"}]\n\n'
+          + 'Issues:\n' + JSON.stringify(payload, null, 1)
+          + '\n\nRules:\n- Passive voice: rewrite in active voice\n- Show-tell: show through action or sensory detail\n- Weak verbs: use a vivid, precise verb\n- Keep the author\'s style\n- One tight rewrite per issue'
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error?.message || 'Batch fix failed (' + response.status + ')');
+    }
+
+    const result = await response.json();
+    const raw = result.content?.[0]?.text || '';
+    let arr;
+    try {
+      const jsonMatch = raw.match(/\[[\s\S]*\]/);
+      arr = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+    } catch (e) { arr = []; }
+
+    const suggestions = {};
+    if (Array.isArray(arr)) {
+      for (const s of arr) {
+        if (s.issue_id && s.suggestion) {
+          suggestions[s.issue_id] = {
+            issue_id: s.issue_id,
+            issue_type: s.issue_type || s.issue_id.split(':')[0],
+            original_text: s.original_text || '',
+            suggestion: s.suggestion,
+            explanation: s.explanation || '',
+            confidence: s.confidence || 0.85,
+            text_hash: this._shortHash(s.suggestion + s.issue_id)
+          };
+        }
+      }
+    }
+
+    const cacheObj = {
+      manuscript_hash: this._shortHash(text),
+      prompt_version: 'v1',
+      created_at: Date.now(),
+      suggestions
+    };
+
+    try {
+      localStorage.setItem('fixes:' + this._shortHash(text) + ':v1', JSON.stringify(cacheObj));
+    } catch (e) {}
+
+    return cacheObj;
   }
 
 };

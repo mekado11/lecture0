@@ -20,6 +20,7 @@ $('analyze-btn').addEventListener('click',async()=>{
   try{
     $('loader-text').textContent='Extracting...';
     extractedText=await ext(uploadedFile);
+    _smartScanDone=false;_batchFixDone=false;
     $('loader-text').textContent='Analyzing...';
     // Yield to UI so spinner renders before blocking analysis
     await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
@@ -188,6 +189,8 @@ function renderAll(){
   },1000);
   // Smart Scan — one-time AI scan for paid/admin users
   maybeRunSmartScan(r);
+  // Batch Fix — one call per manuscript, cached 24h
+  maybeBatchFix(r);
 }
 
 // AI-powered smart scan: runs once per manuscript for paid/admin users
@@ -230,6 +233,56 @@ async function maybeRunSmartScan(r){
     document.body.appendChild(toast);
     setTimeout(()=>toast.remove(),4000);
   }catch(e){console.warn('SmartScan failed:',e.message)}
+}
+
+// BATCH FIX — one API call per manuscript, cached 24h in localStorage
+// Generates AI fix suggestions for all issues that lack local auto-fixes.
+// Cache hit = instant (all tiers). Cache miss = one API call (paid only).
+let _batchFixDone=false;
+async function maybeBatchFix(r){
+  if(_batchFixDone)return;
+  if(!r.issues||r.issues.length===0)return;
+
+  const _sh=AIEngine._shortHash.bind(AIEngine);
+
+  // Fast path: hydrate from cache (works for ALL tiers, no API call)
+  const cached=AIEngine.getCachedFixes(extractedText);
+  if(cached&&Object.keys(cached.suggestions).length>0){
+    _hydrateFromBatchCache(r,cached);
+    _batchFixDone=true;
+    return;
+  }
+
+  // Cache miss — only call API for paid users
+  if(!_isPaid())return;
+
+  try{
+    const fp=Analyzer.extractStyleFingerprint(extractedText);
+    const result=await AIEngine.batchFixSuggestions(extractedText,r.issues,fp);
+    if(result&&Object.keys(result.suggestions).length>0){
+      _hydrateFromBatchCache(r,result);
+      _batchFixDone=true;
+    }
+  }catch(e){console.warn('Batch fix failed:',e.message)}
+}
+
+function _hydrateFromBatchCache(r,cached){
+  const _sh=AIEngine._shortHash.bind(AIEngine);
+  let hydrated=0;
+  r.issues.forEach(issue=>{
+    if(/Replace with:\s*".+?"/.test(issue.suggestion))return;
+    const issueId=issue.type+':'+(issue.index||0)+':'+_sh(issue.text);
+    const fix=cached.suggestions[issueId];
+    if(fix&&fix.suggestion){
+      issue.suggestion='Replace with: "'+fix.suggestion+'"'+(fix.explanation?' — '+fix.explanation:'');
+      issue._batchFix=true;
+      hydrated++;
+    }
+  });
+  if(hydrated>0){
+    renderAnnotated(extractedText,r.issues);
+    renderRight(r);
+  }
 }
 
 // AUTO-SAVE (Firestore + localStorage fallback)
