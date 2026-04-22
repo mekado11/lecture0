@@ -66,7 +66,7 @@ $('analyze-btn').addEventListener('click',async()=>{
         }
       }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Save error:',e.message)}
     }
-    localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}));
+    try{localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}))}catch(e){console.warn('Autosave to localStorage failed (quota):',e.message)}
     // Close modal, reset state, show library
     $('upload-modal')?.classList.add('hidden');
     $('upload-loading').classList.add('hidden');
@@ -352,7 +352,7 @@ function autoSave(){
       _cloudSaveWarned=true;
       _showSaveToast('Not signed in — saving locally only');
     }
-    localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}));
+    try{localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}))}catch(e){console.warn('Autosave to localStorage failed (quota):',e.message)}
   },5000);
 }
 // Load autosave on startup (legacy — now integrated into library)
@@ -2216,7 +2216,7 @@ async function saveAnalysis(){
   const saves=safeLocalJSON('ml_saves',[]);
   saves.push({fileName:uploadedFile.name,text:extractedText,result:analysisResult,savedAt:new Date().toISOString()});
   if(saves.length>10)saves.splice(0,saves.length-10);
-  localStorage.setItem('ml_saves',JSON.stringify(saves));
+  try{localStorage.setItem('ml_saves',JSON.stringify(saves))}catch(e){_showSaveToast('Local save failed — storage full');return}
   _showSaveToast('Saved locally');
 }
 
