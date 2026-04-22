@@ -79,35 +79,43 @@ const AIEngine = {
     }
     headers['x-model'] = this._routeModel(feature);
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2048,
-        system: [
-          {
-            type: 'text',
-            text: 'You are AuthorScrolls, a professional manuscript analysis tool for authors. Respond ONLY with valid JSON. No markdown, no explanation, just the JSON object.',
-            cache_control: { type: 'ephemeral' }
-          },
-          {
-            type: 'text',
-            text: 'MANUSCRIPT TEXT:\n\n' + manuscriptText.substring(0, 15000),
-            cache_control: { type: 'ephemeral' }
-          }
-        ],
-        messages: [
-          {
-            role: 'user',
-            content: systemPrompt + '\n\n' + userPrompt
-          }
-        ]
-      })
+    const bodyPayload = JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2048,
+      system: [
+        {
+          type: 'text',
+          text: 'You are AuthorScrolls, a professional manuscript analysis tool for authors. Respond ONLY with valid JSON. No markdown, no explanation, just the JSON object.',
+          cache_control: { type: 'ephemeral' }
+        },
+        {
+          type: 'text',
+          text: 'MANUSCRIPT TEXT:\n\n' + manuscriptText.substring(0, 15000),
+          cache_control: { type: 'ephemeral' }
+        }
+      ],
+      messages: [
+        {
+          role: 'user',
+          content: systemPrompt + '\n\n' + userPrompt
+        }
+      ]
     });
+
+    let response = await fetch(endpoint, { method: 'POST', headers, body: bodyPayload });
+
+    if (response.status === 401 && currentUser) {
+      try {
+        headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(true);
+        response = await fetch(endpoint, { method: 'POST', headers, body: bodyPayload });
+      } catch (e) {}
+    }
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
+      if (response.status === 401 || err.error?.code === 'UNAUTHENTICATED') {
+        throw new Error('SESSION_EXPIRED');
+      }
       throw new Error(err.error?.message || 'API call failed: ' + response.status);
     }
 
@@ -508,15 +516,19 @@ Rules:
       try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch(e) {}
     }
     headers['x-model'] = 'claude';
-    const response = await fetch(endpoint, {
-      method: 'POST', headers,
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 256,
-        system: [{ type: 'text', text: systemText }],
-        messages: [{ role: 'user', content: userText }]
-      })
+    const rewriteBody = JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 256,
+      system: [{ type: 'text', text: systemText }],
+      messages: [{ role: 'user', content: userText }]
     });
+    let response = await fetch(endpoint, { method: 'POST', headers, body: rewriteBody });
+    if (response.status === 401 && currentUser) {
+      try {
+        headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(true);
+        response = await fetch(endpoint, { method: 'POST', headers, body: rewriteBody });
+      } catch (e) {}
+    }
     if (!response.ok) {
       const err = await response.json().catch(()=>({}));
       throw new Error(err.error?.message || 'Rewrite failed (' + response.status + ')');
@@ -601,23 +613,28 @@ Rules:
     }
     headers['x-model'] = 'openai-fast';
 
-    const response = await fetch(endpoint, {
-      method: 'POST', headers,
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2048,
-        system: [{
-          type: 'text',
-          text: 'You are a fiction editor. For each flagged issue, provide a specific rewrite that preserves the author\'s voice. Return ONLY a valid JSON array — no markdown, no explanation.'
-            + (fp ? '\n\nAuthor voice profile: ' + fp + '.' : '')
-        }],
-        messages: [{ role: 'user', content:
-          'Fix each issue. Return JSON array:\n[{"issue_id":"...","suggestion":"<rewritten text>","explanation":"<1 sentence>"}]\n\n'
-          + 'Issues:\n' + JSON.stringify(payload, null, 1)
-          + '\n\nRules:\n- Passive voice: rewrite in active voice\n- Show-tell: show through action or sensory detail\n- Weak verbs: use a vivid, precise verb\n- Keep the author\'s style\n- One tight rewrite per issue'
-        }]
-      })
+    const batchBody = JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2048,
+      system: [{
+        type: 'text',
+        text: 'You are a fiction editor. For each flagged issue, provide a specific rewrite that preserves the author\'s voice. Return ONLY a valid JSON array — no markdown, no explanation.'
+          + (fp ? '\n\nAuthor voice profile: ' + fp + '.' : '')
+      }],
+      messages: [{ role: 'user', content:
+        'Fix each issue. Return JSON array:\n[{"issue_id":"...","suggestion":"<rewritten text>","explanation":"<1 sentence>"}]\n\n'
+        + 'Issues:\n' + JSON.stringify(payload, null, 1)
+        + '\n\nRules:\n- Passive voice: rewrite in active voice\n- Show-tell: show through action or sensory detail\n- Weak verbs: use a vivid, precise verb\n- Keep the author\'s style\n- One tight rewrite per issue'
+      }]
     });
+
+    let response = await fetch(endpoint, { method: 'POST', headers, body: batchBody });
+    if (response.status === 401 && currentUser) {
+      try {
+        headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(true);
+        response = await fetch(endpoint, { method: 'POST', headers, body: batchBody });
+      } catch (e) {}
+    }
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));

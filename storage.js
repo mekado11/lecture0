@@ -17,7 +17,10 @@ const Storage = {
   },
 
   // Wait for auth to be resolved before accessing Firestore
-  whenReady() { return this._authReady || Promise.resolve(null); },
+  whenReady() {
+    if (!this._authReady && typeof firebase !== 'undefined') this.init();
+    return this._authReady || Promise.resolve(null);
+  },
 
   _userDoc() {
     if (!this.db || !this.userId) return null;
