@@ -239,16 +239,16 @@ const Analyzer = {
 
   // Irregular past participle → simple past for active voice conversion
   PARTICIPLE_TO_PAST: {
-    built:’built’,caught:’caught’,chosen:’chose’,cut:’cut’,done:’did’,drawn:’drew’,
-    driven:’drove’,eaten:’ate’,fallen:’fell’,felt:’felt’,found:’found’,forgotten:’forgot’,
-    fought:’fought’,given:’gave’,gone:’went’,grown:’grew’,heard:’heard’,held:’held’,
-    hidden:’hid’,hit:’hit’,hung:’hung’,hurt:’hurt’,kept:’kept’,known:’knew’,laid:’laid’,
-    led:’led’,left:’left’,lent:’lent’,let:’let’,lost:’lost’,made:’made’,meant:’meant’,
-    met:’met’,paid:’paid’,put:’put’,read:’read’,rid:’rid’,run:’ran’,said:’said’,sat:’sat’,
-    seen:’saw’,sent:’sent’,set:’set’,shot:’shot’,shown:’showed’,shut:’shut’,sold:’sold’,
-    spent:’spent’,spoken:’spoke’,stood:’stood’,stuck:’stuck’,struck:’struck’,sung:’sang’,
-    sworn:’swore’,taken:’took’,taught:’taught’,thought:’thought’,thrown:’threw’,told:’told’,
-    torn:’tore’,understood:’understood’,woken:’woke’,won:’won’,worn:’wore’,written:’wrote’
+    built:'built',caught:'caught',chosen:'chose',cut:'cut',done:'did',drawn:'drew',
+    driven:'drove',eaten:'ate',fallen:'fell',felt:'felt',found:'found',forgotten:'forgot',
+    fought:'fought',given:'gave',gone:'went',grown:'grew',heard:'heard',held:'held',
+    hidden:'hid',hit:'hit',hung:'hung',hurt:'hurt',kept:'kept',known:'knew',laid:'laid',
+    led:'led',left:'left',lent:'lent',let:'let',lost:'lost',made:'made',meant:'meant',
+    met:'met',paid:'paid',put:'put',read:'read',rid:'rid',run:'ran',said:'said',sat:'sat',
+    seen:'saw',sent:'sent',set:'set',shot:'shot',shown:'showed',shut:'shut',sold:'sold',
+    spent:'spent',spoken:'spoke',stood:'stood',stuck:'stuck',struck:'struck',sung:'sang',
+    sworn:'swore',taken:'took',taught:'taught',thought:'thought',thrown:'threw',told:'told',
+    torn:'tore',understood:'understood',woken:'woke',won:'won',worn:'wore',written:'wrote'
   },
 
   // ========================
@@ -272,17 +272,17 @@ const Analyzer = {
           const agent = byAgent[1].trim();
           const participle = lastWord;
           const simplePast = this.PARTICIPLE_TO_PAST[participle] || participle;
-          const fixText = agent + ‘ ‘ + simplePast;
+          const fixText = agent + ' ' + simplePast;
           issueText = match[0] + byAgent[0];
           issueLen = issueText.length;
-          suggestion = ‘Replace with: “’ + fixText + ‘”’;
+          suggestion = 'Replace with: “' + fixText + '”';
         } else {
-          suggestion = ‘The subject isn’t doing the action. Flip it: “was opened by her” → “she opened.”’;
+          suggestion = 'The subject is not doing the action. Flip it: “was opened by her” → “she opened.”';
         }
 
         issues.push({
-          type: ‘passive’, text: issueText, index: match.index, length: issueLen,
-          severity: ‘medium’, confidence: 0.85,
+          type: 'passive', text: issueText, index: match.index, length: issueLen,
+          severity: 'medium', confidence: 0.85,
           message: `Passive voice: “${match[0]}”`,
           suggestion
         });
