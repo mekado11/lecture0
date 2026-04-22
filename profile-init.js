@@ -199,7 +199,7 @@ document.getElementById('redeem-btn').addEventListener('click',async()=>{
   if(!code){msg.textContent='Please enter an invite code.';msg.className='beta-msg err';return}
 
   btn.textContent='Activating...';btn.disabled=true;
-  msg.className='beta-msg';msg.style.display='none';
+  msg.className='beta-msg';msg.removeAttribute('style');
 
   try{
     const token=await user.getIdToken();
@@ -218,7 +218,7 @@ document.getElementById('redeem-btn').addEventListener('click',async()=>{
       msg.className='beta-msg err';
     }
   }catch(e){
-    msg.textContent='Network error. Please check your connection and try again.';
+    msg.textContent='Connection error: '+e.message+'. Make sure you are online and try again.';
     msg.className='beta-msg err';
   }
   btn.textContent='Activate';btn.disabled=false;
