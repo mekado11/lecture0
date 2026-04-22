@@ -1075,7 +1075,7 @@ function renderReader(r){
     h+='<div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.6rem"><div style="font-size:2rem;font-weight:800;color:'+drc+'">'+dnf.dnf_risk+'</div><div><div style="font-size:.82rem;font-weight:600;color:'+drc+'">'+dnf.risk_band+' Risk</div><div style="font-size:.68rem;color:var(--muted)">'+esc(dnf.eval_mode)+' mode</div></div></div>';
     h+='<div class="rdr-bar" style="margin-bottom:.8rem"><div class="rdr-fill" style="width:'+dnf.dnf_risk+'%;background:'+drc+'"></div></div>';
     // 6 dimension scores
-    const dimLabels={momentum:'Momentum',character_connection:'Character Connection',structure:'Structure',plot_integrity:'Plot Integrity',cognitive_load:'Cognitive Load',writing_quality:'Writing Quality'};
+    const dimLabels={hook_strength:'Hook Strength',clarity:'Clarity',forward_motion:'Forward Motion',specificity:'Specificity',redundancy:'Redundancy',payoff:'Payoff'};
     h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem .8rem;margin-bottom:.8rem">';
     Object.entries(dnf.scores).forEach(([k,v])=>{
       const dc=v>=7?'var(--green)':v>=5?'var(--yellow)':'var(--red)';

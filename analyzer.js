@@ -2282,192 +2282,198 @@ const Analyzer = {
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 5);
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const avgSentLen = totalWords / Math.max(sentences.length, 1);
-    const avgParaLen = totalWords / Math.max(paragraphs.length, 1);
 
-    // === MOMENTUM (1-10) ===
-    // Forward movement: action verbs, dialogue, tension, hooks at paragraph ends
-    const actionVerbs = (lower.match(/\b(ran|grabbed|turned|opened|slammed|pushed|pulled|threw|caught|shouted|whispered|raced|charged|sprinted|lunged|leaped|dashed|dove|struck|swung|kicked|punched|stumbled|crashed|burst|stormed|fled|chased|scrambled|darted)\b/g) || []).length;
-    const dialogueLines = (text.match(/[""\u201C][^""\u201D]{3,}[""\u201D]/g) || []).length;
-    const tensionWords = (lower.match(/\b(but|however|suddenly|until|except|although|yet|instead|despite|still|couldn't|shouldn't|danger|threat|wrong|strange|impossible|never|dead|blood|secret|lie)\b/g) || []).length;
-    const stagnationWords = (lower.match(/\b(had been|used to|always had|for years|remembered when|thought about|considered|pondered|reflected|mused|wondered if)\b/g) || []).length;
+    // === HOOK STRENGTH (1-10) ===
+    const first500 = lower.substring(0, Math.min(lower.length, 2500));
+    const tensionOpening = (first500.match(/\b(but|however|suddenly|until|except|never|wrong|strange|secret|dead|blood|lie|couldn't|shouldn't|danger|threat|impossible)\b/g) || []).length;
+    const questionOpening = (text.substring(0, 2500).match(/\?/g) || []).length;
+    const dialogueOpening = (text.substring(0, 2500).match(/["\u201C][^"\u201D]{3,}["\u201D]/g) || []).length;
+    const actionOpening = (first500.match(/\b(ran|grabbed|turned|slammed|pushed|pulled|threw|shouted|whispered|raced|lunged|leaped|opened|shut|dropped|said)\b/g) || []).length;
+    const setupWords = (first500.match(/\b(had been|used to|always had|for years|remembered when|was born in|grew up|the history of|it all began)\b/g) || []).length;
 
-    // Paragraph-ending hooks
+    let hook_strength = 5;
+    hook_strength += Math.min(2, tensionOpening / 3);
+    hook_strength += Math.min(1, questionOpening * 0.5);
+    hook_strength += Math.min(1, dialogueOpening * 0.4);
+    hook_strength += Math.min(1, actionOpening / 3);
+    hook_strength -= Math.min(3, setupWords * 1.2);
+    if (/^(it was|there was|there were|the sun|the rain|once upon)/i.test(text.trim())) hook_strength -= 1.5;
+
+    // === CLARITY (1-10) ===
+    const passiveCount = (text.match(/\b(was|were|is|are|been|being)\s+(being\s+)?\w+(ed|en)\b/gi) || []).length;
+    const longSentences = sentences.filter(s => s.trim().split(/\s+/).length > 30).length;
+    const transitionWords = (lower.match(/\b(however|therefore|meanwhile|furthermore|consequently|additionally|nevertheless|moreover|specifically|for example|in contrast|as a result|on the other hand)\b/g) || []).length;
+    const jargon = (lower.match(/\b(aforementioned|notwithstanding|heretofore|wherein|thereof|pertaining|henceforth|inasmuch)\b/g) || []).length;
+
+    let clarity = 7;
+    clarity -= Math.min(2, passiveCount / Math.max(totalWords, 1) * 300);
+    clarity -= Math.min(2, longSentences / Math.max(sentences.length, 1) * 10);
+    clarity += Math.min(1.5, transitionWords / Math.max(paragraphs.length, 1) * 3);
+    clarity -= jargon * 0.5;
+    if (avgSentLen > 25) clarity -= 1.5;
+    else if (avgSentLen >= 12 && avgSentLen <= 20) clarity += 1;
+
+    // === FORWARD MOTION (1-10) ===
+    const actionVerbs = (lower.match(/\b(ran|grabbed|turned|opened|slammed|pushed|pulled|threw|caught|shouted|raced|charged|lunged|leaped|darted|decided|chose|moved|crossed|stepped|drove|walked|spoke|asked|demanded|refused)\b/g) || []).length;
+    const stagnationWords = (lower.match(/\b(had been|used to|always had|for years|remembered when|thought about|considered|pondered|reflected|mused|wondered if|it seemed|there was a sense)\b/g) || []).length;
+    const dialogueLines = (text.match(/["\u201C][^"\u201D]{3,}["\u201D]/g) || []).length;
+
     let paraHooks = 0;
     paragraphs.forEach(p => {
       const lastSent = (p.match(/[^.!?]*[.!?]\s*$/)||[''])[0].trim().toLowerCase();
-      if (/[?!]$/.test(lastSent) || /\b(but|however|then|suddenly|until|never|everything changed|nothing|no one)\b/.test(lastSent)) paraHooks++;
+      if (/[?!]$/.test(lastSent) || /\b(but|then|suddenly|until|never|everything|nothing|no one|and then|before)\b/.test(lastSent)) paraHooks++;
     });
-
-    const actionDensity = actionVerbs / Math.max(totalWords, 1) * 1000;
-    const tensionDensity = tensionWords / Math.max(totalWords, 1) * 1000;
-    const stagnationDensity = stagnationWords / Math.max(totalWords, 1) * 1000;
     const hookRate = paragraphs.length > 1 ? paraHooks / (paragraphs.length - 1) : 0;
 
-    let momentum = 5;
-    momentum += Math.min(2, actionDensity / 5);
-    momentum += Math.min(1.5, tensionDensity / 8);
-    momentum += Math.min(1, hookRate * 2);
-    momentum -= Math.min(3, stagnationDensity / 3);
-    if (dialogueLines < 1 && totalWords > 500) momentum -= 1;
-    // First paragraph has no action or tension = slow start
-    const firstPara = (paragraphs[0] || '').toLowerCase();
-    if (!(/(ran|grabbed|turned|said|shouted|pulled|pushed)/.test(firstPara)) && !(/\b(but|danger|wrong|never|secret)\b/.test(firstPara))) momentum -= 0.5;
+    let forward_motion = 5;
+    forward_motion += Math.min(2, actionVerbs / Math.max(totalWords, 1) * 500);
+    forward_motion += Math.min(1, hookRate * 2.5);
+    forward_motion += Math.min(0.5, dialogueLines / Math.max(totalWords, 1) * 200);
+    forward_motion -= Math.min(3, stagnationWords / Math.max(totalWords, 1) * 400);
+    if (dialogueLines === 0 && totalWords > 800) forward_motion -= 1;
+    let stalls = 0;
+    paragraphs.forEach(p => {
+      const pl = p.toLowerCase();
+      if (!(/(said|asked|told|shouted|whispered|replied|ran|grabbed|turned|pushed|pulled|opened|decided|chose)/.test(pl)) && !(/["\u201C]/.test(p))) stalls++;
+      else stalls = 0;
+    });
+    if (stalls >= 4) forward_motion -= 1.5;
 
-    // === CHARACTER CONNECTION (1-10) ===
-    const properNouns = (text.match(/\b[A-Z][a-z]{2,}\b/g) || []);
-    const uniqueNames = [...new Set(properNouns)];
-    const nameCount = uniqueNames.length;
-    const internalThoughts = (lower.match(/\b(thought|felt|wondered|realized|knew|remembered|wished|hoped|feared|dreaded|wanted|needed)\b/g) || []).length;
-    const emotionWords = (lower.match(/\b(love|hate|fear|anger|joy|grief|terror|hope|despair|rage|jealousy|shame|guilt|pride|longing|anxiety|dread|relief|sorrow|panic|horror|happy|sad|scared|nervous|excited|worried|furious|heartbroken|elated|devastated)\b/g) || []).length;
-    const bodyLanguage = (lower.match(/\b(smiled|frowned|sighed|shook|nodded|shrugged|trembled|flinched|winced|clenched|gritted|bit her|bit his|rolled .{0,5} eyes|crossed .{0,5} arms|hands shook|breath caught|heart pounded|stomach dropped|throat tight)\b/g) || []).length;
+    // === SPECIFICITY (1-10) ===
+    const vagueWords = (lower.match(/\b(thing|stuff|something|somewhere|somehow|somewhat|various|certain|particular|kind of|sort of|a lot|many|very|really|quite|pretty much|fairly|rather|nice|good|bad|big|small|great|important)\b/g) || []).length;
+    const concreteNouns = (lower.match(/\b(door|window|table|chair|wall|floor|hand|face|eyes|voice|knife|gun|bottle|car|road|rain|snow|blood|phone|key|letter|map|clock|mirror|shadow|stairs|bridge|river|mountain|garden|street)\b/g) || []).length;
+    const sensoryWords = (lower.match(/\b(cold|warm|hot|sharp|soft|rough|smooth|bright|dark|loud|quiet|bitter|sweet|sour|metallic|damp|dry|heavy|light|tight|loose|burning|aching|stinging|throbbing|pounding|trembling)\b/g) || []).length;
+    const bodyLanguage = (lower.match(/\b(smiled|frowned|sighed|shook|nodded|shrugged|trembled|flinched|winced|clenched|gritted)\b/g) || []).length;
 
-    let charConnection = 5;
-    if (nameCount >= 1) charConnection += 1;
-    charConnection += Math.min(1.5, internalThoughts / Math.max(totalWords, 1) * 500);
-    charConnection += Math.min(1.5, emotionWords / Math.max(totalWords, 1) * 400);
-    charConnection += Math.min(1, bodyLanguage / Math.max(totalWords, 1) * 600);
-    if (dialogueLines >= 3) charConnection += 0.5;
-    // Penalize: no character in first 200 words
-    const first200 = text.substring(0, Math.min(text.length, 1200));
-    if (!(/\b[A-Z][a-z]{2,}\b/.test(first200)) && !(/\bI\b/.test(first200))) charConnection -= 2;
-    // Penalize: too many names introduced (confusing)
-    if (nameCount > 8 && totalWords < 3000) charConnection -= 1;
-
-    // === STRUCTURE (1-10) ===
-    const sentLens = sentences.map(s => s.trim().split(/\s+/).length);
-    const sentLenVariance = sentLens.length > 1 ? sentLens.reduce((s, l) => s + Math.pow(l - avgSentLen, 2), 0) / sentLens.length : 0;
-    const paraLens = paragraphs.map(p => p.split(/\s+/).length);
-    const paraLenVariance = paraLens.length > 1 ? paraLens.reduce((s, l) => s + Math.pow(l - avgParaLen, 2), 0) / paraLens.length : 0;
-    const sceneBreaks = (text.match(/\n\s*(\*\s*\*\s*\*|---|\* \* \*|#)\s*\n/g) || []).length;
-
-    let structure = 5;
-    // Sentence length variety is good
-    structure += Math.min(1.5, Math.sqrt(sentLenVariance) / 10);
-    // Paragraph length variety is good
-    structure += Math.min(1, Math.sqrt(paraLenVariance) / 30);
-    // Scene breaks show structural awareness
-    if (sceneBreaks > 0 && totalWords > 2000) structure += 0.5;
-    // Penalize: all paragraphs roughly same length (monotonous)
-    if (Math.sqrt(paraLenVariance) < 10 && paragraphs.length > 5) structure -= 1;
-    // Penalize: no clear beginning/middle/end shape (flat energy throughout)
-    // Check if tension words cluster or are evenly spread
-    const halfIdx = Math.floor(text.length / 2);
-    const firstHalfTension = (lower.substring(0, halfIdx).match(/\b(but|danger|wrong|never|secret|threat|fear)\b/g) || []).length;
-    const secondHalfTension = (lower.substring(halfIdx).match(/\b(but|danger|wrong|never|secret|threat|fear)\b/g) || []).length;
-    if (Math.abs(firstHalfTension - secondHalfTension) <= 1 && tensionWords > 4) structure -= 0.5;
-
-    // === PLOT INTEGRITY (1-10) ===
-    const causeEffect = (lower.match(/\b(because|therefore|so that|as a result|which meant|in order to|if .{5,30} then|caused|led to|forced|decided|chose|had to)\b/g) || []).length;
-    const goalWords = (lower.match(/\b(wanted|needed|must|had to|determined|mission|goal|plan|decided|desperate to|set out|swore|vowed|promised)\b/g) || []).length;
-    const stakeWords = (lower.match(/\b(die|kill|lose|destroy|ruin|save|rescue|protect|survive|escape|risk|cost|sacrifice|consequence|deadline|too late|running out)\b/g) || []).length;
-    const contrivedWords = (lower.match(/\b(just happened to|by coincidence|luckily|fortunately|conveniently|out of nowhere|for no reason|inexplicably|miraculously)\b/g) || []).length;
-
-    let plotIntegrity = 5;
-    plotIntegrity += Math.min(1.5, causeEffect / Math.max(totalWords, 1) * 400);
-    plotIntegrity += Math.min(1.5, goalWords / Math.max(totalWords, 1) * 500);
-    plotIntegrity += Math.min(1, stakeWords / Math.max(totalWords, 1) * 600);
-    plotIntegrity -= contrivedWords * 0.8;
-    // Penalize: no goals or stakes mentioned at all
-    if (goalWords === 0 && totalWords > 500) plotIntegrity -= 1;
-    if (stakeWords === 0 && totalWords > 1000) plotIntegrity -= 0.5;
-
-    // === COGNITIVE LOAD (1-10, higher = better = lower burden) ===
-    const uniqueProperNouns = [...new Set((text.match(/\b[A-Z][a-z]{2,}\b/g) || []))].length;
-    const longWords = words.filter(w => w.length > 12).length;
-    const infoDumps = paragraphs.filter(p => p.split(/\s+/).length > 150 && !(/[""\u201C]/.test(p))).length;
-    const jargonSignals = (lower.match(/\b(aforementioned|notwithstanding|heretofore|wherein|thereof|pertaining|henceforth)\b/g) || []).length;
-
-    let cognitiveLoad = 7; // start higher, penalize complexity
-    if (avgSentLen > 25) cognitiveLoad -= 1.5;
-    else if (avgSentLen > 20) cognitiveLoad -= 0.5;
-    if (uniqueProperNouns > 6 && totalWords < 3000) cognitiveLoad -= 1;
-    if (uniqueProperNouns > 10) cognitiveLoad -= 1;
-    cognitiveLoad -= infoDumps * 1.5;
-    cognitiveLoad -= Math.min(1, longWords / Math.max(totalWords, 1) * 200);
-    cognitiveLoad -= jargonSignals * 0.5;
-    // Bonus for clean, readable prose
-    if (avgSentLen >= 10 && avgSentLen <= 18) cognitiveLoad += 1;
-    if (dialogueLines > 3) cognitiveLoad += 0.5; // dialogue is easy to read
-
-    // === WRITING QUALITY (1-10) ===
-    const passiveCount = (text.match(/\b(was|were|is|are|been|being)\s+(being\s+)?\w+(ed|en)\b/gi) || []).length;
-    const adverbCount = (lower.match(/\b\w+ly\b/g) || []).filter(w => !['only','early','family','likely','lonely','friendly','holy','daily','rally','really','fly','apply','rely','supply','july','ally'].includes(w)).length;
-    const clicheCount = (lower.match(/\b(at the end of the day|tip of the iceberg|leaves no stone|better late than never|easier said than done|last but not least|crystal clear|in the nick of time|when all is said and done|dead of night|cold as ice)\b/g) || []).length;
-    const showTellCount = (lower.match(/\b(felt|feeling)\s+(angry|happy|sad|scared|nervous|excited|lonely|jealous|proud|guilty)\b/gi) || []).length;
+    let specificity = 5;
+    specificity -= Math.min(2.5, vagueWords / Math.max(totalWords, 1) * 200);
+    specificity += Math.min(1.5, concreteNouns / Math.max(totalWords, 1) * 200);
+    specificity += Math.min(1, sensoryWords / Math.max(totalWords, 1) * 300);
+    specificity += Math.min(1, bodyLanguage / Math.max(totalWords, 1) * 500);
     const lexicalDiversity = [...new Set(words.map(w => w.toLowerCase().replace(/[^a-z]/g, '')).filter(w => w.length > 2))].length / Math.max(words.length, 1);
+    specificity += Math.min(1.5, (lexicalDiversity - 0.3) * 8);
 
-    let writingQuality = 5;
-    writingQuality += Math.min(2, (lexicalDiversity - 0.3) * 10);
-    writingQuality -= Math.min(1.5, passiveCount / Math.max(totalWords, 1) * 300);
-    writingQuality -= Math.min(1, adverbCount / Math.max(totalWords, 1) * 200);
-    writingQuality -= clicheCount * 0.5;
-    writingQuality -= Math.min(1, showTellCount / Math.max(totalWords, 1) * 500);
-    if (bodyLanguage > 2) writingQuality += 0.5; // showing through body = good
+    // === REDUNDANCY (1-10, 10 = no redundancy) ===
+    const sentTexts = sentences.map(s => s.trim().toLowerCase());
+    let nearDupes = 0;
+    for (let i = 0; i < sentTexts.length - 1; i++) {
+      const w1 = new Set(sentTexts[i].split(/\s+/).filter(w => w.length > 3));
+      const w2 = new Set(sentTexts[i+1].split(/\s+/).filter(w => w.length > 3));
+      if (w1.size < 3 || w2.size < 3) continue;
+      let overlap = 0;
+      w1.forEach(w => { if (w2.has(w)) overlap++; });
+      if (overlap / Math.min(w1.size, w2.size) > 0.5) nearDupes++;
+    }
+    const redundancyRate = sentences.length > 2 ? nearDupes / sentences.length : 0;
 
-    // Clamp all scores 1-10
-    momentum = Math.max(1, Math.min(10, Math.round(momentum)));
-    charConnection = Math.max(1, Math.min(10, Math.round(charConnection)));
-    structure = Math.max(1, Math.min(10, Math.round(structure)));
-    plotIntegrity = Math.max(1, Math.min(10, Math.round(plotIntegrity)));
-    cognitiveLoad = Math.max(1, Math.min(10, Math.round(cognitiveLoad)));
-    writingQuality = Math.max(1, Math.min(10, Math.round(writingQuality)));
+    let redundancy = 8;
+    redundancy -= Math.min(5, redundancyRate * 30);
+    const phraseMap = {};
+    for (let i = 0; i < words.length - 2; i++) {
+      const phrase = words.slice(i, i+3).join(' ').toLowerCase().replace(/[^a-z ]/g, '');
+      if (phrase.length > 8) phraseMap[phrase] = (phraseMap[phrase] || 0) + 1;
+    }
+    const repeatedPhrases = Object.values(phraseMap).filter(c => c >= 3).length;
+    redundancy -= Math.min(2, repeatedPhrases * 0.3);
 
-    return { momentum, character_connection: charConnection, structure, plot_integrity: plotIntegrity, cognitive_load: cognitiveLoad, writing_quality: writingQuality };
+    // === PAYOFF (1-10) ===
+    const emotionWords = (lower.match(/\b(love|hate|fear|anger|joy|grief|terror|hope|despair|rage|jealousy|shame|guilt|pride|longing|anxiety|dread|relief|sorrow|panic|horror|happy|sad|scared|nervous|excited|worried|furious|heartbroken|elated|devastated)\b/g) || []).length;
+    const revealWords = (lower.match(/\b(realized|discovered|understood|revealed|confessed|admitted|learned|recognized|saw that|knew then|truth|secret|finally|turned out|the answer|it hit|dawned on)\b/g) || []).length;
+    const surpriseWords = (lower.match(/\b(suddenly|unexpected|shock|gasp|froze|couldn't believe|impossible|never thought|stunned|stared|what the|no way|oh god|wait)\b/g) || []).length;
+    const internalThoughts = (lower.match(/\b(thought|felt|wondered|realized|knew|remembered|wished|hoped|feared|dreaded|wanted|needed)\b/g) || []).length;
+
+    let payoff = 5;
+    payoff += Math.min(1.5, emotionWords / Math.max(totalWords, 1) * 300);
+    payoff += Math.min(1.5, revealWords / Math.max(totalWords, 1) * 500);
+    payoff += Math.min(1, surpriseWords / Math.max(totalWords, 1) * 400);
+    payoff += Math.min(1, internalThoughts / Math.max(totalWords, 1) * 200);
+    const lastPara = (paragraphs[paragraphs.length - 1] || '').toLowerCase();
+    if (/[?!]$/.test(lastPara.trim()) || /\b(but|then|suddenly|never|everything changed|nothing|and then)\b/.test(lastPara)) payoff += 1;
+
+    // Clamp all 1-10
+    hook_strength = Math.max(1, Math.min(10, Math.round(hook_strength)));
+    clarity = Math.max(1, Math.min(10, Math.round(clarity)));
+    forward_motion = Math.max(1, Math.min(10, Math.round(forward_motion)));
+    specificity = Math.max(1, Math.min(10, Math.round(specificity)));
+    redundancy = Math.max(1, Math.min(10, Math.round(redundancy)));
+    payoff = Math.max(1, Math.min(10, Math.round(payoff)));
+
+    return { hook_strength, clarity, forward_motion, specificity, redundancy, payoff };
   },
 
   _scoresToDNFRisk(scores, evalMode) {
-    // Weight scoring based on mode
-    let weights;
-    if (evalMode === 'opening') {
-      weights = { momentum: 0.30, character_connection: 0.15, structure: 0.10, plot_integrity: 0.10, cognitive_load: 0.10, writing_quality: 0.25 };
-    } else if (evalMode === 'midbook') {
-      weights = { momentum: 0.20, character_connection: 0.15, structure: 0.20, plot_integrity: 0.20, cognitive_load: 0.10, writing_quality: 0.15 };
-    } else if (evalMode === 'closing') {
-      weights = { momentum: 0.15, character_connection: 0.20, structure: 0.25, plot_integrity: 0.15, cognitive_load: 0.05, writing_quality: 0.20 };
-    } else {
-      // excerpt
-      weights = { momentum: 0.20, character_connection: 0.15, structure: 0.10, plot_integrity: 0.10, cognitive_load: 0.20, writing_quality: 0.25 };
-    }
+    let risk = 30;
 
-    // Weighted average on 1-10 scale → invert to risk (low score = high risk)
-    let weightedSum = 0;
-    for (const [k, w] of Object.entries(weights)) {
-      weightedSum += (scores[k] || 5) * w;
-    }
-    // Convert 1-10 quality score to 0-100 risk (10 = 0% risk, 1 = 100% risk)
-    const risk = Math.round(Math.max(0, Math.min(100, (10 - weightedSum) / 9 * 100)));
-    return risk;
+    if (scores.hook_strength <= 3) risk += 22;
+    else if (scores.hook_strength <= 5) risk += 12;
+    else if (scores.hook_strength <= 6) risk += 5;
+
+    if (scores.clarity <= 3) risk += 18;
+    else if (scores.clarity <= 5) risk += 10;
+    else if (scores.clarity <= 6) risk += 4;
+
+    if (scores.redundancy <= 3) risk += 18;
+    else if (scores.redundancy <= 5) risk += 10;
+    else if (scores.redundancy <= 6) risk += 4;
+
+    if (scores.specificity <= 3) risk += 12;
+    else if (scores.specificity <= 5) risk += 6;
+
+    if (scores.forward_motion <= 3) risk += 12;
+    else if (scores.forward_motion <= 5) risk += 6;
+
+    if (scores.payoff <= 3) risk += 8;
+    else if (scores.payoff <= 5) risk += 4;
+
+    // Interaction penalties
+    if (scores.hook_strength <= 5 && scores.specificity <= 5) risk += 10;
+    if (scores.clarity <= 5 && scores.redundancy <= 5) risk += 10;
+    if (scores.forward_motion <= 4 && scores.payoff <= 4) risk += 8;
+    if (scores.hook_strength <= 4 && scores.forward_motion <= 4) risk += 8;
+
+    if (evalMode === 'opening' && scores.hook_strength <= 4) risk += 8;
+    if (evalMode === 'midbook' && scores.forward_motion <= 4) risk += 5;
+
+    // Bonuses
+    if (scores.hook_strength >= 8) risk -= 8;
+    if (scores.forward_motion >= 8) risk -= 5;
+    if (scores.specificity >= 8) risk -= 4;
+    if (scores.payoff >= 8) risk -= 4;
+    if (scores.clarity >= 8) risk -= 3;
+    if (scores.redundancy >= 9) risk -= 3;
+
+    return Math.max(0, Math.min(100, Math.round(risk)));
   },
 
   _buildReasons(scores, evalMode) {
     const reasons = [];
     const labels = {
-      momentum: 'Low momentum delays reader engagement',
-      character_connection: 'Weak character connection reduces investment',
-      structure: 'Structural issues make the text feel disorganized',
-      plot_integrity: 'Plot lacks clear goals or cause-and-effect',
-      cognitive_load: 'High cognitive load makes reading effortful',
-      writing_quality: 'Prose quality undermines the reading experience'
+      hook_strength: 'Weak opening — no curiosity, tension, or promise to hook the reader',
+      clarity: 'Hard to follow — reader has to re-read to understand',
+      forward_motion: 'Stalling — paragraphs don\'t earn the next one',
+      specificity: 'Vague prose — drifts into abstract fog instead of concrete detail',
+      redundancy: 'Repetitive — same point restated too often',
+      payoff: 'No reward — reader doesn\'t feel paid off for continuing'
     };
     const modeReasons = {
       opening: {
-        momentum: 'Opening lacks forward pull — reader has no reason to continue',
-        character_connection: 'No character to bond with in the opening',
-        writing_quality: 'Weak first impression — prose doesn\'t earn the reader\'s trust'
+        hook_strength: 'Opening lacks curiosity or tension — reader has no reason to continue',
+        clarity: 'Opening is confusing — reader can\'t orient themselves',
+        specificity: 'Opening is vague — no concrete image or character to latch onto'
       },
       midbook: {
-        momentum: 'Chapter stalls — momentum dips and pacing drags',
-        structure: 'Chapter lacks internal cohesion or clear arc',
-        plot_integrity: 'Plot direction feels unclear or disconnected'
+        forward_motion: 'Chapter stalls — nothing pulls the reader forward',
+        redundancy: 'Chapter repeats itself — same ideas cycling without progress',
+        clarity: 'Chapter is hard to follow — reader loses the thread'
       },
       closing: {
-        structure: 'Closing section doesn\'t deliver structural payoff',
-        character_connection: 'Emotional payoff is missing — reader doesn\'t feel the resolution',
-        momentum: 'Ending loses energy instead of building to a finish'
+        payoff: 'Closing doesn\'t deliver — reader doesn\'t feel the resolution',
+        forward_motion: 'Ending loses energy instead of building to a finish',
+        specificity: 'Ending is too abstract — lacks concrete emotional detail'
       },
       excerpt: {
-        cognitive_load: 'Section is hard to follow without surrounding context',
-        momentum: 'Excerpt feels static — nothing pulls the reader forward'
+        clarity: 'Section is hard to follow without surrounding context',
+        forward_motion: 'Excerpt feels static — nothing pulls the reader forward'
       }
     };
 
@@ -2509,12 +2515,12 @@ const Analyzer = {
     };
 
     const fixMap = {
-      momentum: 'Introduce a stronger tension point or decision earlier to create forward pull.',
-      character_connection: 'Give the protagonist a clearer want, a visible reaction, or internal thought the reader can latch onto.',
-      structure: 'Tighten the shape of this section — ensure it has a clear entry point, turning point, and exit hook.',
-      plot_integrity: 'Clarify the character\'s immediate goal and the consequence of failure.',
-      cognitive_load: 'Simplify sentence structures and reduce the number of new elements introduced at once.',
-      writing_quality: 'Cut telling language, tighten passive constructions, and show emotion through action.'
+      hook_strength: 'Open with tension, a question, or mid-action. Give the reader a reason to stay in the first paragraph.',
+      clarity: 'Shorten sentences, add transitions between ideas, and cut jargon. The reader should never have to re-read.',
+      forward_motion: 'Every paragraph should create a question or promise. Cut reflection that doesn\'t advance the scene.',
+      specificity: 'Replace vague words (things, stuff, somehow) with concrete nouns and sensory detail.',
+      redundancy: 'Cut repeated phrases and near-duplicate sentences. Say it once, say it well.',
+      payoff: 'End sections with a reveal, decision, or emotional beat. Reward the reader for continuing.'
     };
 
     const result = {
@@ -2561,7 +2567,7 @@ const Analyzer = {
 
     // Overall scores: average across sections
     const avgScores = {};
-    const dims = ['momentum', 'character_connection', 'structure', 'plot_integrity', 'cognitive_load', 'writing_quality'];
+    const dims = ['hook_strength', 'clarity', 'forward_motion', 'specificity', 'redundancy', 'payoff'];
     for (const d of dims) {
       avgScores[d] = Math.round(sectionScores.reduce((s, sec) => s + sec.scores[d], 0) / sectionScores.length);
     }
@@ -2583,12 +2589,12 @@ const Analyzer = {
     };
 
     const fixMap = {
-      momentum: 'Tighten the weakest section by reducing explanation and introducing a stronger decision or tension point.',
-      character_connection: 'Strengthen character presence in the weakest section — add internal thought, dialogue, or reaction.',
-      structure: 'Reshape the weakest section to have a clearer purpose and turning point.',
-      plot_integrity: 'Add clearer cause-and-effect and stakes in the flagged section.',
-      cognitive_load: 'Simplify the densest section — break long paragraphs, reduce new information.',
-      writing_quality: 'Revise prose in the weakest section — cut passive voice, adverbs, and telling.'
+      hook_strength: 'Strengthen the opening of the weakest section — add tension or a compelling question.',
+      clarity: 'Simplify the densest section — break long paragraphs, add transitions.',
+      forward_motion: 'Cut stagnant passages in the weakest section — every paragraph should earn the next.',
+      specificity: 'Add concrete detail to the vaguest section — sensory language, specific nouns.',
+      redundancy: 'Cut repeated ideas in the weakest section — consolidate into one strong statement.',
+      payoff: 'Add a stronger emotional or narrative payoff to the weakest section.'
     };
 
     const result = {
