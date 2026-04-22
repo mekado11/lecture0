@@ -113,7 +113,7 @@ const AIEngine = {
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      if (response.status === 401 || err.error?.code === 'UNAUTHENTICATED') {
+      if (err.error?.code === 'UNAUTHENTICATED') {
         throw new Error('SESSION_EXPIRED');
       }
       throw new Error(err.error?.message || 'API call failed: ' + response.status);
