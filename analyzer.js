@@ -173,24 +173,27 @@ const Analyzer = {
   // WEAK VERB DETECTION
   // ========================
   WEAK_VERBS: {
-    'walked':'strode, ambled, trudged, sauntered','said':'whispered, declared, muttered, exclaimed',
+    'walked':'strode, ambled, trudged, sauntered',
     'looked':'glanced, peered, gazed, scrutinized','went':'hurried, wandered, dashed, strolled',
     'got':'obtained, acquired, seized, snatched','put':'placed, positioned, deposited, set',
     'made':'crafted, fashioned, constructed, forged','came':'arrived, emerged, appeared, materialized',
     'thought':'pondered, mused, considered, reflected','saw':'noticed, observed, spotted, witnessed',
     'ran':'sprinted, dashed, bolted, jogged','moved':'shifted, glided, crept, lunged',
-    'turned':'pivoted, swiveled, whirled, rotated','felt':'sensed, experienced, detected, perceived',
+    'turned':'pivoted, swiveled, whirled, rotated',
     'seemed':'appeared, suggested, indicated, implied','started':'began, commenced, initiated, launched',
-    'began':'commenced, initiated, embarked, undertook','stood':'towered, loomed, perched, positioned',
+    'stood':'towered, loomed, perched, positioned',
     'sat':'perched, settled, reclined, lounged','held':'clutched, gripped, grasped, cradled'
   },
 
   findWeakVerbs(text) {
     const issues = [];
+    const PER_VERB_LIMIT = 5; // cap flags per verb to avoid noise in long manuscripts
     for (const [verb, alternatives] of Object.entries(this.WEAK_VERBS)) {
       const regex = new RegExp(`\\b${verb}\\b`, 'gi');
       let match;
-      while ((match = regex.exec(text)) !== null) {
+      let count = 0;
+      while ((match = regex.exec(text)) !== null && count < PER_VERB_LIMIT) {
+        count++;
         issues.push({
           type: 'weak-verb', text: match[0], index: match.index, length: match[0].length,
           severity: 'low', confidence: 0.9,
@@ -831,9 +834,9 @@ const Analyzer = {
     const findings = [];
 
     if (dialogueCount === 0) return {
-      score: 0, count: 0, ratio: 0, tags: {}, saidRatio: 0, avgLength: 0,
+      score: 50, count: 0, ratio: 0, tags: {}, saidRatio: 0, avgLength: 0,
       tagDiscipline: 0, conciseness: 0, showNotTell: 0, purposefulness: 0, naturalness: 0,
-      findings: [{ type: 'dialogue', severity: 'high', message: 'No dialogue detected. If this is fiction, dialogue is one of the fastest ways to pull readers into a moment. Even literary fiction benefits from dialogue to break up narration and reveal character.' }]
+      findings: [{ type: 'dialogue', severity: 'medium', message: 'No dialogue detected. If this is fiction, dialogue is one of the fastest ways to pull readers into a moment. Even literary fiction benefits from dialogue to break up narration and reveal character.' }]
     };
 
     const dialogueWords = dialogueMatches.reduce((sum, d) => sum + d.split(/\s+/).length, 0);
@@ -2402,47 +2405,17 @@ const Analyzer = {
   },
 
   _scoresToDNFRisk(scores, evalMode) {
-    let risk = 30;
+    // Weighted average of dimensions → convert to risk on 0-100 scale.
+    // Calibration: all-5s ≈ 56 (Medium), all-8s ≈ 22 (Low), all-3s ≈ 78 (High).
+    const wt = evalMode === 'opening'
+      ? { hook_strength: 0.30, clarity: 0.20, forward_motion: 0.18, redundancy: 0.14, specificity: 0.12, payoff: 0.06 }
+      : evalMode === 'closing'
+      ? { hook_strength: 0.10, clarity: 0.18, forward_motion: 0.22, redundancy: 0.14, specificity: 0.12, payoff: 0.24 }
+      : { hook_strength: 0.20, clarity: 0.20, forward_motion: 0.22, redundancy: 0.15, specificity: 0.13, payoff: 0.10 };
 
-    if (scores.hook_strength <= 3) risk += 22;
-    else if (scores.hook_strength <= 5) risk += 12;
-    else if (scores.hook_strength <= 6) risk += 5;
-
-    if (scores.clarity <= 3) risk += 18;
-    else if (scores.clarity <= 5) risk += 10;
-    else if (scores.clarity <= 6) risk += 4;
-
-    if (scores.redundancy <= 3) risk += 18;
-    else if (scores.redundancy <= 5) risk += 10;
-    else if (scores.redundancy <= 6) risk += 4;
-
-    if (scores.specificity <= 3) risk += 12;
-    else if (scores.specificity <= 5) risk += 6;
-
-    if (scores.forward_motion <= 3) risk += 12;
-    else if (scores.forward_motion <= 5) risk += 6;
-
-    if (scores.payoff <= 3) risk += 8;
-    else if (scores.payoff <= 5) risk += 4;
-
-    // Interaction penalties
-    if (scores.hook_strength <= 5 && scores.specificity <= 5) risk += 10;
-    if (scores.clarity <= 5 && scores.redundancy <= 5) risk += 10;
-    if (scores.forward_motion <= 4 && scores.payoff <= 4) risk += 8;
-    if (scores.hook_strength <= 4 && scores.forward_motion <= 4) risk += 8;
-
-    if (evalMode === 'opening' && scores.hook_strength <= 4) risk += 8;
-    if (evalMode === 'midbook' && scores.forward_motion <= 4) risk += 5;
-
-    // Bonuses
-    if (scores.hook_strength >= 8) risk -= 8;
-    if (scores.forward_motion >= 8) risk -= 5;
-    if (scores.specificity >= 8) risk -= 4;
-    if (scores.payoff >= 8) risk -= 4;
-    if (scores.clarity >= 8) risk -= 3;
-    if (scores.redundancy >= 9) risk -= 3;
-
-    return Math.max(0, Math.min(100, Math.round(risk)));
+    const weighted = Object.entries(wt).reduce((sum, [dim, w]) => sum + (scores[dim] || 5) * w, 0);
+    // Score 10 → risk 0, score 1 → risk 100
+    return Math.max(0, Math.min(100, Math.round((10 - weighted) / 9 * 100)));
   },
 
   _buildReasons(scores, evalMode) {
@@ -2624,13 +2597,16 @@ const Analyzer = {
   // COPY EDITING SCORE
   // ========================
   scoreCopyEditing(issues, totalWords) {
-    const issuesPerThousand = (issues.length / Math.max(totalWords, 1)) * 1000;
+    // Only score copy-editing issue types, not style/structure issues
+    const copyTypes = new Set(['passive', 'adverb', 'cliche', 'wordy', 'confused-word', 'repetition']);
+    const copyIssues = issues.filter(i => copyTypes.has(i.type));
+    const issuesPerThousand = (copyIssues.length / Math.max(totalWords, 1)) * 1000;
     let score = 100;
     score -= Math.min(40, issuesPerThousand * 3);
-    const highSev = issues.filter(i => i.severity === 'high').length;
-    const medSev = issues.filter(i => i.severity === 'medium').length;
-    score -= highSev * 3;
-    score -= medSev * 1;
+    const highSev = copyIssues.filter(i => i.severity === 'high').length;
+    const medSev = copyIssues.filter(i => i.severity === 'medium').length;
+    score -= Math.min(20, highSev * 2);
+    score -= Math.min(10, medSev * 0.5);
     return Math.min(100, Math.max(0, Math.round(score)));
   },
 

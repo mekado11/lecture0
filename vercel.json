@@ -3,7 +3,8 @@
     { "source": "/api/claude", "destination": "/api/claude" },
     { "source": "/api/checkout", "destination": "/api/checkout" },
     { "source": "/api/notify", "destination": "/api/notify" },
-    { "source": "/api/webhook", "destination": "/api/webhook" }
+    { "source": "/api/webhook", "destination": "/api/webhook" },
+    { "source": "/api/redeem", "destination": "/api/redeem" }
   ],
   "headers": [
     {
@@ -11,10 +12,10 @@
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-XSS-Protection", "value": "1; mode=block" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
         { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" },
-        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://www.gstatic.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://api.stripe.com; img-src 'self' data:; frame-src https://js.stripe.com https://*.firebaseapp.com; object-src 'none'; base-uri 'self';" }
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://www.gstatic.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://api.stripe.com; img-src 'self' data:; frame-src https://js.stripe.com https://*.firebaseapp.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none';" }
       ]
     }
   ]

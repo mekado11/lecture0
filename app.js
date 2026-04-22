@@ -4,16 +4,11 @@ const $=id=>document.getElementById(id);
 document.body.classList.add('lib-mode'); // Library is first view — allow scroll
 
 // Web Worker for off-main-thread analysis
+// Note: no global onmessage handler here — each caller adds its own per-request handler
+// to avoid double-processing the same result (global + per-request both firing).
 let _analyzerWorker=null;
 let _analyzeVersion=0;
 try{_analyzerWorker=new Worker('analyzer-worker.js')}catch(e){console.warn('Worker init failed, using main thread:',e.message)}
-if(_analyzerWorker){
-  _analyzerWorker.onmessage=function(e){
-    if(e.data.type==='result'&&e.data.version===_analyzeVersion){
-      _onAnalysisComplete(e.data.data);
-    }
-  };
-}
 
 // UPLOAD
 const dz=$('drop-zone'),fi=$('file-input');
@@ -81,6 +76,7 @@ $('analyze-btn').addEventListener('click',async()=>{
 
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function escA(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function safeLocalJSON(key,fallback){try{return JSON.parse(localStorage.getItem(key)||JSON.stringify(fallback))}catch(e){return fallback}}
 function pn(t,i){return(t.substring(0,i).match(/\n\s*\n/g)||[]).length+1}
 function sc(v){return v>=70?'var(--green)':v>=45?'var(--yellow)':'var(--red)'}
 function scHex(v){return v>=70?'#5dba7d':v>=45?'#d4a855':'#c45c4a'}
@@ -638,11 +634,11 @@ function renderRight(r){
     {k:'plot',name:'Plot Structure',score:r.scores.plot,issues:countType('pov'),weight:'10%'},
     {k:'clarity',name:'Clarity',score:r.readerPerspective.clarityScore,issues:countType('passive'),weight:'10%'},
     {k:'pacing',name:'Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),issues:countType('sentence-length'),badge:r.readerPerspective.pacingFeel.includes('Rushed')?'Rushed':null,weight:'8%'},
-    {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:countType('adverb'),weight:'7%'},
+    {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0,weight:'7%'},
     {k:'style',name:'Style & Voice',score:r.scores.style,issues:countType('weak-verb'),weight:'8%'},
     {k:'dialogue',name:'Dialogue',score:r.scores.dialogue,issues:countType('dialogue'),weight:'7%'},
     {k:'showTell',name:'Show vs Tell',score:r.scores.showTell,issues:stIssues,weight:'8%'},
-    {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:cpIssues,weight:'12%'}
+    {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word'),weight:'12%'}
   ];
   const container=$('rp-scores');
   container.innerHTML=cats.map(c=>{
@@ -912,7 +908,7 @@ function renderDetailed(r){
   plotRows.push(sr('Issues/1K words',r.issuesPerK));
   h+=secWithTip(plotLabel,r.scores.plot,plotRows,'plot');
   h+=secWithTip('Transitions',r.scores.transitions,[r.transitions.smoothRate+'% smooth',sr('Transition Words',r.transitions.transitionsUsed),sr('Smooth',r.transitions.smoothTransitions+'/'+(r.transitions.totalParagraphs-1))],'transitions');
-  h+=secWithTip('Copy Editing',r.scores.copy,[r.issues.length+' issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell'])],'copy');
+  h+=secWithTip('Copy Editing',r.scores.copy,[(r.issueCounts.passive+(r.issueCounts.adverb||0)+(r.issueCounts.cliche||0)+(r.issueCounts.wordy||0)+(r.issueCounts['confused-word']||0))+' copy issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell'])],'copy');
   // Line Editing (true stylistic editing, not just readability)
   const le=r.lineEditing;
   const lineRows=['Stylistic editing: tone, flow, precision, pacing, POV, extraneous language'];
@@ -1377,47 +1373,45 @@ function renderBookPreview(r){
     if(active)active.scrollIntoView({block:'center',behavior:'smooth'});
   }
 
-  // Search UI bindings
-  const searchInput=$('pv-search-input');
-  if(searchInput){
-    let searchDebounce;
-    searchInput.addEventListener('input',()=>{clearTimeout(searchDebounce);searchDebounce=setTimeout(()=>doSearch(searchInput.value.trim()),300)});
-    searchInput.addEventListener('keydown',e=>{
-      if(e.key==='Enter'){e.preventDefault();if(e.shiftKey)goToSearchMatch(_pvState.searchIdx-1);else goToSearchMatch(_pvState.searchIdx+1)}
-      if(e.key==='Escape'){$('pv-search-panel')?.classList.add('hidden');_pvState.searchMatches=[];_pvState.searchIdx=-1;renderPage()}
-    });
-  }
-  $('pv-search-prev')?.addEventListener('click',()=>goToSearchMatch(_pvState.searchIdx-1));
-  $('pv-search-next')?.addEventListener('click',()=>goToSearchMatch(_pvState.searchIdx+1));
-  $('pv-search-close')?.addEventListener('click',()=>{$('pv-search-panel')?.classList.add('hidden');_pvState.searchMatches=[];_pvState.searchIdx=-1;searchInput.value='';paginate();renderPage()});
+  // Static UI bindings — guard with _pvWired flag so listeners are added only once
+  // (renderBookPreview can be called on every analysis; without the guard, every re-render
+  // stacks another copy of each listener onto the same DOM nodes)
+  const pvContainer=$('pv-screen');
+  if(pvContainer&&!pvContainer._pvWired){
+    pvContainer._pvWired=true;
 
-  // Initial paginate + render
-  setTimeout(()=>{paginate();renderPage()},100);
+    const searchInput=$('pv-search-input');
+    if(searchInput){
+      let searchDebounce;
+      searchInput.addEventListener('input',()=>{clearTimeout(searchDebounce);searchDebounce=setTimeout(()=>doSearch(searchInput.value.trim()),300)});
+      searchInput.addEventListener('keydown',e=>{
+        if(e.key==='Enter'){e.preventDefault();if(e.shiftKey)goToSearchMatch(_pvState.searchIdx-1);else goToSearchMatch(_pvState.searchIdx+1)}
+        if(e.key==='Escape'){$('pv-search-panel')?.classList.add('hidden');_pvState.searchMatches=[];_pvState.searchIdx=-1;renderPage()}
+      });
+    }
+    $('pv-search-prev')?.addEventListener('click',()=>goToSearchMatch(_pvState.searchIdx-1));
+    $('pv-search-next')?.addEventListener('click',()=>goToSearchMatch(_pvState.searchIdx+1));
+    $('pv-search-close')?.addEventListener('click',()=>{$('pv-search-panel')?.classList.add('hidden');_pvState.searchMatches=[];_pvState.searchIdx=-1;if(searchInput)searchInput.value='';paginate();renderPage()});
 
-  // Navigation
-  $('pv-prev')?.addEventListener('click',()=>{if(_pvState.currentPage>0){_pvState.currentPage--;renderPage()}});
-  $('pv-next')?.addEventListener('click',()=>{if(_pvState.currentPage<_pvState.totalPages-1){_pvState.currentPage++;renderPage()}});
+    $('pv-prev')?.addEventListener('click',()=>{if(_pvState.currentPage>0){_pvState.currentPage--;renderPage()}});
+    $('pv-next')?.addEventListener('click',()=>{if(_pvState.currentPage<_pvState.totalPages-1){_pvState.currentPage++;renderPage()}});
 
-  // Keyboard nav
-  const screen=$('pv-screen');
-  if(screen){
-    screen.tabIndex=0;
-    screen.addEventListener('keydown',e=>{
+    pvContainer.tabIndex=0;
+    pvContainer.addEventListener('keydown',e=>{
       if(e.target.tagName==='INPUT')return;
       if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();if(_pvState.currentPage<_pvState.totalPages-1){_pvState.currentPage++;renderPage()}}
       if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();if(_pvState.currentPage>0){_pvState.currentPage--;renderPage()}}
       if(e.key==='f'&&(e.ctrlKey||e.metaKey)){e.preventDefault();$('pv-search-panel')?.classList.remove('hidden');$('pv-search-input')?.focus();paginate();renderPage()}
     });
-  }
 
-  // Device switcher
-  document.querySelectorAll('.pv-dev').forEach(btn=>{btn.addEventListener('click',()=>{
-    document.querySelectorAll('.pv-dev').forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active');
-    _pvState.device=btn.dataset.dev;
-    frame.className='pv-device-frame '+btn.dataset.dev;
-    setTimeout(()=>{paginate();renderPage()},50);
-  })});
+    document.querySelectorAll('.pv-dev').forEach(btn=>{btn.addEventListener('click',()=>{
+      document.querySelectorAll('.pv-dev').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      _pvState.device=btn.dataset.dev;
+      frame.className='pv-device-frame '+btn.dataset.dev;
+      setTimeout(()=>{paginate();renderPage()},50);
+    })});
+  }
 
   // Font size control
   const fontSlider=$('pv-fontsize');const fontLabel=$('pv-fontsize-label');
@@ -1472,9 +1466,11 @@ function renderBookPreview(r){
     });
   };
 
-  // Re-paginate on resize
+  // Re-paginate on resize — use a single named handler so it can be replaced without stacking
+  if(window._pvResizeHandler)window.removeEventListener('resize',window._pvResizeHandler);
   let resizeTimer;
-  window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(_pvState.pages.length>0){paginate();renderPage()}},200)});
+  window._pvResizeHandler=()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(_pvState.pages.length>0){paginate();renderPage()}},200)};
+  window.addEventListener('resize',window._pvResizeHandler);
 }
 
 // OPENING COACH
@@ -2082,7 +2078,8 @@ async function runAI(key){
     const intro=document.querySelector('.ai-intro');
     if(intro){
       if(isRateLimit){
-        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Daily Limit Reached</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Free accounts get 3 AI analyses per day.</p><p style="color:var(--muted);font-size:.78rem">Resets at midnight UTC.</p><button class="btn-gold" style="width:auto;padding:.5rem 1.5rem;margin-top:1rem" onclick="document.getElementById(\'pricing-modal\').classList.remove(\'hidden\')">&#9733; Upgrade to Premium — $5/mo</button><p style="color:var(--dim);font-size:.7rem;margin-top:.5rem">50 AI analyses/day + Claude deep critique</p></div>';
+        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Daily Limit Reached</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Free accounts get 3 AI analyses per day.</p><p style="color:var(--muted);font-size:.78rem">Resets at midnight UTC.</p><button class="btn-gold ai-upgrade-btn" style="width:auto;padding:.5rem 1.5rem;margin-top:1rem">&#9733; Upgrade to Premium — $5/mo</button><p style="color:var(--dim);font-size:.7rem;margin-top:.5rem">50 AI analyses/day + Claude deep critique</p></div>';
+        intro.querySelector('.ai-upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
       }else{
         intro.innerHTML='<div style="color:var(--red);padding:1rem"><h4>AI Analysis Error</h4><p style="margin:.5rem 0;font-size:.85rem">'+esc(msg)+'</p><button class="btn-gold" style="width:auto;padding:.4rem 1rem;margin-top:.75rem" onclick="runAI(null)">Retry</button></div>';
       }
@@ -2093,7 +2090,7 @@ async function runAI(key){
 function renderAI(ai){
   const dc=ai.deepCritique;if(dc&&!dc.error)$('ai-deep-critique').innerHTML='<h3>Deep Critique</h3><p>'+esc(dc.overallAssessment||'')+'</p><div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin:.5rem 0"><div><h4 style="color:var(--green);font-size:.75rem">Strengths</h4><ul class="ai-list">'+(dc.strengths||[]).map(s=>'<li>'+esc(s)+'</li>').join('')+'</ul></div><div><h4 style="color:var(--red);font-size:.75rem">Weaknesses</h4><ul class="ai-list">'+(dc.weaknesses||[]).map(s=>'<li>'+esc(s)+'</li>').join('')+'</ul></div></div><div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);margin-top:.4rem"><strong style="color:var(--yellow)">Priority Fix:</strong> '+esc(dc.priorityFix||'')+'</div>';
   const ct=ai.compTitles;if(ct&&!ct.error)$('ai-comp-titles').innerHTML='<h3>Comp Titles</h3><div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);font-weight:600;color:var(--gold-l);margin:.4rem 0">'+esc(ct.pitchLine||'')+'</div><div class="comp-grid">'+(ct.compTitles||[]).map(c=>'<div class="comp-card"><div class="comp-title">'+esc(c.title)+'</div><div class="comp-author">'+esc(c.author)+'</div><div class="comp-reason">'+esc(c.reason)+'</div></div>').join('')+'</div>';
-  const ql=ai.queryLetter;if(ql&&!ql.error)$('ai-query-letter').innerHTML='<h3>Query Letter</h3><div class="ql-text">'+esc(ql.queryLetter||'').replace(/\n/g,'<br>')+'</div><button class="btn-dark" style="margin-top:.4rem" onclick="navigator.clipboard.writeText('+JSON.stringify(ql.queryLetter||'')+');this.textContent=\'Copied!\'">Copy</button>';
+  const ql=ai.queryLetter;if(ql&&!ql.error){const qlEl=$('ai-query-letter');qlEl.innerHTML='<h3>Query Letter</h3><div class="ql-text">'+esc(ql.queryLetter||'').replace(/\n/g,'<br>')+'</div><button class="btn-dark ql-copy-btn" style="margin-top:.4rem">Copy</button>';const qlCopyBtn=qlEl.querySelector('.ql-copy-btn');if(qlCopyBtn){const qlText=ql.queryLetter||'';qlCopyBtn.addEventListener('click',function(){navigator.clipboard.writeText(qlText);this.textContent='Copied!'})}}
   const br=ai.betaReaders;if(br&&!br.error)$('ai-beta-readers').innerHTML='<h3>Beta Readers</h3><div class="beta-grid">'+(br.readers||[]).map(r=>'<div class="beta-card"><div class="beta-hdr"><span class="beta-nm">'+esc(r.name)+' '+(r.emoticon||'')+'</span><span class="beta-rt">'+'\u2605'.repeat(r.rating||0)+'</span></div><div class="beta-pro">'+esc(r.profile)+'</div><div class="beta-rx">'+esc(r.reaction)+'</div></div>').join('')+'</div>';
   const mr=ai.marketReadiness;if(mr&&!mr.error)$('ai-market-readiness').innerHTML='<h3>Market Readiness</h3><div style="font-size:1.8rem;font-weight:800;color:'+sc(mr.readinessScore||0)+'">'+(mr.readinessScore||0)+'/100</div>'+sr('Path',mr.publishingPath||'')+sr('Stage',mr.developmentalStage||'')+sr('Trends',mr.trendAlignment||'');
   const cb=ai.chapterBreakdown;if(cb&&!cb.error)$('ai-chapter-breakdown').innerHTML='<h3>Chapters</h3><p style="font-size:.75rem;color:var(--muted)">'+esc(cb.structureAssessment||'')+'</p><div class="ch-grid2">'+(cb.chapters||[]).map(c=>'<div class="ch-card2"><div class="ch-num">'+c.number+'</div><div><div class="ch-ttl">'+esc(c.title||'')+'</div><div class="ch-sum">'+esc(c.summary||'')+'</div><div style="display:flex;gap:.2rem;margin-top:.2rem"><span class="ch-bdg">'+c.pacingGrade+'</span><span class="ch-bdg">'+c.tensionLevel+'</span></div></div></div>').join('')+'</div>';
@@ -2504,6 +2501,7 @@ $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="sa
 $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="upgrade-btn" style="color:var(--gold-l);border-color:var(--gold-d)">&#9733; Premium</button>');
 $('save-btn')?.addEventListener('click',saveAnalysis);
 $('upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
+$('pricing-modal-close')?.addEventListener('click',()=>$('pricing-modal')?.classList.add('hidden'));
 // Stripe checkout — tier buttons
 document.querySelectorAll('.checkout-tier').forEach(btn=>{
   btn.addEventListener('click',async()=>{
@@ -2565,8 +2563,8 @@ Storage.whenReady().then(async user=>{
   // Fetch all manuscripts once — used for validation and fallback
   let manuscripts=[];
   try{manuscripts=await Storage.getManuscripts()}catch(e){console.warn('Could not fetch manuscripts:',e.message)}
-  const shelf=JSON.parse(localStorage.getItem('ml_bookshelf')||'[]');
-  const saves=JSON.parse(localStorage.getItem('ml_saves')||'[]');
+  const shelf=safeLocalJSON('ml_bookshelf',[]);
+  const saves=safeLocalJSON('ml_saves',[]);
   const hasAnyManuscripts=manuscripts.length>0||shelf.length>0||saves.length>0;
 
   // If no manuscripts anywhere, clear stale session data and show blank library
@@ -2579,8 +2577,8 @@ Storage.whenReady().then(async user=>{
   }
 
   // Try to restore the last opened manuscript
-  const lastOpen=JSON.parse(localStorage.getItem('ml_last_open')||'null');
-  const autosave=JSON.parse(localStorage.getItem('ml_autosave')||'null');
+  const lastOpen=safeLocalJSON('ml_last_open',null);
+  const autosave=safeLocalJSON('ml_autosave',null);
 
   // Attempt 1: last opened manuscript by Firestore ID
   if(lastOpen?.manuscriptId){
