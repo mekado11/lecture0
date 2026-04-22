@@ -2344,6 +2344,16 @@ function _wireLibraryEvents(){
     });
   });
 
+  // Clicking anywhere on a card opens the manuscript
+  document.querySelectorAll('.lib-card[data-lib-idx]').forEach(card=>{
+    card.style.cursor='pointer';
+    card.addEventListener('click',async e=>{
+      if(e.target.closest('[data-action]'))return;
+      const idx=parseInt(card.dataset.libIdx);
+      await _openManuscript(idx);
+    });
+  });
+
   // Search
   $('lib-search')?.addEventListener('input',e=>{
     const q=e.target.value.toLowerCase().trim();

@@ -376,9 +376,12 @@ h1{font-family:'Lora',serif;font-size:2.2rem;color:#dbb08a;margin-bottom:.5rem;t
 </div>
 
 <script>
-document.querySelectorAll('.faq-item').forEach(function(item){
-  item.querySelector('.faq-q').addEventListener('click',function(){
-    item.classList.toggle('open');
+document.addEventListener('DOMContentLoaded',function(){
+  document.querySelectorAll('.faq-item').forEach(function(item){
+    item.querySelector('.faq-q').addEventListener('click',function(e){
+      e.preventDefault();
+      item.classList.toggle('open');
+    });
   });
 });
 </script>
