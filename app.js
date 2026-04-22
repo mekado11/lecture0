@@ -114,6 +114,7 @@ let ignoredIssues=new Set();
 let previousScore=null;
 let autoSaveTimer=null;
 let _cloudSaveWarned=false;
+let _tipDismissWired=false;
 
 // Undo/Redo stack — we own ALL undo. Browser native undo is never used.
 const _undoStack=[];
@@ -912,7 +913,10 @@ function showDetail(cat){
 // ANNOTATED TEXT — now uses structured page-based rendering
 function renderAnnotated(text,issues){
   renderAnnotatedAsPages(text,issues||[]);
-  document.addEventListener('click',e=>{if(!e.target.closest('.hl')&&!e.target.closest('.tip'))$('tip')?.classList.remove('on')});
+  if(!_tipDismissWired){
+    _tipDismissWired=true;
+    document.addEventListener('click',e=>{if(!e.target.closest('.hl')&&!e.target.closest('.tip'))$('tip')?.classList.remove('on')});
+  }
 }
 
 // DETAILED
@@ -1877,6 +1881,8 @@ function updateChapterNavOnScroll(){
   const scroll=$('manuscript-scroll');
   const list=$('chn-list');
   if(!scroll||!list)return;
+  if(scroll._hasChNavListener)return;
+  scroll._hasChNavListener=true;
   scroll.addEventListener('scroll',()=>{
     // Debounce
     clearTimeout(scroll._chNavTimer);
