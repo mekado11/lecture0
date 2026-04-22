@@ -15,17 +15,16 @@ module.exports = async (req, res) => {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) { res.status(500).json({ error: 'Stripe not configured' }); return; }
 
-  // Verify Firebase ID token
+  // Verify Firebase ID token — always fail closed; never trust client-supplied userId/email
   const decoded = await verifyToken(req);
-  const hasFbAdmin = !!process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (hasFbAdmin && !decoded) {
+  if (!decoded) {
     res.status(401).json({ error: 'Authentication required' }); return;
   }
 
   const safeOrigin = allowed.includes(origin) ? origin : 'https://authorscrolls.com';
   const { plan } = req.body;
-  const userId = decoded ? decoded.uid : req.body.userId;
-  const email = decoded ? decoded.email : req.body.email;
+  const userId = decoded.uid;
+  const email = decoded.email;
   if (!userId || !email) { res.status(400).json({ error: 'Missing userId or email' }); return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { res.status(400).json({ error: 'Invalid email' }); return; }
 

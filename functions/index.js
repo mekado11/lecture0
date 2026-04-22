@@ -10,11 +10,24 @@ const https = require("https");
 admin.initializeApp();
 const db = admin.firestore();
 
-const rateLimitMap = new Map();
 const LIMITS = { dev: 9999, beta: 5, premium: 5, starter: 1, free: 0 };
 const DEV_UIDS = new Set([]);
 const tierCache = new Map();
 const TIER_CACHE_TTL = 60000;
+
+// Persistent rate limiting via Firestore atomic increment — survives cold starts and scales across instances
+async function checkAndIncrementFirestore(uid, today) {
+  const key = uid + ":" + today;
+  const ref = db.collection("rateLimits").doc(key);
+  const result = await db.runTransaction(async (tx) => {
+    const doc = await tx.get(ref);
+    const current = doc.exists ? (doc.data().count || 0) : 0;
+    tx.set(ref, { count: current + 1, uid, date: today }, { merge: true });
+    return current + 1;
+  });
+  // Set TTL via a scheduled cleanup (or just let old docs accumulate — they're small)
+  return result;
+}
 
 async function getUserTier(uid) {
   if (DEV_UIDS.has(uid)) return 'dev';
@@ -37,9 +50,11 @@ const smtpUser = defineSecret("SMTP_USER");
 const smtpPass = defineSecret("SMTP_PASS");
 
 // ── Claude proxy (existing) ────────────────────────────────
+const ALLOWED_ORIGINS = ["https://authorscrolls.com", "https://www.authorscrolls.com"];
+
 exports.claude = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
     secrets: [claudeApiKey],
     memory: "256MiB",
     timeoutSeconds: 120,
@@ -50,7 +65,6 @@ exports.claude = onRequest(
       res.status(405).json({ error: { message: "Method not allowed" } });
       return;
     }
-    if (req.body.test) { res.json({ ok: true }); return; }
     if (!req.body.model || !req.body.messages) {
       res.status(400).json({ error: { message: "Missing model or messages" } });
       return;
@@ -70,25 +84,23 @@ exports.claude = onRequest(
       return;
     }
 
-    // Tier-based rate limiting
+    // Tier-based rate limiting — Firestore-backed for persistence across cold starts and instances
     const uid = decoded.uid;
     const today = new Date().toISOString().split("T")[0];
-    const key = uid + ":" + today;
     const userTier = await getUserTier(uid);
     const limit = LIMITS[userTier] ?? LIMITS.free;
-    const current = rateLimitMap.get(key) || 0;
-    if (current >= limit) {
+    const used = await checkAndIncrementFirestore(uid, today);
+    if (used > limit) {
       res.status(429).json({
         error: {
           message: userTier === "free"
             ? "AI features require a subscription. Upgrade to Starter ($5/mo)."
             : "Daily AI limit reached (" + limit + "/day). Resets at midnight UTC.",
-          code: "RATE_LIMITED", limit, used: current, tier: userTier
+          code: "RATE_LIMITED", limit, used: used - 1, tier: userTier
         }
       });
       return;
     }
-    rateLimitMap.set(key, current + 1);
 
     const body = {
       system: req.body.system || [],
@@ -190,31 +202,42 @@ exports.sendPushReminders = onSchedule(
     const MIN_INACTIVE = 24 * 60 * 60 * 1000;
     const MAX_INACTIVE = 48 * 60 * 60 * 1000;
 
-    const subs = await db.collection("pushSubscriptions").get();
     let sent = 0, skipped = 0;
+    const BATCH_SIZE = 100;
+    let lastDoc = null;
 
-    for (const doc of subs.docs) {
-      const { uid, subscription } = doc.data();
-      const sessionDoc = await db.collection("userSessions").doc(uid).get();
-      if (!sessionDoc.exists) { skipped++; continue; }
+    // Paginate to avoid loading entire collection into memory
+    while (true) {
+      let query = db.collection("pushSubscriptions").limit(BATCH_SIZE);
+      if (lastDoc) query = query.startAfter(lastDoc);
+      const subs = await query.get();
+      if (subs.empty) break;
 
-      const session = sessionDoc.data();
-      const inactive = now - (session.lastSessionTime || 0);
+      // Batch-read sessions in parallel instead of sequential Firestore calls
+      const uidList = subs.docs.map(d => d.data().uid).filter(Boolean);
+      const sessionDocs = await Promise.all(uidList.map(uid => db.collection("userSessions").doc(uid).get()));
+      const sessionMap = {};
+      sessionDocs.forEach(sd => { if (sd.exists) sessionMap[sd.id] = sd.data(); });
 
-      // Only send if 24-48hr inactive and haven't sent push yet
-      if (inactive < MIN_INACTIVE || inactive > MAX_INACTIVE) { skipped++; continue; }
-      if ((session.lastReminderTier || 0) >= 2) { skipped++; continue; }
-
-      try {
-        await webpush.sendNotification(subscription, buildPushPayload(session));
-        await db.collection("userSessions").doc(uid).update({ lastReminderTier: 2 });
-        sent++;
-      } catch (err) {
-        // Remove expired subscriptions
-        if (err.statusCode === 410 || err.statusCode === 404) {
-          await db.collection("pushSubscriptions").doc(uid).delete();
+      for (const doc of subs.docs) {
+        const { uid, subscription } = doc.data();
+        const session = sessionMap[uid];
+        if (!session) { skipped++; continue; }
+        const inactive = now - (session.lastSessionTime || 0);
+        if (inactive < MIN_INACTIVE || inactive > MAX_INACTIVE) { skipped++; continue; }
+        if ((session.lastReminderTier || 0) >= 2) { skipped++; continue; }
+        try {
+          await webpush.sendNotification(subscription, buildPushPayload(session));
+          await db.collection("userSessions").doc(uid).update({ lastReminderTier: 2 });
+          sent++;
+        } catch (err) {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            await db.collection("pushSubscriptions").doc(uid).delete();
+          }
         }
       }
+      lastDoc = subs.docs[subs.docs.length - 1];
+      if (subs.docs.length < BATCH_SIZE) break;
     }
 
     console.log(`Push reminders: sent=${sent}, skipped=${skipped}`);
@@ -241,32 +264,40 @@ exports.sendEmailReminders = onSchedule(
     const now = Date.now();
     const MIN_INACTIVE = 72 * 60 * 60 * 1000;
 
-    // Only users who opted in
-    const sessions = await db.collection("userSessions")
-      .where("emailReminders", "==", true)
-      .get();
-
     let sent = 0, skipped = 0;
+    const BATCH_SIZE = 100;
+    let lastDoc = null;
 
-    for (const doc of sessions.docs) {
-      const session = doc.data();
-      const inactive = now - (session.lastSessionTime || 0);
-      if (inactive < MIN_INACTIVE) { skipped++; continue; }
-      if ((session.lastReminderTier || 0) >= 3) { skipped++; continue; }
-      if (!session.email) { skipped++; continue; }
+    // Paginate to avoid loading entire opt-in list into memory
+    while (true) {
+      let query = db.collection("userSessions")
+        .where("emailReminders", "==", true)
+        .limit(BATCH_SIZE);
+      if (lastDoc) query = query.startAfter(lastDoc);
+      const sessions = await query.get();
+      if (sessions.empty) break;
 
-      try {
-        await transporter.sendMail({
-          from: '"AuthorScrolls" <noreply@authorscrolls.com>',
-          to: session.email,
-          subject: `Your manuscript is waiting — ${session.manuscript || "AuthorScrolls"}`,
-          html: buildEmailHtml(session),
-        });
-        await db.collection("userSessions").doc(doc.id).update({ lastReminderTier: 3 });
-        sent++;
-      } catch (err) {
-        console.error("Email send error:", err.message);
+      for (const doc of sessions.docs) {
+        const session = doc.data();
+        const inactive = now - (session.lastSessionTime || 0);
+        if (inactive < MIN_INACTIVE) { skipped++; continue; }
+        if ((session.lastReminderTier || 0) >= 3) { skipped++; continue; }
+        if (!session.email) { skipped++; continue; }
+        try {
+          await transporter.sendMail({
+            from: '"AuthorScrolls" <noreply@authorscrolls.com>',
+            to: session.email,
+            subject: `Your manuscript is waiting — ${session.manuscript || "AuthorScrolls"}`,
+            html: buildEmailHtml(session),
+          });
+          await db.collection("userSessions").doc(doc.id).update({ lastReminderTier: 3 });
+          sent++;
+        } catch (err) {
+          console.error("Email send error:", err.message);
+        }
       }
+      lastDoc = sessions.docs[sessions.docs.length - 1];
+      if (sessions.docs.length < BATCH_SIZE) break;
     }
 
     console.log(`Email reminders: sent=${sent}, skipped=${skipped}`);

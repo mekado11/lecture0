@@ -5,6 +5,19 @@
 'use strict';
 const { getAdmin } = require('./_auth');
 
+// Disable Vercel's body parser so we get the raw bytes for Stripe signature verification
+module.exports.config = { api: { bodyParser: false } };
+
+// Read raw request body as a Buffer
+function getRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
 
@@ -15,8 +28,7 @@ module.exports = async (req, res) => {
   let event;
   try {
     const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-    // Vercel provides raw body as req.body when content-type isn't application/json
-    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    const rawBody = await getRawBody(req);
     event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (err) {
     res.status(400).json({ error: 'Webhook signature verification failed' });

@@ -22,14 +22,14 @@ auth.onAuthStateChanged(user=>{
   }
 
   // Stats from localStorage
-  const versions=JSON.parse(localStorage.getItem('ml_versions')||'[]');
+  const versions=(()=>{try{return JSON.parse(localStorage.getItem('ml_versions')||'[]')}catch(e){return[]}})();
   document.getElementById('stat-manuscripts').textContent=versions.length;
   const totalWords=versions.reduce((s,v)=>s+(v.wordCount||0),0);
   document.getElementById('stat-words').textContent=totalWords>1000?(totalWords/1000).toFixed(1)+'k':totalWords;
   document.getElementById('stat-fixes').textContent=localStorage.getItem('ml_fixes_count')||'0';
 
   // Load preferences
-  const prefs=JSON.parse(localStorage.getItem('ml_prefs')||'{}');
+  const prefs=(()=>{try{return JSON.parse(localStorage.getItem('ml_prefs')||'{}')}catch(e){return{}}})();
   document.getElementById('pref-autosave').checked=prefs.autosave!==false;
   document.getElementById('pref-cookies').checked=prefs.showCookies||false;
   document.getElementById('pref-theme').checked=prefs.darkTheme!==false;

@@ -50,16 +50,14 @@ module.exports = async (req, res) => {
 
   if (req.body.test === true && process.env.NODE_ENV !== 'production') { res.json({ ok: true }); return; }
 
-  // Verify Firebase ID token — fail-closed if configured, warn if not
+  // Verify Firebase ID token — always fail closed; no fallback to client-supplied identity
   const decoded = await verifyToken(req);
-  const hasFbAdmin = !!process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (hasFbAdmin && !decoded) {
+  if (!decoded) {
     res.status(401).json({ error: { message: 'Authentication required', code: 'UNAUTHENTICATED' } });
     return;
   }
 
-  // Rate limiting — use verified UID when available, fall back to header only in dev
-  const userId = decoded ? decoded.uid : (req.headers['x-user-id'] || 'anonymous');
+  const userId = decoded.uid;
   const today = new Date().toISOString().split('T')[0];
 
   const userTier = await getUserTier(userId);
