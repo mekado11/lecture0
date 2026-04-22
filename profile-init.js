@@ -36,6 +36,24 @@ auth.onAuthStateChanged(user=>{
   if(prefs.defaultGenre)document.getElementById('pref-genre').value=prefs.defaultGenre;
   document.getElementById('pref-push').checked=prefs.pushReminders||false;
   document.getElementById('pref-email-reminders').checked=prefs.emailReminders||false;
+
+  // Beta access: check tier and show/hide accordingly
+  firebase.firestore().collection('users').doc(user.uid).get().then(doc=>{
+    const tier=(doc.exists&&doc.data().tier)||'free';
+    const badge=document.getElementById('tier-badge');
+    if(tier==='beta'){
+      badge.textContent='BETA';badge.className='tier-badge tier-beta';
+      document.getElementById('beta-form').style.display='none';
+      document.getElementById('beta-active-msg').style.display='block';
+      document.getElementById('sub-status').innerHTML='You have <strong>Beta</strong> access — AI features unlocked.';
+    }else if(tier==='premium'){
+      badge.textContent='PREMIUM';badge.className='tier-badge tier-premium';
+      document.getElementById('beta-section').style.display='none';
+    }else if(tier==='starter'){
+      badge.textContent='STARTER';badge.className='tier-badge tier-starter';
+      document.getElementById('beta-section').style.display='none';
+    }
+  }).catch(()=>{});
 });
 
 // Save profile
@@ -169,4 +187,39 @@ document.getElementById('delete-account-btn').addEventListener('click',()=>{
     }
   });
   input.focus();
+});
+
+// Beta code redemption
+document.getElementById('redeem-btn').addEventListener('click',async()=>{
+  const user=auth.currentUser;if(!user)return;
+  const codeInput=document.getElementById('beta-code');
+  const msg=document.getElementById('beta-msg');
+  const btn=document.getElementById('redeem-btn');
+  const code=codeInput.value.trim();
+  if(!code){msg.textContent='Please enter an invite code.';msg.className='beta-msg err';return}
+
+  btn.textContent='Activating...';btn.disabled=true;
+  msg.className='beta-msg';msg.style.display='none';
+
+  try{
+    const token=await user.getIdToken();
+    const res=await fetch('/api/redeem',{
+      method:'POST',
+      headers:{'content-type':'application/json','authorization':'Bearer '+token},
+      body:JSON.stringify({code:code})
+    });
+    const data=await res.json();
+    if(res.ok&&data.success){
+      msg.textContent='Beta access activated! AI features are now unlocked. Refreshing...';
+      msg.className='beta-msg ok';
+      setTimeout(()=>window.location.reload(),1500);
+    }else{
+      msg.textContent=data.error||'Redemption failed. Please try again.';
+      msg.className='beta-msg err';
+    }
+  }catch(e){
+    msg.textContent='Network error. Please check your connection and try again.';
+    msg.className='beta-msg err';
+  }
+  btn.textContent='Activate';btn.disabled=false;
 });

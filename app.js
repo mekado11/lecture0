@@ -236,7 +236,7 @@ let _smartScanDone=false;
 async function maybeRunSmartScan(r){
   if(_smartScanDone)return;
   // Only for admin or paid users
-  const isPaid=window.__isAdmin||window.__userPlan==='starter'||window.__userPlan==='premium';
+  const isPaid=_isPaid();
   if(!isPaid)return;
   if(!r.issues||r.issues.length===0)return;
 
@@ -675,7 +675,7 @@ const _issueWhy={
 const _REWRITE_TYPES = new Set(['passive','adverb','weak-verb','show-tell','wordy','cliche']);
 
 function _isPaid() {
-  return window.__isAdmin || window.__userPlan === 'starter' || window.__userPlan === 'premium';
+  return window.__isAdmin || window.__userPlan === 'starter' || window.__userPlan === 'premium' || window.__userPlan === 'beta';
 }
 
 function _cardBtnsHtml(card) {
