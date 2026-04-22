@@ -5,7 +5,7 @@ const https = require('https');
 const { verifyToken, getAdmin } = require('./_auth');
 const { checkAndIncrement, getCount } = require('./_ratelimit');
 
-const LIMITS = { dev: 9999, premium: 5, starter: 1, free: 0 };
+const LIMITS = { dev: 9999, beta: 5, premium: 5, starter: 1, free: 0 };
 
 // Developer admin UIDs (your Firebase UID — unlimited access)
 const DEV_UIDS = new Set([

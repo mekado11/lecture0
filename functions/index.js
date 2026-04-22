@@ -11,7 +11,7 @@ admin.initializeApp();
 const db = admin.firestore();
 
 const rateLimitMap = new Map();
-const LIMITS = { dev: 9999, premium: 5, starter: 1, free: 0 };
+const LIMITS = { dev: 9999, beta: 5, premium: 5, starter: 1, free: 0 };
 const DEV_UIDS = new Set([]);
 const tierCache = new Map();
 const TIER_CACHE_TTL = 60000;

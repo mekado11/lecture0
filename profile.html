@@ -46,6 +46,12 @@ h1{font-family:'Lora',serif;font-size:1.8rem;color:#dbb08a;margin-bottom:1.5rem}
 .tier-free{background:#2a2520;color:#9c9085}
 .tier-starter{background:#2a2010;color:#d4a855}
 .tier-premium{background:#1a1530;color:#a28cd0}
+.tier-beta{background:#102a1a;color:#5dba7d}
+.beta-input{flex:1;padding:.5rem .7rem;background:#1a1510;border:1px solid #3a3330;border-radius:7px;color:#e8dfd4;font-size:.85rem;font-family:'Inter',sans-serif;letter-spacing:1px;text-transform:uppercase}
+.beta-input:focus{outline:none;border-color:#5dba7d}
+.beta-msg{display:none;margin-top:.5rem;font-size:.78rem;line-height:1.5}
+.beta-msg.ok{color:#5dba7d;display:block}
+.beta-msg.err{color:#c45c4a;display:block}
 
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;margin-top:.8rem}
 .stat{background:#1a1510;border:1px solid #3a3330;border-radius:8px;padding:.6rem;text-align:center}
@@ -154,6 +160,21 @@ h1{font-family:'Lora',serif;font-size:1.8rem;color:#dbb08a;margin-bottom:1.5rem}
         <p id="sub-status">You're on the <strong>Free</strong> plan.</p>
         <div style="display:flex;gap:.5rem;margin-top:.5rem">
           <a href="pricing.html"><button class="btn btn-primary">Upgrade Plan</button></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-card" id="beta-section">
+      <div class="section">
+        <h3>Beta Access</h3>
+        <p id="beta-active-msg" style="display:none;font-size:.82rem;color:#5dba7d">You have beta access. AI features are unlocked (5 analyses/day).</p>
+        <div id="beta-form">
+          <p>Have an invite code? Enter it below to unlock AI features for free.</p>
+          <div style="display:flex;gap:.5rem;margin-top:.5rem">
+            <input type="text" id="beta-code" class="beta-input" placeholder="BETA-XXXX-XXXX" maxlength="20">
+            <button class="btn btn-primary" id="redeem-btn">Activate</button>
+          </div>
+          <p id="beta-msg" class="beta-msg"></p>
         </div>
       </div>
     </div>
