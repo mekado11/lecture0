@@ -2427,23 +2427,9 @@ async function _openManuscript(idx){
     uploadedFile={name:m.fileName||'Untitled',size:0};
 
     if(!analysisResult||!analysisResult.scores){
-      if(_analyzerWorker){
-        _analyzeVersion++;
-        const v=_analyzeVersion;
-        analysisResult=await new Promise((resolve,reject)=>{
-          const handler=function(e){
-            if(e.data.version===v){
-              _analyzerWorker.removeEventListener('message',handler);
-              if(e.data.type==='result')resolve(e.data.data);
-              else reject(new Error(e.data.message||'Analysis failed'));
-            }
-          };
-          _analyzerWorker.addEventListener('message',handler);
-          _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v});
-        });
-      }else{
-        analysisResult=Analyzer.analyze(extractedText);
-      }
+      loadEl.textContent='Analyzing manuscript...';
+      await new Promise(r=>setTimeout(r,50));
+      analysisResult=Analyzer.analyze(extractedText);
     }
     if(analysisResult&&analysisResult.error){loadEl.remove();alert(analysisResult.error);return}
 
