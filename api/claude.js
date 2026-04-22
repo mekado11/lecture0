@@ -12,13 +12,16 @@ const DEV_UIDS = new Set([
   // Add your Firebase UID here after first sign-in
 ]);
 
+// Admin emails — always dev tier, no rate limiting
+const ADMIN_EMAILS = new Set(['admin@authorscrolls.com']);
+
 // Brief in-memory tier cache to avoid hitting Firestore on every request
 const tierCache = new Map();
 const TIER_CACHE_TTL = 60000; // 1 minute
 
-async function getUserTier(userId) {
-  const isDev = DEV_UIDS.has(userId);
-  if (isDev) return 'dev';
+async function getUserTier(userId, email) {
+  if (DEV_UIDS.has(userId)) return 'dev';
+  if (email && ADMIN_EMAILS.has(email.toLowerCase())) return 'dev';
 
   const cached = tierCache.get(userId);
   if (cached && Date.now() - cached.ts < TIER_CACHE_TTL) return cached.tier;
@@ -58,9 +61,10 @@ module.exports = async (req, res) => {
   }
 
   const userId = decoded.uid;
+  const userEmail = (decoded.email || '').toLowerCase();
   const today = new Date().toISOString().split('T')[0];
 
-  const userTier = await getUserTier(userId);
+  const userTier = await getUserTier(userId, userEmail);
   const limit = LIMITS[userTier] || LIMITS.free;
   const used = await checkAndIncrement(userId, today);
 
