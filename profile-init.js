@@ -191,7 +191,12 @@ document.getElementById('delete-account-btn').addEventListener('click',()=>{
 
 // Beta code redemption
 document.getElementById('redeem-btn').addEventListener('click',async()=>{
-  const user=auth.currentUser;if(!user)return;
+  const user=auth.currentUser;
+  if(!user){
+    const msg=document.getElementById('beta-msg');
+    msg.textContent='Please sign in first.';msg.className='beta-msg err';
+    return;
+  }
   const codeInput=document.getElementById('beta-code');
   const msg=document.getElementById('beta-msg');
   const btn=document.getElementById('redeem-btn');
@@ -202,7 +207,7 @@ document.getElementById('redeem-btn').addEventListener('click',async()=>{
   msg.className='beta-msg';msg.removeAttribute('style');
 
   try{
-    const token=await user.getIdToken();
+    const token=await user.getIdToken(true);
     const res=await fetch('/api/redeem',{
       method:'POST',
       headers:{'content-type':'application/json','authorization':'Bearer '+token},
