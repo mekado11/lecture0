@@ -113,6 +113,7 @@ function drawRing(canvas,score,size){
 let ignoredIssues=new Set();
 let previousScore=null;
 let autoSaveTimer=null;
+let _cloudSaveWarned=false;
 
 // Undo/Redo stack — we own ALL undo. Browser native undo is never used.
 const _undoStack=[];
@@ -346,6 +347,9 @@ function autoSave(){
           await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
         }
       }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Cloud save error:',e.message)}
+    }else if(!_cloudSaveWarned){
+      _cloudSaveWarned=true;
+      _showSaveToast('Not signed in — saving locally only');
     }
     localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}));
   },5000);
@@ -2195,7 +2199,7 @@ async function saveAnalysis(){
       await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
       _showSaveToast('Saved to cloud');
       return;
-    }catch(e){console.warn('Cloud save error:',e.message)}
+    }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Cloud save error:',e.message)}
   }
   // Fallback to localStorage
   const saves=safeLocalJSON('ml_saves',[]);
@@ -2224,7 +2228,7 @@ async function renderLibrary(){
   let manuscripts=[];
   await Storage.whenReady();
   if(Storage.userId){
-    try{manuscripts=await Storage.getManuscripts()}catch(e){console.warn('Firestore load error:',e.message)}
+    try{manuscripts=await Storage.getManuscripts()}catch(e){_showSaveToast('Could not load manuscripts from cloud');console.warn('Firestore load error:',e.message)}
   }
   // Fallback to localStorage bookshelf
   if(manuscripts.length===0){
@@ -2592,7 +2596,7 @@ Storage.whenReady().then(async user=>{
 
   // Fetch all manuscripts once — used for validation and fallback
   let manuscripts=[];
-  try{manuscripts=await Storage.getManuscripts()}catch(e){console.warn('Could not fetch manuscripts:',e.message)}
+  try{manuscripts=await Storage.getManuscripts()}catch(e){_showSaveToast('Could not load manuscripts from cloud');console.warn('Could not fetch manuscripts:',e.message)}
   const shelf=safeLocalJSON('ml_bookshelf',[]);
   const saves=safeLocalJSON('ml_saves',[]);
   const hasAnyManuscripts=manuscripts.length>0||shelf.length>0||saves.length>0;
