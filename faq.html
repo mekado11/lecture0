@@ -375,15 +375,6 @@ h1{font-family:'Lora',serif;font-size:2.2rem;color:#dbb08a;margin-bottom:.5rem;t
   <p style="margin-top:.3rem"><a href="pricing.html">Pricing</a> &middot; <a href="legal.html#terms">Terms</a> &middot; <a href="legal.html#privacy">Privacy</a> &middot; <a href="legal.html#contact">Contact</a></p>
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded',function(){
-  document.querySelectorAll('.faq-item').forEach(function(item){
-    item.querySelector('.faq-q').addEventListener('click',function(e){
-      e.preventDefault();
-      item.classList.toggle('open');
-    });
-  });
-});
-</script>
+<script src="faq-init.js"></script>
 </body>
 </html>
