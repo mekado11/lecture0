@@ -33,8 +33,10 @@ $('analyze-btn').addEventListener('click',async()=>{
       _analyzeVersion++;
       const v=_analyzeVersion;
       analysisResult=await new Promise((resolve,reject)=>{
+        let timer=setTimeout(()=>{_analyzerWorker.removeEventListener('message',handler);reject(new Error('Analysis timed out — please try again'))},30000);
         const handler=function(e){
           if(e.data.version===v){
+            clearTimeout(timer);
             _analyzerWorker.removeEventListener('message',handler);
             if(e.data.type==='result')resolve(e.data.data);
             else reject(new Error(e.data.message||'Analysis failed'));
@@ -47,10 +49,11 @@ $('analyze-btn').addEventListener('click',async()=>{
       await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
       analysisResult=Analyzer.analyze(extractedText);
     }
-    if(analysisResult.error){alert(analysisResult.error);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
+    if(!analysisResult||analysisResult.error){alert(analysisResult?.error||'Analysis produced no result');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
     // Save immediately to Firestore/localStorage so it appears in library
     trackSession('analyzing');
     // Direct save (don't wait for debounced autoSave)
+    await Storage.whenReady();
     if(Storage.userId){
       try{
         const existing=await Storage.getManuscripts();
@@ -61,7 +64,7 @@ $('analyze-btn').addEventListener('click',async()=>{
         }else{
           Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
         }
-      }catch(e){console.warn('Save error:',e.message)}
+      }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Save error:',e.message)}
     }
     localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}));
     // Close modal, reset state, show library
@@ -119,7 +122,7 @@ let _lastSnapshotText='';
 function pushUndo(){
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText});
+  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult});
   if(_undoStack.length>MAX_UNDO)_undoStack.shift();
   _redoStack.length=0;
   _lastSnapshotText=extractedText;
@@ -129,7 +132,7 @@ function _pushTypingSnapshot(){
   if(extractedText===_lastSnapshotText)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText});
+  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult});
   if(_undoStack.length>MAX_UNDO)_undoStack.shift();
   _redoStack.length=0;
   _lastSnapshotText=extractedText;
@@ -138,10 +141,11 @@ function undoLastFix(){
   if(_undoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _redoStack.push({html:page.innerHTML,text:extractedText});
+  _redoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult});
   const state=_undoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
+  if(state.analysis){analysisResult=state.analysis;updateScoresOnly(analysisResult)}
   _lastSnapshotText=extractedText;
   syncPreview();scheduleReanalyze();
   _updateUndoBtn();
@@ -150,10 +154,11 @@ function redoLastFix(){
   if(_redoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText});
+  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult});
   const state=_redoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
+  if(state.analysis){analysisResult=state.analysis;updateScoresOnly(analysisResult)}
   _lastSnapshotText=extractedText;
   syncPreview();scheduleReanalyze();
   _updateUndoBtn();
@@ -179,13 +184,14 @@ window.addEventListener('keydown',e=>{
 
 function renderAll(){
   const r=analysisResult;
+  if(!r||!uploadedFile){return}
   $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
-  $('top-wc').textContent=r.totalWords.toLocaleString();
-  $('top-status').textContent=r.genre.label+(r.genre.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+r.manuscriptMode.label;
-  drawGauge(r.overall);
+  $('top-wc').textContent=(r.totalWords||0).toLocaleString();
+  $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
+  drawGauge(r.overall||0);
 
   // Live score + delta tracking
-  $('top-score').textContent=r.overall;
+  $('top-score').textContent=r.overall||0;
   const deltaEl=$('top-delta');
   if(previousScore!==null){
     const delta=r.overall-previousScore;
@@ -322,10 +328,10 @@ function autoSave(){
   if(!analysisResult||!uploadedFile)return;
   clearTimeout(autoSaveTimer);
   autoSaveTimer=setTimeout(async()=>{
+    await Storage.whenReady();
     if(Storage.userId){
       try{
         if(!Storage._currentManuscriptId){
-          // Before creating a new doc, check if one already exists for this filename
           const existing=await Storage.getManuscripts();
           const match=existing.find(m=>(m.fileName||'').toLowerCase()===uploadedFile.name.toLowerCase());
           if(match){
@@ -339,7 +345,7 @@ function autoSave(){
           await Storage.updateManuscript(Storage._currentManuscriptId,extractedText,analysisResult);
           await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
         }
-      }catch(e){console.warn('Cloud save error:',e.message)}
+      }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Cloud save error:',e.message)}
     }
     localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}));
   },5000);
@@ -349,15 +355,16 @@ function loadAutoSave(){ return false; }
 
 // GOAL PILLS BAR
 function renderGoalBar(r){
-  const bar=$('goal-bar');if(!bar)return;
-  const rp=r.readerPerspective;
+  const bar=$('goal-bar');if(!bar||!r)return;
+  const rp=r.readerPerspective||{};
+  const scores=r.scores||{};
   const goals=[
-    {id:'opening',icon:'\uD83D\uDEAB',label:'Improve Opening',score:rp.hookStrength,action:()=>showOpeningCoach()},
-    {id:'clarity',icon:'\u2705',label:'Fix Clarity',score:rp.clarityScore,action:()=>{showDetail('clarity')}},
-    {id:'dialogue',icon:'\uD83D\uDCAC',label:'Boost Dialogue',score:r.scores.dialogue,action:()=>{showDetail('dialogue')}},
-    {id:'hook',icon:'\u26A1',label:'Strengthen Hook',score:rp.hookStrength,action:()=>showOpeningCoach()},
-    {id:'pacing',icon:'\uD83C\uDFC3',label:'Fix Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),action:()=>{showDetail('pacing')}},
-    {id:'showTell',icon:'\uD83D\uDC41',label:'Show Don\'t Tell',score:r.scores.showTell,action:()=>{showDetail('showTell')}}
+    {id:'opening',icon:'\uD83D\uDEAB',label:'Improve Opening',score:rp.hookStrength||0,action:()=>showOpeningCoach()},
+    {id:'clarity',icon:'\u2705',label:'Fix Clarity',score:rp.clarityScore||0,action:()=>{showDetail('clarity')}},
+    {id:'dialogue',icon:'\uD83D\uDCAC',label:'Boost Dialogue',score:scores.dialogue||0,action:()=>{showDetail('dialogue')}},
+    {id:'hook',icon:'\u26A1',label:'Strengthen Hook',score:rp.hookStrength||0,action:()=>showOpeningCoach()},
+    {id:'pacing',icon:'\uD83C\uDFC3',label:'Fix Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),action:()=>{showDetail('pacing')}},
+    {id:'showTell',icon:'\uD83D\uDC41',label:'Show Don\'t Tell',score:scores.showTell||0,action:()=>{showDetail('showTell')}}
   ];
   // Only show goals where score < 70 (things that need work)
   const needsWork=goals.filter(g=>g.score<70).sort((a,b)=>a.score-b.score).slice(0,4);
@@ -367,30 +374,33 @@ function renderGoalBar(r){
 
 // SCENE INTELLIGENCE
 function renderSceneIntel(r){
-  const el=$('scene-intel');if(!el)return;
-  const rp=r.readerPerspective;
+  const el=$('scene-intel');if(!el||!r)return;
+  const rp=r.readerPerspective||{};
   // Detect scene type
-  const dialogueRatio=r.dialogue.ratio;
-  const actionDensity=r.pacing.segments.filter(s=>s.type==='action').length/Math.max(r.pacing.segments.length,1)*100;
+  const dialogueRatio=r.dialogue?.ratio||0;
+  const segments=r.pacing?.segments||[];
+  const actionDensity=segments.filter(s=>s.type==='action').length/Math.max(segments.length,1)*100;
   let sceneType='Exposition Heavy';
   if(dialogueRatio>30)sceneType='Dialogue Heavy';
   else if(actionDensity>40)sceneType='Action Sequence';
   else if(dialogueRatio>15&&actionDensity>20)sceneType='Balanced';
-  else if(r.pacing.segments.filter(s=>s.type==='description').length>r.pacing.segments.length*0.5)sceneType='Descriptive';
+  else if(segments.filter(s=>s.type==='description').length>segments.length*0.5)sceneType='Descriptive';
   // Energy level
-  const energy=r.writingQuality.engagementScore>70?'High':r.writingQuality.engagementScore>40?'Medium':'Low';
+  const wq=r.writingQuality||{};
+  const energy=(wq.engagementScore||0)>70?'High':(wq.engagementScore||0)>40?'Medium':'Low';
   // Tension
-  const tensionQuarters=r.plot.quarters||[];
+  const tensionQuarters=r.plot?.quarters||[];
   const lastTension=tensionQuarters.length>0?tensionQuarters[tensionQuarters.length-1].tension:0;
   const prevTension=tensionQuarters.length>1?tensionQuarters[tensionQuarters.length-2].tension:0;
   const tensionDir=lastTension>prevTension?'Rising \uD83D\uDD3A':lastTension<prevTension?'Falling \uD83D\uDD3B':'Steady \u27A1';
   // Goals checklist
+  const plot=r.plot||{};const scores=r.scores||{};const dl=r.dialogue||{};
   const goalChecks=[
-    {label:'Hook reader fast',done:rp.hookStrength>50},
-    {label:'Build tension',done:r.plot.hasRisingAction},
-    {label:'Emotional depth',done:rp.emotionalConnection>30},
-    {label:'Fast pacing',done:!rp.pacingFeel.includes('Slow')},
-    {label:'Strong dialogue',done:r.dialogue.count>0&&r.scores.dialogue>50}
+    {label:'Hook reader fast',done:(rp.hookStrength||0)>50},
+    {label:'Build tension',done:!!plot.hasRisingAction},
+    {label:'Emotional depth',done:(rp.emotionalConnection||0)>30},
+    {label:'Fast pacing',done:!(rp.pacingFeel||'').includes('Slow')},
+    {label:'Strong dialogue',done:(dl.count||0)>0&&(scores.dialogue||0)>50}
   ];
   let h='';
   // Goals
@@ -573,16 +583,17 @@ function diffHighlights(newIssues){
 
 // Lightweight update: refresh scores, sidebar, issue panel without touching the editor
 function updateScoresOnly(r){
+  if(!r)return;
   // Topbar
-  $('top-wc').textContent=r.totalWords.toLocaleString();
-  $('top-status').textContent=r.genre.label+(r.genre.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+r.manuscriptMode.label;
-  drawGauge(r.overall);
-  $('top-score').textContent=r.overall;
+  $('top-wc').textContent=(r.totalWords||0).toLocaleString();
+  $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
+  drawGauge(r.overall||0);
+  $('top-score').textContent=r.overall||0;
 
   // Score delta
   const deltaEl=$('top-delta');
   if(previousScore!==null){
-    const delta=r.overall-previousScore;
+    const delta=(r.overall||0)-previousScore;
     if(delta>0){deltaEl.textContent='\u2191 +'+delta;deltaEl.className='delta up'}
     else if(delta<0){deltaEl.textContent='\u2193 '+delta;deltaEl.className='delta down'}
     else{deltaEl.textContent='';deltaEl.className='delta'}
@@ -602,12 +613,14 @@ function updateScoresOnly(r){
 
 // LEFT SIDEBAR
 function renderLeft(r){
-  const rp=r.readerPerspective;
+  if(!r)return;
+  const rp=r.readerPerspective||{};
+  const ic=r.issueCounts||{};const scores=r.scores||{};
   const cards=[
-    {name:'Engagement Score',score:rp.engagementScore,sub:'How hooked will readers be?',action:'+ Improve Opening',bar:true},
-    {name:'Hook Strength',score:rp.hookStrength,sub:(r.issueCounts.passive+r.issueCounts.adverb)+' Issues',action:'+ Improve Opening',bar:false},
-    {name:'Clarity',score:rp.clarityScore,sub:'Weak transitions',bar:true},
-    {name:'Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),sub:rp.pacingFeel.split(' - ')[0],badge:rp.pacingFeel.includes('Rushed')?'Rushed':rp.pacingFeel.includes('Slow')?'Slow':'Good'},
+    {name:'Engagement Score',score:rp.engagementScore||0,sub:'How hooked will readers be?',action:'+ Improve Opening',bar:true},
+    {name:'Hook Strength',score:rp.hookStrength||0,sub:((ic.passive||0)+(ic.adverb||0))+' Issues',action:'+ Improve Opening',bar:false},
+    {name:'Clarity',score:rp.clarityScore||0,sub:'Weak transitions',bar:true},
+    {name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':(rp.pacingFeel||'').includes('Slow')?'Slow':'Good'},
     {name:'DNF Risk',score:r.dnfAnalysis?r.dnfAnalysis.dnf_risk:rp.dnfRisk,sub:r.dnfAnalysis?r.dnfAnalysis.risk_band:rp.dnfRisk>60?'At Risk':rp.dnfRisk>30?'Moderate':'Safe',inv:true}
   ];
   $('lp-cards').innerHTML=cards.map(c=>{
@@ -625,20 +638,22 @@ function renderLeft(r){
 
 // RIGHT SIDEBAR
 function renderRight(r){
+  if(!r)return;
   const stIssues=r.showTell&&r.showTell.issues?r.showTell.issues.length:(r.issueCounts?r.issueCounts['show-tell']:0)||0;
   const cpIssues=r.issues?r.issues.length:0;
   // Count high-severity issues per type for honest issue display
-  const highSev=type=>r.issues.filter(i=>i.type===type&&i.severity==='high').length;
+  const highSev=type=>(r.issues||[]).filter(i=>i.type===type&&i.severity==='high').length;
   const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
+  const scores=r.scores||{};const rp=r.readerPerspective||{};
   const cats=[
-    {k:'plot',name:'Plot Structure',score:r.scores.plot,issues:countType('pov'),weight:'10%'},
-    {k:'clarity',name:'Clarity',score:r.readerPerspective.clarityScore,issues:countType('passive'),weight:'10%'},
-    {k:'pacing',name:'Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),issues:countType('sentence-length'),badge:r.readerPerspective.pacingFeel.includes('Rushed')?'Rushed':null,weight:'8%'},
-    {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0,weight:'7%'},
-    {k:'style',name:'Style & Voice',score:r.scores.style,issues:countType('weak-verb'),weight:'8%'},
-    {k:'dialogue',name:'Dialogue',score:r.scores.dialogue,issues:countType('dialogue'),weight:'7%'},
-    {k:'showTell',name:'Show vs Tell',score:r.scores.showTell,issues:stIssues,weight:'8%'},
-    {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word'),weight:'12%'}
+    {k:'plot',name:'Plot Structure',score:scores.plot||0,issues:countType('pov'),weight:'10%'},
+    {k:'clarity',name:'Clarity',score:rp.clarityScore||0,issues:countType('passive'),weight:'10%'},
+    {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'8%'},
+    {k:'hook',name:'Hook Strength',score:rp.hookStrength||0,issues:r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0,weight:'7%'},
+    {k:'style',name:'Style & Voice',score:scores.style||0,issues:countType('weak-verb'),weight:'8%'},
+    {k:'dialogue',name:'Dialogue',score:scores.dialogue||0,issues:countType('dialogue'),weight:'7%'},
+    {k:'showTell',name:'Show vs Tell',score:scores.showTell||0,issues:stIssues,weight:'8%'},
+    {k:'copy',name:'Copy Editing',score:scores.copy||0,issues:countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word'),weight:'12%'}
   ];
   const container=$('rp-scores');
   container.innerHTML=cats.map(c=>{
@@ -889,8 +904,9 @@ function renderAnnotated(text,issues){
 
 // DETAILED
 function renderDetailed(r){
-  const d=$('ed-detailed');d.className='ms-page dark-page';
-  const isChapter=r.manuscriptMode.mode==='chapter'||r.manuscriptMode.mode==='excerpt';
+  const d=$('ed-detailed');if(!d)return;d.className='ms-page dark-page';
+  if(!r)return;
+  const isChapter=(r.manuscriptMode?.mode||'')==='chapter'||(r.manuscriptMode?.mode||'')==='excerpt';
   const pl={
     classic:'Classic arc (rising action, climax, resolution)',rising:'Rising tension, resolution needs work',
     'resolution-focused':'Strong resolution, rising action weak',flat:isChapter?'Flat scene — add a clearer scene goal or tension build':'Flat tension curve — add more conflict',
@@ -900,26 +916,30 @@ function renderDetailed(r){
     'hook-ending':'Effective cliffhanger ending — pulls reader forward'
   };
   let h='';
+  const scores=r.scores||{};
+  const plot=r.plot||{};
+  const trans=r.transitions||{};
+  const ic=r.issueCounts||{};
   const plotLabel=isChapter?'Scene Structure':'Plot Structure';
-  const plotRows=[pl[r.plot.arc]||'',sr('Rising Action',r.plot.hasRisingAction?'Yes':'Weak')];
-  if(isChapter){plotRows.push(sr('Scene Goal',r.plot.hasSceneGoal?'Detected':'Missing'));plotRows.push(sr('Cliffhanger',r.plot.hasCliffhanger?'Yes — strong chapter ending':'No — consider a hook'))}
-  else{plotRows.push(sr('Climax',r.plot.hasClimax?'Yes':'Weak'));plotRows.push(sr('Resolution',r.plot.hasResolution?'Yes':'Weak'))}
-  plotRows.push(sr('Mode',r.manuscriptMode.label+' (~'+r.manuscriptMode.estPages+' pages)'));
-  plotRows.push(sr('Issues/1K words',r.issuesPerK));
-  h+=secWithTip(plotLabel,r.scores.plot,plotRows,'plot');
-  h+=secWithTip('Transitions',r.scores.transitions,[r.transitions.smoothRate+'% smooth',sr('Transition Words',r.transitions.transitionsUsed),sr('Smooth',r.transitions.smoothTransitions+'/'+(r.transitions.totalParagraphs-1))],'transitions');
-  h+=secWithTip('Copy Editing',r.scores.copy,[(r.issueCounts.passive+(r.issueCounts.adverb||0)+(r.issueCounts.cliche||0)+(r.issueCounts.wordy||0)+(r.issueCounts['confused-word']||0))+' copy issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell'])],'copy');
+  const plotRows=[pl[plot.arc]||'',sr('Rising Action',plot.hasRisingAction?'Yes':'Weak')];
+  if(isChapter){plotRows.push(sr('Scene Goal',plot.hasSceneGoal?'Detected':'Missing'));plotRows.push(sr('Cliffhanger',plot.hasCliffhanger?'Yes — strong chapter ending':'No — consider a hook'))}
+  else{plotRows.push(sr('Climax',plot.hasClimax?'Yes':'Weak'));plotRows.push(sr('Resolution',plot.hasResolution?'Yes':'Weak'))}
+  plotRows.push(sr('Mode',(r.manuscriptMode?.label||'Unknown')+' (~'+(r.manuscriptMode?.estPages||0)+' pages)'));
+  plotRows.push(sr('Issues/1K words',r.issuesPerK||0));
+  h+=secWithTip(plotLabel,scores.plot||0,plotRows,'plot');
+  h+=secWithTip('Transitions',scores.transitions||0,[(trans.smoothRate||0)+'% smooth',sr('Transition Words',trans.transitionsUsed||0),sr('Smooth',(trans.smoothTransitions||0)+'/'+((trans.totalParagraphs||1)-1))],'transitions');
+  h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Weak Verbs',ic['weak-verb']||0),sr('Show/Tell',ic['show-tell']||0)],'copy');
   // Line Editing (true stylistic editing, not just readability)
-  const le=r.lineEditing;
+  const le=r.lineEditing||{};
   const lineRows=['Stylistic editing: tone, flow, precision, pacing, POV, extraneous language'];
-  lineRows.push(sr('Tone Consistency',le.tone.score+'/100'));
-  lineRows.push(sr('Sentence Flow',le.flow.score+'/100'));
-  lineRows.push(sr('Word Precision',le.precision.score+'/100'));
-  lineRows.push(sr('Pacing Rhythm',le.pacing.score+'/100'));
-  lineRows.push(sr('POV Discipline',le.pov.score+'/100'));
-  lineRows.push(sr('Extraneous Language',le.extraneous.score+'/100'));
+  lineRows.push(sr('Tone Consistency',(le.tone?.score??0)+'/100'));
+  lineRows.push(sr('Sentence Flow',(le.flow?.score??0)+'/100'));
+  lineRows.push(sr('Word Precision',(le.precision?.score??0)+'/100'));
+  lineRows.push(sr('Pacing Rhythm',(le.pacing?.score??0)+'/100'));
+  lineRows.push(sr('POV Discipline',(le.pov?.score??0)+'/100'));
+  lineRows.push(sr('Extraneous Language',(le.extraneous?.score??0)+'/100'));
   // Show findings
-  if(le.findings.length>0){
+  if(le.findings&&le.findings.length>0){
     lineRows.push('<div style="margin-top:.4rem;border-top:1px solid var(--border);padding-top:.4rem">');
     le.findings.forEach(f=>{
       const col=f.severity==='high'?'var(--red)':f.severity==='medium'?'var(--yellow)':'var(--muted)';
@@ -927,14 +947,14 @@ function renderDetailed(r){
     });
     lineRows.push('</div>');
   }
-  lineRows.push(sr('Readability Grade',r.readability.grade));
-  lineRows.push(sr('Flesch Ease',r.readability.ease+'/100'));
-  h+=secWithTip('Line Editing',r.scores.line,lineRows,'line');
-  h+=sec('Style & Voice',r.scores.style,[sr('POV',r.style.pov),sr('Lexical Diversity',r.style.lexicalDiversity+'/100'),sr('Unique Words',r.style.uniqueWords.toLocaleString())]);
+  lineRows.push(sr('Readability Grade',r.readability?.grade||'N/A'));
+  lineRows.push(sr('Flesch Ease',(r.readability?.ease||0)+'/100'));
+  h+=secWithTip('Line Editing',r.scores?.line||0,lineRows,'line');
+  h+=sec('Style & Voice',r.scores?.style||0,[sr('POV',r.style?.pov||'N/A'),sr('Lexical Diversity',(r.style?.lexicalDiversity||0)+'/100'),sr('Unique Words',(r.style?.uniqueWords||0).toLocaleString())]);
   // Dialogue (deep analysis)
-  const dl=r.dialogue;
+  const dl=r.dialogue||{count:0,ratio:0};
   const dlRows=[dl.count===0?'No dialogue detected.':''];
-  dlRows.push(sr('Lines',dl.count));dlRows.push(sr('Ratio',dl.ratio+'% of text'));
+  dlRows.push(sr('Lines',dl.count||0));dlRows.push(sr('Ratio',(dl.ratio||0)+'% of text'));
   if(dl.count>0){
     dlRows.push(sr('Tag Discipline',dl.tagDiscipline+'/100'));
     dlRows.push(sr('Conciseness',dl.conciseness+'/100'));
@@ -957,12 +977,12 @@ function renderDetailed(r){
       dlRows.push('</div>');
     }
   }
-  h+=sec('Dialogue',r.scores.dialogue,dlRows);
+  h+=sec('Dialogue',r.scores?.dialogue||0,dlRows);
   // Pacing heatmap
   if(r.pacing){const cols={action:'#c0392b',dialogue:'#2980b9',description:'#27ae60',exposition:'#f39c12',reflection:'#8e44ad'};
   h+='<div class="a-sec"><h3>Pacing Heatmap</h3><div class="hm-wrap">'+r.pacing.segments.map((s,i)=>'<div class="hm-blk" style="background:'+cols[s.type]+'" title="Seg '+(i+1)+': '+s.type+'"></div>').join('')+'</div><div class="hm-leg"><span><span class="hm-dot" style="background:#c0392b"></span>Action</span><span><span class="hm-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="hm-dot" style="background:#27ae60"></span>Description</span><span><span class="hm-dot" style="background:#f39c12"></span>Exposition</span><span><span class="hm-dot" style="background:#8e44ad"></span>Reflection</span></div></div>'}
   // Characters
-  if(r.characters.list.length>0){const mx=Math.max(...r.characters.list.map(c=>c.mentions));h+='<div class="a-sec"><h3>Characters</h3><div class="ch-grid">'+r.characters.list.map(c=>'<div class="ch-card"><div class="ch-name">'+esc(c.name)+'</div><div class="ch-cnt">'+c.mentions+' mentions</div><div class="ch-bar"><div class="ch-fill" style="width:'+Math.round(c.mentions/mx*100)+'%"></div></div></div>').join('')+'</div></div>'}
+  if(r.characters?.list?.length>0){const mx=Math.max(...r.characters.list.map(c=>c.mentions));h+='<div class="a-sec"><h3>Characters</h3><div class="ch-grid">'+r.characters.list.map(c=>'<div class="ch-card"><div class="ch-name">'+esc(c.name)+'</div><div class="ch-cnt">'+c.mentions+' mentions</div><div class="ch-bar"><div class="ch-fill" style="width:'+Math.round(c.mentions/mx*100)+'%"></div></div></div>').join('')+'</div></div>'}
   // Genre-Specific Elements Scanner
   if(r.genreElements&&r.genreElements.applicable){
     const ge=r.genreElements;
@@ -1054,14 +1074,14 @@ function secWithTip(t,s,items,key){
 
 // READER VIEW
 function renderReader(r){
-  const d=$('ed-reader');d.className='ms-page dark-page';const rp=r.readerPerspective;
+  const d=$('ed-reader');if(!d||!r)return;d.className='ms-page dark-page';const rp=r.readerPerspective||{};
   const mc=(s,inv)=>{const v=inv?100-s:s;return v>=70?'var(--green)':v>=40?'var(--yellow)':'var(--red)'};
   let h='<div class="rdr-grid">';
-  h+=rc('Engagement',rp.engagementScore,mc(rp.engagementScore),'How hooked?');
-  h+=rc('Hook Strength',rp.hookStrength,mc(rp.hookStrength),'Opening grab?');
-  h+=rc('Clarity',rp.clarityScore,mc(rp.clarityScore),'Follow the story?');
-  h+='<div class="rdr-card"><h4>Pacing</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.pacingFeel)+'</p></div>';
-  h+='<div class="rdr-card"><h4>Verdict</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.overallVerdict)+'</p></div>';
+  h+=rc('Engagement',rp.engagementScore||0,mc(rp.engagementScore||0),'How hooked?');
+  h+=rc('Hook Strength',rp.hookStrength||0,mc(rp.hookStrength||0),'Opening grab?');
+  h+=rc('Clarity',rp.clarityScore||0,mc(rp.clarityScore||0),'Follow the story?');
+  h+='<div class="rdr-card"><h4>Pacing</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.pacingFeel||'N/A')+'</p></div>';
+  h+='<div class="rdr-card"><h4>Verdict</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.overallVerdict||'N/A')+'</p></div>';
   h+='</div>';
   // DNF Prediction Engine (full panel)
   if(r.dnfAnalysis){
@@ -1411,60 +1431,59 @@ function renderBookPreview(r){
       frame.className='pv-device-frame '+btn.dataset.dev;
       setTimeout(()=>{paginate();renderPage()},50);
     })});
-  }
 
-  // Font size control
-  const fontSlider=$('pv-fontsize');const fontLabel=$('pv-fontsize-label');
-  if(fontSlider){
-    fontSlider.value=_pvState.fontSize;
-    fontSlider.addEventListener('input',()=>{
-      _pvState.fontSize=parseInt(fontSlider.value);
-      if(fontLabel)fontLabel.textContent=_pvState.fontSize+'px';
-      paginate();renderPage();
-    });
-  }
-
-  // Nav button actions
-  document.querySelectorAll('.pv-nbtn').forEach(btn=>{btn.addEventListener('click',()=>{
-    const action=btn.dataset.action;
-    if(action==='display'){$('pv-display-panel')?.classList.toggle('hidden')}
-    else if(action==='theme'){_pvState.darkTheme=!_pvState.darkTheme;$('pv-screen')?.classList.toggle('dark-theme',_pvState.darkTheme)}
-    else if(action==='workspace'){
-      // Switch center panel back to annotated view, collapse preview
-      document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
-      document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
-      document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
-      $('ed-annotated')?.classList.add('active');
-    }
-    else if(action==='search'){
-      const sp=$('pv-search-panel');sp?.classList.toggle('hidden');
-      if(!sp?.classList.contains('hidden')){$('pv-search-input')?.focus();paginate();renderPage()}
-    }
-    else if(action==='notes'){
-      _pvState.showNotes=!_pvState.showNotes;
-      btn.style.opacity=_pvState.showNotes?'1':'.4';
-      // Rebuild paraHTML with/without emotion markers and re-render
-      const emotionByP={};
-      (r.sceneEmotions||{scenes:[]}).scenes.forEach(s=>{emotionByP[s.paragraph]=s});
-      _pvParaHTML=_pvParagraphs.map((p,i)=>{
-        const emo=emotionByP[i+1];
-        const isChap=chapterRe.test(p.trim());
-        if(isChap)return '<div class="pv-para chapter-heading" data-para="'+(i+1)+'">'+esc(p)+'</div>';
-        return '<div class="pv-para" data-para="'+(i+1)+'">'+(emo&&_pvState.showNotes?'<span class="pv-emo-inline">'+emo.emoji+'</span>':'')+esc(p)+'</div>';
+    // Font size control
+    const fontSlider=$('pv-fontsize');const fontLabel=$('pv-fontsize-label');
+    if(fontSlider){
+      fontSlider.value=_pvState.fontSize;
+      fontSlider.addEventListener('input',()=>{
+        _pvState.fontSize=parseInt(fontSlider.value);
+        if(fontLabel)fontLabel.textContent=_pvState.fontSize+'px';
+        paginate();renderPage();
       });
-      renderPage();
     }
-  })});
+  
+    // Nav button actions
+    document.querySelectorAll('.pv-nbtn').forEach(btn=>{btn.addEventListener('click',()=>{
+      const action=btn.dataset.action;
+      if(action==='display'){$('pv-display-panel')?.classList.toggle('hidden')}
+      else if(action==='theme'){_pvState.darkTheme=!_pvState.darkTheme;$('pv-screen')?.classList.toggle('dark-theme',_pvState.darkTheme)}
+      else if(action==='workspace'){
+        // Switch center panel back to annotated view, collapse preview
+        document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
+        document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
+        document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
+        $('ed-annotated')?.classList.add('active');
+      }
+      else if(action==='search'){
+        const sp=$('pv-search-panel');sp?.classList.toggle('hidden');
+        if(!sp?.classList.contains('hidden')){$('pv-search-input')?.focus();paginate();renderPage()}
+      }
+      else if(action==='notes'){
+        _pvState.showNotes=!_pvState.showNotes;
+        btn.style.opacity=_pvState.showNotes?'1':'.4';
+        // Rebuild paraHTML with/without emotion markers and re-render
+        const emotionByP={};
+        (r.sceneEmotions||{scenes:[]}).scenes.forEach(s=>{emotionByP[s.paragraph]=s});
+        _pvParaHTML=_pvParagraphs.map((p,i)=>{
+          const emo=emotionByP[i+1];
+          const isChap=chapterRe.test(p.trim());
+          if(isChap)return '<div class="pv-para chapter-heading" data-para="'+(i+1)+'">'+esc(p)+'</div>';
+          return '<div class="pv-para" data-para="'+(i+1)+'">'+(emo&&_pvState.showNotes?'<span class="pv-emo-inline">'+emo.emoji+'</span>':'')+esc(p)+'</div>';
+        });
+        renderPage();
+      }
+    })});
 
-  // Collapse toggle
-  const pvToggleBtn=$('pv-toggle');
-  if(pvToggleBtn&&!pvToggleBtn._wired){
-    pvToggleBtn._wired=true;
-    pvToggleBtn.addEventListener('click',()=>{
-      const p=$('preview-panel');p.classList.toggle('collapsed');
-      pvToggleBtn.textContent=p.classList.contains('collapsed')?'\u00BB':'\u00AB';
-    });
-  };
+    // Collapse toggle
+    const pvToggleBtn=$('pv-toggle');
+      if(pvToggleBtn){
+      pvToggleBtn.addEventListener('click',()=>{
+        const p=$('preview-panel');p.classList.toggle('collapsed');
+        pvToggleBtn.textContent=p.classList.contains('collapsed')?'\u00BB':'\u00AB';
+      });
+      };
+  }
 
   // Re-paginate on resize — use a single named handler so it can be replaced without stacking
   if(window._pvResizeHandler)window.removeEventListener('resize',window._pvResizeHandler);
@@ -1563,7 +1582,7 @@ function showOpeningCoach(){
 
 // BLURBS
 function renderBlurbs(r){
-  const d=$('ed-blurbs');if(!d)return;d.className='ms-page dark-page';
+  const d=$('ed-blurbs');if(!d||!r)return;d.className='ms-page dark-page';
   const b=r.blurbs;
   if(!b||!b.available){
     d.innerHTML='<div class="a-sec"><h3>Blurb Generator</h3><p style="color:var(--muted);font-size:.85rem">'+(b?.reason||'Upload a full manuscript to generate blurb suggestions.')+'</p><p style="color:var(--dim);font-size:.75rem;margin-top:.5rem">Blurbs are generated for books and manuscripts over 5,000 words. The engine extracts your story\'s core elements — protagonist, conflict, stakes — and assembles 5 variations in different styles.</p></div>';
@@ -2156,6 +2175,7 @@ function _showSaveToast(msg){
 async function saveAnalysis(){
   if(!analysisResult||!uploadedFile)return;
   // Save to Firestore
+  await Storage.whenReady();
   if(Storage.userId){
     try{
       if(!Storage._currentManuscriptId){
@@ -2169,7 +2189,7 @@ async function saveAnalysis(){
     }catch(e){console.warn('Cloud save error:',e.message)}
   }
   // Fallback to localStorage
-  const saves=JSON.parse(localStorage.getItem('ml_saves')||'[]');
+  const saves=safeLocalJSON('ml_saves',[]);
   saves.push({fileName:uploadedFile.name,text:extractedText,result:analysisResult,savedAt:new Date().toISOString()});
   if(saves.length>10)saves.splice(0,saves.length-10);
   localStorage.setItem('ml_saves',JSON.stringify(saves));
@@ -2193,13 +2213,14 @@ async function renderLibrary(){
 
   // Load manuscripts from Firestore
   let manuscripts=[];
+  await Storage.whenReady();
   if(Storage.userId){
     try{manuscripts=await Storage.getManuscripts()}catch(e){console.warn('Firestore load error:',e.message)}
   }
   // Fallback to localStorage bookshelf
   if(manuscripts.length===0){
-    const shelf=JSON.parse(localStorage.getItem('ml_bookshelf')||'[]');
-    const saves=JSON.parse(localStorage.getItem('ml_saves')||'[]');
+    const shelf=safeLocalJSON('ml_bookshelf',[]);
+    const saves=safeLocalJSON('ml_saves',[]);
     const all=[...shelf,...saves];
     manuscripts=all.map((s,i)=>({id:null,fileName:s.fileName,overall:s.result?.overall||s.overall||0,wordCount:s.result?.totalWords||s.totalWords||0,genre:s.result?.genre?.label||s.genre||'',updatedAt:{toDate:()=>new Date(s.savedAt||Date.now())},text:s.text,_local:true,_data:s}));
   }
@@ -2366,7 +2387,7 @@ function _wireLibraryEvents(){
   // "Back to Editor" button — only show if the manuscript actually exists in library
   const backBtn=$('lib-back-editor');
   if(backBtn){
-    const lastOpen=JSON.parse(localStorage.getItem('ml_last_open')||'null');
+    const lastOpen=safeLocalJSON('ml_last_open',null);
     // Only show if we have a manuscriptId AND it exists in the library list
     const backManuscriptExists=lastOpen?.manuscriptId&&_libManuscripts.some(m=>m.id===lastOpen.manuscriptId);
     if(lastOpen&&lastOpen.fileName&&backManuscriptExists){
@@ -2486,7 +2507,7 @@ function _showContextMenu(anchor,idx){
     if(m.id&&Storage.userId){
       await Storage.deleteManuscript(m.id);
       // Clear stale session data if the deleted manuscript was the active one
-      const lastOpen=JSON.parse(localStorage.getItem('ml_last_open')||'null');
+      const lastOpen=safeLocalJSON('ml_last_open',null);
       if(lastOpen?.manuscriptId===m.id){
         localStorage.removeItem('ml_last_open');
         localStorage.removeItem('ml_autosave');
@@ -2532,8 +2553,8 @@ async function maybeShowWizard(){
     try{const ms=await Storage.getManuscripts();hasManuscripts=ms.length>0}catch(e){}
   }
   if(!hasManuscripts){
-    const shelf=JSON.parse(localStorage.getItem('ml_bookshelf')||'[]');
-    const saves=JSON.parse(localStorage.getItem('ml_saves')||'[]');
+    const shelf=safeLocalJSON('ml_bookshelf',[]);
+    const saves=safeLocalJSON('ml_saves',[]);
     hasManuscripts=shelf.length>0||saves.length>0;
   }
   if(hasManuscripts){localStorage.setItem('wizard_done','1');return}
@@ -2699,7 +2720,7 @@ const FocusGuard={
   },
   start(){
     if(!this._enabled)return;
-    const prefs=JSON.parse(localStorage.getItem('ml_prefs')||'{}');
+    const prefs=safeLocalJSON('ml_prefs',{});
     this._mode=prefs.focusMode||'standard';
     this._sessionStart=Date.now();
     this._schedule();
@@ -2772,7 +2793,7 @@ if(typeof AIEngine!=='undefined'){
 // ── Tracking data model ──────────────────────────────────
 function trackSession(actionType){
   if(!uploadedFile||!analysisResult)return;
-  const prev=JSON.parse(localStorage.getItem('ml_session')||'{}');
+  const prev=safeLocalJSON('ml_session',{});
   const text=extractedText||'';
   const chapters=text.match(/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*)/gim)||[];
   const lastChapter=chapters.length>0?chapters[chapters.length-1].trim():(prev.lastChapter||null);
@@ -2798,7 +2819,7 @@ function trackSession(actionType){
 function _syncSessionToServer(data){
   if(typeof firebase==='undefined')return;
   const user=firebase.auth().currentUser;if(!user)return;
-  const prefs=JSON.parse(localStorage.getItem('ml_prefs')||'{}');
+  const prefs=safeLocalJSON('ml_prefs',{});
   const db=firebase.firestore();
   db.collection('userSessions').doc(user.uid).set({
     uid:user.uid,
@@ -2811,7 +2832,7 @@ function _syncSessionToServer(data){
     lastSessionTime:data.lastSessionTime||Date.now(),
     emailReminders:prefs.emailReminders||false,
     lastReminderTier:data.lastReminderTier||0
-  },{merge:true}).catch(()=>{});
+  },{merge:true}).catch(e=>{console.warn('Session sync failed:',e.message)});
 }
 
 function _resetReminderTier(){
@@ -2821,7 +2842,7 @@ function _resetReminderTier(){
     {lastReminderTier:0,lastSessionTime:Date.now()},{merge:true}
   ).catch(()=>{});
   // Also reset local tier
-  const s=JSON.parse(localStorage.getItem('ml_session')||'{}');
+  const s=safeLocalJSON('ml_session',{});
   s.lastReminderTier=0;s.lastSessionTime=Date.now();
   localStorage.setItem('ml_session',JSON.stringify(s));
 }

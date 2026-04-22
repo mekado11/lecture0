@@ -53,7 +53,7 @@ auth.onAuthStateChanged(user=>{
       badge.textContent='STARTER';badge.className='tier-badge tier-starter';
       document.getElementById('beta-section').style.display='none';
     }
-  }).catch(()=>{});
+  }).catch(e=>{console.warn('Tier fetch failed:',e.message)});
 });
 
 // Save profile
@@ -107,7 +107,7 @@ document.getElementById('save-profile').addEventListener('click',async()=>{
   const session=JSON.parse(localStorage.getItem('ml_session')||'{}');
   fsDb.collection('userSessions').doc(user.uid).set(
     {emailReminders:emailOn,email:user.email||''},{merge:true}
-  ).catch(()=>{});
+  ).catch(e=>{console.warn('Email pref sync failed:',e.message)});
 
   alert('Profile saved!');
 });
