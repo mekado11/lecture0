@@ -124,7 +124,7 @@ let _lastSnapshotText='';
 function pushUndo(){
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult});
+  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult?structuredClone(analysisResult):null});
   if(_undoStack.length>MAX_UNDO)_undoStack.shift();
   _redoStack.length=0;
   _lastSnapshotText=extractedText;
@@ -134,7 +134,7 @@ function _pushTypingSnapshot(){
   if(extractedText===_lastSnapshotText)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult});
+  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult?structuredClone(analysisResult):null});
   if(_undoStack.length>MAX_UNDO)_undoStack.shift();
   _redoStack.length=0;
   _lastSnapshotText=extractedText;
@@ -143,7 +143,7 @@ function undoLastFix(){
   if(_undoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _redoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult});
+  _redoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult?structuredClone(analysisResult):null});
   const state=_undoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
@@ -156,7 +156,7 @@ function redoLastFix(){
   if(_redoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult});
+  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult?structuredClone(analysisResult):null});
   const state=_redoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
