@@ -2699,7 +2699,28 @@ $('genre-override')?.addEventListener('change',()=>{
   renderAll();
 });
 
-function goToLibrary(){$('editor-view').classList.add('hidden');$('upload-view').classList.remove('hidden');$('upload-modal')?.classList.add('hidden');$('upload-loading')?.classList.add('hidden');$('analyze-btn')?.classList.add('hidden');$('file-info')?.classList.add('hidden');uploadedFile=null;extractedText='';analysisResult=null;fi.value='';Storage._currentManuscriptId=null;document.body.classList.add('lib-mode');renderLibrary()}
+function goToLibrary(){
+  clearTimeout(autoSaveTimer);
+  clearTimeout(_reanalyzeTimer);
+  _undoStack.length=0;
+  _redoStack.length=0;
+  _updateUndoBtn();
+  _smartScanDone=false;
+  _batchFixDone=false;
+  $('editor-view').classList.add('hidden');
+  $('upload-view').classList.remove('hidden');
+  $('upload-modal')?.classList.add('hidden');
+  $('upload-loading')?.classList.add('hidden');
+  $('analyze-btn')?.classList.add('hidden');
+  $('file-info')?.classList.add('hidden');
+  uploadedFile=null;
+  extractedText='';
+  analysisResult=null;
+  fi.value='';
+  Storage._currentManuscriptId=null;
+  document.body.classList.add('lib-mode');
+  renderLibrary();
+}
 $('new-btn')?.addEventListener('click',goToLibrary);
 // Back arrow removed — Library button handles navigation
 
