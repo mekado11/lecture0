@@ -189,7 +189,7 @@ document.getElementById('delete-account-btn').addEventListener('click',()=>{
   input.focus();
 });
 
-// Beta code redemption
+// Beta code redemption — client-side via Firebase SDK
 document.getElementById('redeem-btn').addEventListener('click',async()=>{
   const user=auth.currentUser;
   if(!user){
@@ -200,31 +200,47 @@ document.getElementById('redeem-btn').addEventListener('click',async()=>{
   const codeInput=document.getElementById('beta-code');
   const msg=document.getElementById('beta-msg');
   const btn=document.getElementById('redeem-btn');
-  const code=codeInput.value.trim();
+  const code=codeInput.value.trim().toUpperCase();
   if(!code){msg.textContent='Please enter an invite code.';msg.className='beta-msg err';return}
 
   btn.textContent='Activating...';btn.disabled=true;
   msg.className='beta-msg';msg.removeAttribute('style');
 
   try{
-    const token=await user.getIdToken(true);
-    const res=await fetch('/api/redeem',{
-      method:'POST',
-      headers:{'content-type':'application/json','authorization':'Bearer '+token},
-      body:JSON.stringify({code:code})
-    });
-    const data=await res.json();
-    if(res.ok&&data.success){
-      msg.textContent='Beta access activated! AI features are now unlocked. Refreshing...';
-      msg.className='beta-msg ok';
-      setTimeout(()=>window.location.reload(),1500);
-    }else{
-      msg.textContent=data.error||'Redemption failed. Please try again.';
-      msg.className='beta-msg err';
+    const db=firebase.firestore();
+    const codeDoc=await db.collection('betaCodes').doc(code).get();
+    if(!codeDoc.exists){
+      msg.textContent='Invalid invite code.';msg.className='beta-msg err';
+      btn.textContent='Activate';btn.disabled=false;
+      return;
     }
+    const data=codeDoc.data();
+    const usedBy=data.usedBy||[];
+    const maxUses=data.maxUses||1;
+    if(usedBy.includes(user.uid)){
+      msg.textContent='You already redeemed this code.';msg.className='beta-msg err';
+      btn.textContent='Activate';btn.disabled=false;
+      return;
+    }
+    if(usedBy.length>=maxUses){
+      msg.textContent='This invite code has been fully used.';msg.className='beta-msg err';
+      btn.textContent='Activate';btn.disabled=false;
+      return;
+    }
+    const tier=data.tier||'beta';
+    await db.collection('users').doc(user.uid).set({
+      tier:tier,
+      betaCode:code,
+      tierUpdatedAt:firebase.firestore.FieldValue.serverTimestamp()
+    },{merge:true});
+    await db.collection('betaCodes').doc(code).update({
+      usedBy:firebase.firestore.FieldValue.arrayUnion(user.uid)
+    });
+    msg.textContent='Beta access activated! AI features are now unlocked. Refreshing...';
+    msg.className='beta-msg ok';
+    setTimeout(()=>window.location.reload(),1500);
   }catch(e){
-    msg.textContent='Connection error: '+e.message+'. Make sure you are online and try again.';
-    msg.className='beta-msg err';
+    msg.textContent='Error: '+e.message;msg.className='beta-msg err';
   }
   btn.textContent='Activate';btn.disabled=false;
 });
