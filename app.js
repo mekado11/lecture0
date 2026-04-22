@@ -638,11 +638,11 @@ function renderRight(r){
     {k:'plot',name:'Plot Structure',score:r.scores.plot,issues:countType('pov'),weight:'10%'},
     {k:'clarity',name:'Clarity',score:r.readerPerspective.clarityScore,issues:countType('passive'),weight:'10%'},
     {k:'pacing',name:'Pacing',score:Math.round((r.scores.plot+r.scores.transitions)/2),issues:countType('sentence-length'),badge:r.readerPerspective.pacingFeel.includes('Rushed')?'Rushed':null,weight:'8%'},
-    {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:countType('adverb'),weight:'7%'},
+    {k:'hook',name:'Hook Strength',score:r.readerPerspective.hookStrength,issues:r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0,weight:'7%'},
     {k:'style',name:'Style & Voice',score:r.scores.style,issues:countType('weak-verb'),weight:'8%'},
     {k:'dialogue',name:'Dialogue',score:r.scores.dialogue,issues:countType('dialogue'),weight:'7%'},
     {k:'showTell',name:'Show vs Tell',score:r.scores.showTell,issues:stIssues,weight:'8%'},
-    {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:cpIssues,weight:'12%'}
+    {k:'copy',name:'Copy Editing',score:r.scores.copy,issues:countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word'),weight:'12%'}
   ];
   const container=$('rp-scores');
   container.innerHTML=cats.map(c=>{
@@ -912,7 +912,7 @@ function renderDetailed(r){
   plotRows.push(sr('Issues/1K words',r.issuesPerK));
   h+=secWithTip(plotLabel,r.scores.plot,plotRows,'plot');
   h+=secWithTip('Transitions',r.scores.transitions,[r.transitions.smoothRate+'% smooth',sr('Transition Words',r.transitions.transitionsUsed),sr('Smooth',r.transitions.smoothTransitions+'/'+(r.transitions.totalParagraphs-1))],'transitions');
-  h+=secWithTip('Copy Editing',r.scores.copy,[r.issues.length+' issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell'])],'copy');
+  h+=secWithTip('Copy Editing',r.scores.copy,[(r.issueCounts.passive+(r.issueCounts.adverb||0)+(r.issueCounts.cliche||0)+(r.issueCounts.wordy||0)+(r.issueCounts['confused-word']||0))+' copy issues in '+r.totalWords.toLocaleString()+' words',sr('Passive',r.issueCounts.passive),sr('Adverbs',r.issueCounts.adverb),sr('Cliches',r.issueCounts.cliche),sr('Weak Verbs',r.issueCounts['weak-verb']),sr('Show/Tell',r.issueCounts['show-tell'])],'copy');
   // Line Editing (true stylistic editing, not just readability)
   const le=r.lineEditing;
   const lineRows=['Stylistic editing: tone, flow, precision, pacing, POV, extraneous language'];
