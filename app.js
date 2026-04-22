@@ -2406,24 +2406,58 @@ function _wireLibraryEvents(){
 
 async function _openManuscript(idx){
   const m=_libManuscripts[idx];if(!m)return;
-  if(m._local){
-    extractedText=m._data?.text||m.text||'';
-    analysisResult=m._data?.result||Analyzer.analyze(extractedText);
-    uploadedFile={name:m.fileName,size:0};
-  }else{
-    const full=await Storage.getManuscript(m.id);
-    if(!full)return;
-    extractedText=full.text;
-    uploadedFile={name:full.fileName,size:0};
-    analysisResult=Analyzer.analyze(extractedText);
-    Storage._currentManuscriptId=m.id;
+  try{
+    // Show loading state
+    const loadEl=document.createElement('div');
+    loadEl.id='lib-loading';
+    loadEl.style.cssText='position:fixed;inset:0;background:rgba(10,7,5,.9);display:flex;align-items:center;justify-content:center;z-index:2000;color:#dbb08a;font-size:.9rem;font-family:Inter,sans-serif';
+    loadEl.textContent='Opening manuscript...';
+    document.body.appendChild(loadEl);
+
+    if(m._local){
+      extractedText=m._data?.text||m.text||'';
+      analysisResult=m._data?.result||null;
+    }else{
+      const full=await Storage.getManuscript(m.id);
+      if(!full){loadEl.remove();alert('Could not load manuscript from cloud.');return}
+      extractedText=full.text||'';
+      analysisResult=null;
+      Storage._currentManuscriptId=m.id;
+    }
+    uploadedFile={name:m.fileName||'Untitled',size:0};
+
+    if(!analysisResult||!analysisResult.scores){
+      if(_analyzerWorker){
+        _analyzeVersion++;
+        const v=_analyzeVersion;
+        analysisResult=await new Promise((resolve,reject)=>{
+          const handler=function(e){
+            if(e.data.version===v){
+              _analyzerWorker.removeEventListener('message',handler);
+              if(e.data.type==='result')resolve(e.data.data);
+              else reject(new Error(e.data.message||'Analysis failed'));
+            }
+          };
+          _analyzerWorker.addEventListener('message',handler);
+          _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v});
+        });
+      }else{
+        analysisResult=Analyzer.analyze(extractedText);
+      }
+    }
+    if(analysisResult&&analysisResult.error){loadEl.remove();alert(analysisResult.error);return}
+
+    localStorage.setItem('ml_last_open',JSON.stringify({fileName:m.fileName,manuscriptId:Storage._currentManuscriptId||m.id||null}));
+    $('upload-view').classList.add('hidden');
+    $('editor-view').classList.remove('hidden');
+    document.body.classList.remove('lib-mode');
+    renderAll();
+    loadEl.remove();
+  }catch(err){
+    document.getElementById('lib-loading')?.remove();
+    alert('Error opening manuscript: '+(err.message||err));
+    console.error('_openManuscript error:',err);
   }
-  // Remember for "Back to Editor"
-  localStorage.setItem('ml_last_open',JSON.stringify({fileName:m.fileName,manuscriptId:Storage._currentManuscriptId||m.id||null}));
-  $('upload-view').classList.add('hidden');
-  $('editor-view').classList.remove('hidden');
-  document.body.classList.remove('lib-mode');
-  renderAll();
 }
 
 function _showContextMenu(anchor,idx){
