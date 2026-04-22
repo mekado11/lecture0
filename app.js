@@ -1181,6 +1181,7 @@ function renderReader(r){
   // AI Weakness Diagnosis handler
   const diagBtn=d.querySelector('.ai-diagnose-btn');
   if(diagBtn){diagBtn.addEventListener('click',async()=>{
+    await Storage.whenReady();
     const user=typeof firebase!=='undefined'?firebase.auth().currentUser:null;
     if(!user){alert('Please sign in first');return}
     const isAdmin=window.__isAdmin||false;
@@ -2099,6 +2100,7 @@ async function runAI(key){
   const st=$('ai-status'),stxt=$('ai-status-text');
   st.classList.remove('hidden');
   stxt.textContent='Connecting to AI...';
+  await Storage.whenReady();
   try{
     const ai=await AIEngine.runAllFeatures(key,extractedText,analysisResult,(l,i,n)=>{stxt.textContent=l+' ('+(i+1)+'/'+n+')'});
     // Check if first result has an error (proxy might be misconfigured)
