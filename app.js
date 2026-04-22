@@ -206,12 +206,12 @@ function renderAll(){
   const genreSelect=$('genre-select');
   const genreOverride=$('genre-override');
   const activeGenre=(genreOverride&&genreOverride.value)?genreOverride.value:(genreSelect&&genreSelect.value)?genreSelect.value:'';
-  if(activeGenre){
+  if(activeGenre&&r.genre){
     r.genre.primary=activeGenre;
     r.genre.label=genreLabels[activeGenre]||activeGenre;
   }
   // Sync the editor genre dropdown to current genre
-  if(genreOverride){
+  if(genreOverride&&r.genre){
     if(!genreOverride.value&&r.genre.primary){genreOverride.value=r.genre.primary}
   }
 
@@ -530,7 +530,16 @@ function scheduleReanalyze(){
     document.querySelectorAll('.rsc,.gauge-wrap').forEach(el=>el.classList.add('scores-pending'));
     if(_analyzerWorker){
       _analyzeVersion++;
-      _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:_analyzeVersion});
+      const v=_analyzeVersion;
+      const handler=function(e){
+        if(e.data.version===v){
+          _analyzerWorker.removeEventListener('message',handler);
+          if(e.data.type==='result')_onAnalysisComplete(e.data.data);
+          else console.warn('Reanalyze worker error:',e.data.message||'unknown error');
+        }
+      };
+      _analyzerWorker.addEventListener('message',handler);
+      _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v});
     }else{
       _onAnalysisComplete(Analyzer.analyze(extractedText));
     }
@@ -898,7 +907,7 @@ function showDetail(cat){
 
 // ANNOTATED TEXT — now uses structured page-based rendering
 function renderAnnotated(text,issues){
-  renderAnnotatedAsPages(text,issues);
+  renderAnnotatedAsPages(text,issues||[]);
   document.addEventListener('click',e=>{if(!e.target.closest('.hl')&&!e.target.closest('.tip'))$('tip')?.classList.remove('on')});
 }
 
