@@ -545,13 +545,19 @@ const Analyzer = {
     const declarative = (text.match(/[^.!?]*\./g) || []).length;
     const interrogative = (text.match(/[^.!?]*\?/g) || []).length;
     const exclamatory = (text.match(/[^.!?]*!/g) || []).length;
-    let score = 70;
-    if (stdDev > 5) score += 10;
-    if (stdDev > 8) score += 5;
-    if (starterVariety > 0.6) score += 10;
-    if (maxStarterRepeat > sentences.length * 0.2) score -= 15;
-    if (interrogative > 0) score += 3;
-    if (exclamatory > 0) score += 2;
+    let score = 15;
+    if (stdDev > 3) score += 10;
+    if (stdDev > 5) score += 15;
+    if (stdDev > 8) score += 10;
+    if (starterVariety > 0.7) score += 20;
+    else if (starterVariety > 0.5) score += 12;
+    else if (starterVariety > 0.3) score += 5;
+    if (maxStarterRepeat > sentences.length * 0.3) score -= 15;
+    else if (maxStarterRepeat <= sentences.length * 0.1) score += 5;
+    if (interrogative > 0 && exclamatory > 0 && declarative > 0) score += 10;
+    else if (interrogative > 0 || exclamatory > 0) score += 5;
+    if (avg >= 12 && avg <= 20) score += 10;
+    else if (avg > 30) score -= 10;
     return {
       score: Math.min(100, Math.max(0, score)),
       avgLength: Math.round(avg), stdDev: Math.round(stdDev * 10) / 10,
@@ -752,22 +758,25 @@ const Analyzer = {
     const firstPara = paragraphs[0].toLowerCase();
     const hasSceneGoal = /\b(need|must|had to|wanted|determined|searching|looking for|trying to)\b/.test(firstPara);
 
-    let score = 60;
+    const totalTension = quarters.reduce((s, q) => s + q.tension, 0);
+    const totalResolution = quarters.reduce((s, q) => s + q.resolution, 0);
+    const tensionDensity = totalTension / Math.max(totalParagraphs, 1);
+    let score = 10;
     if (mode === 'chapter' || mode === 'excerpt') {
-      // Chapter mode: score micro-arc (scene goal, tension build, cliffhanger)
-      // Do NOT penalize for missing resolution — chapters should leave things open
-      if (hasSceneGoal) score += 10;
-      if (hasRisingAction) score += 10;
-      if (hasClimax) score += 8;
-      if (hasCliffhanger) score += 12; // reward cliffhanger endings
-      // Resolution is neutral in chapter mode (not penalized, small bonus if present)
-      if (hasResolution) score += 3;
+      if (hasSceneGoal) score += 15;
+      if (hasRisingAction) score += 18;
+      if (hasClimax) score += 15;
+      if (hasCliffhanger) score += 15;
+      if (hasResolution) score += 5;
     } else {
-      // Book mode: full arc expected
-      if (hasRisingAction) score += 12;
-      if (hasClimax) score += 12;
-      if (hasResolution) score += 12;
+      if (hasRisingAction) score += 20;
+      if (hasClimax) score += 20;
+      if (hasResolution) score += 18;
+      if (!hasRisingAction && !hasClimax && !hasResolution) score -= 5;
     }
+    if (tensionDensity > 1.5) score += 8;
+    else if (tensionDensity > 0.8) score += 4;
+    else if (tensionDensity < 0.2) score -= 5;
     const wordCounts = quarters.map(q => q.wordCount);
     const avgWords = wordCounts.reduce((a, b) => a + b, 0) / 4;
     const paceVariance = wordCounts.reduce((sum, w) => sum + Math.pow(w - avgWords, 2), 0) / 4;
@@ -995,20 +1004,20 @@ const Analyzer = {
     const firstPerson = (text.match(/\bI\b/g) || []).length;
     const thirdPerson = (text.match(/\b(he|she|they)\b/gi) || []).length;
     const povConsistency = Math.abs(firstPerson - thirdPerson) / Math.max(firstPerson + thirdPerson, 1);
-    let score = 50; // start neutral, earn or lose points
-    // Lexical diversity scoring (biggest factor)
-    if (lexicalDiversity > 0.55) score += 20;
-    else if (lexicalDiversity > 0.45) score += 15;
-    else if (lexicalDiversity > 0.35) score += 8;
-    else if (lexicalDiversity > 0.25) score += 0; // neutral
-    else score -= 15; // very low diversity = repetitive vocabulary
-    // Word length (sophistication)
-    if (avgWordLen > 4.5 && avgWordLen < 6) score += 8;
-    else if (avgWordLen > 4) score += 4;
-    // POV consistency
-    if (povConsistency > 0.7) score += 12;
-    else if (povConsistency > 0.4) score += 6;
-    else score -= 5; // mixed POV without clear intention
+    let score = 10;
+    if (lexicalDiversity > 0.55) score += 30;
+    else if (lexicalDiversity > 0.45) score += 22;
+    else if (lexicalDiversity > 0.35) score += 14;
+    else if (lexicalDiversity > 0.25) score += 6;
+    if (avgWordLen > 4.5 && avgWordLen < 6) score += 15;
+    else if (avgWordLen > 4) score += 8;
+    else if (avgWordLen <= 3.5) score -= 5;
+    if (povConsistency > 0.8) score += 25;
+    else if (povConsistency > 0.6) score += 15;
+    else if (povConsistency > 0.4) score += 8;
+    const paraLenVariance = paraLengths.length > 1 ? paraLengths.reduce((s, l) => s + Math.pow(l - avgParaLen, 2), 0) / paraLengths.length : 0;
+    if (Math.sqrt(paraLenVariance) > 20) score += 10;
+    else if (Math.sqrt(paraLenVariance) > 10) score += 5;
     const pov = firstPerson > thirdPerson * 2 ? 'First Person' : thirdPerson > firstPerson * 2 ? 'Third Person' : 'Mixed';
     return { score: Math.min(100, Math.max(0, score)), totalWords, uniqueWords: uniqueWords.size, lexicalDiversity: Math.round(lexicalDiversity * 100), avgWordLength: Math.round(avgWordLen * 10) / 10, avgParagraphLength: Math.round(avgParaLen), pov, paragraphCount: paragraphs.length };
   },
@@ -1100,7 +1109,7 @@ const Analyzer = {
 
     // Hook strength - analyze first paragraph + factor in issue density
     const firstPara = paragraphs[0] || '';
-    let hookStrength = 40;
+    let hookStrength = 10;
     if (firstPara.includes('?')) hookStrength += 10;
     if ((firstPara.match(/[""\u201C]/g) || []).length > 0) hookStrength += 10;
     if (firstPara.split(/\s+/).length < 50) hookStrength += 5;
@@ -1117,7 +1126,7 @@ const Analyzer = {
     const openingAdverbs = (openingText.match(/\w+ly\b/g) || []).length;
     if (openingPassives > 2) hookStrength -= 10;
     if (openingAdverbs > 3) hookStrength -= 5;
-    hookStrength = Math.max(10, Math.min(100, hookStrength));
+    hookStrength = Math.max(0, Math.min(100, hookStrength));
 
     // Emotional word density
     const emotionWords = (lower.match(/\b(love|hate|fear|anger|joy|sadness|grief|terror|hope|despair|rage|jealousy|shame|guilt|pride|longing|anxiety|excitement|dread|relief|sorrow|anguish|fury|bliss|agony|ecstasy|panic|horror)\b/g) || []).length;
@@ -1146,7 +1155,7 @@ const Analyzer = {
     else if (avgParaLen < 30) pacingFeel = 'Rushed - consider developing scenes more';
 
     // Clarity score
-    let clarityScore = 80;
+    let clarityScore = 20;
     // Check for unclear pronoun references
     const pronounDensity = (lower.match(/\b(he|she|they|it|him|her|them)\b/g) || []).length / totalWords;
     if (pronounDensity > 0.06) clarityScore -= 15;
@@ -1155,7 +1164,7 @@ const Analyzer = {
     const firstQuarter = paragraphs.slice(0, Math.ceil(paragraphs.length / 4)).join(' ');
     (firstQuarter.match(/\b[A-Z][a-z]{2,}\b/g) || []).forEach(n => { firstQuarterNames[n] = true; });
     if (Object.keys(firstQuarterNames).length > 6) clarityScore -= 10;
-    clarityScore = Math.max(30, Math.min(100, clarityScore));
+    clarityScore = Math.max(0, Math.min(100, clarityScore));
 
     // Immersion breakers
     const immersionBreakers = [];
@@ -1423,94 +1432,77 @@ const Analyzer = {
     const lower = text.toLowerCase();
 
     // === CLARITY (is the writing direct and easy to follow?) ===
-    let clarityScore = 100;
-    // Penalize excessive modifiers (adjective/adverb stacking)
+    let clarityScore = 20;
     const modifierStacks = (text.match(/\b\w+ly\s+\w+ly\b/gi) || []).length;
-    clarityScore -= modifierStacks * 8;
-    // Penalize unclear pronoun density
     const pronouns = (lower.match(/\b(he|she|it|they|them|this|that)\b/g) || []).length;
     const pronounRatio = pronouns / Math.max(totalWords, 1);
-    if (pronounRatio > 0.08) clarityScore -= 10;
-    if (pronounRatio > 0.12) clarityScore -= 10;
-    // Penalize sentences starting with "It was" / "There was" (weak openings)
     const weakOpenings = (text.match(/(?:^|\.\s+)(It was|There was|There were|It is|There is)\b/gi) || []).length;
-    clarityScore -= weakOpenings * 4;
-    // Penalize nested clauses (multiple commas in one sentence)
     const overComma = sentences.filter(s => (s.match(/,/g) || []).length >= 4).length;
-    clarityScore -= overComma * 3;
-    // Reward short, punchy sentences mixed in
     const punchySentences = sentences.filter(s => s.trim().split(/\s+/).length <= 6).length;
-    if (punchySentences > sentences.length * 0.1) clarityScore += 5;
+    const punchyRatio = punchySentences / Math.max(sentences.length, 1);
+    if (modifierStacks === 0) clarityScore += 15; else clarityScore -= modifierStacks * 6;
+    if (pronounRatio < 0.06) clarityScore += 15; else if (pronounRatio < 0.08) clarityScore += 8; else clarityScore -= (pronounRatio - 0.08) * 400;
+    const weakOpeningRate = weakOpenings / Math.max(sentences.length, 1);
+    if (weakOpeningRate < 0.02) clarityScore += 15; else clarityScore -= weakOpenings * 4;
+    const overCommaRate = overComma / Math.max(sentences.length, 1);
+    if (overCommaRate < 0.05) clarityScore += 10; else clarityScore -= overComma * 3;
+    if (punchyRatio > 0.15) clarityScore += 15; else if (punchyRatio > 0.08) clarityScore += 8;
 
-    // === DISCIPLINE (is the writing tight, no filler?) ===
-    let disciplineScore = 100;
-    // Penalize filler words
+    let disciplineScore = 15;
     const fillers = (lower.match(/\b(very|really|quite|rather|somewhat|basically|actually|literally|just|simply|perhaps|maybe|slightly|a bit|sort of|kind of|a little|in fact|of course|to be honest|needless to say)\b/g) || []).length;
     const fillerRate = fillers / Math.max(totalWords, 1) * 1000;
-    disciplineScore -= Math.min(30, fillerRate * 3);
-    // Penalize redundant pairs
     const redundants = (lower.match(/\b(each and every|first and foremost|full and complete|true and accurate|null and void|various and sundry|cease and desist|aid and abet|ways and means)\b/g) || []).length;
-    disciplineScore -= redundants * 5;
-    // Penalize hedge words
     const hedges = (lower.match(/\b(seemed to|appeared to|began to|started to|tried to|managed to|proceeded to|happened to|continued to)\b/g) || []).length;
-    disciplineScore -= hedges * 3;
-    // Reward: high ratio of strong verbs (not be/have/do/get)
     const allVerbs = (lower.match(/\b(was|were|is|are|had|has|have|did|does|do|got|get|went|go|came|come|made|make|said|took|take)\b/g) || []).length;
     const strongVerbRatio = 1 - (allVerbs / Math.max(totalWords, 1));
-    if (strongVerbRatio > 0.95) disciplineScore += 5;
+    if (fillerRate < 3) disciplineScore += 25; else if (fillerRate < 8) disciplineScore += 15; else if (fillerRate < 15) disciplineScore += 5; else disciplineScore -= fillerRate * 2;
+    if (redundants === 0) disciplineScore += 10; else disciplineScore -= redundants * 5;
+    const hedgeRate = hedges / Math.max(totalWords, 1) * 1000;
+    if (hedgeRate < 1) disciplineScore += 15; else if (hedgeRate < 3) disciplineScore += 8; else disciplineScore -= hedges * 3;
+    if (strongVerbRatio > 0.95) disciplineScore += 20; else if (strongVerbRatio > 0.9) disciplineScore += 12; else if (strongVerbRatio > 0.85) disciplineScore += 5;
 
-    // === EFFICIENCY (ratio of meaning to word count) ===
-    let efficiencyScore = 100;
-    // Penalize wordy issues already found
+    let efficiencyScore = 20;
     const wordyCount = issues.filter(i => i.type === 'wordy').length;
-    efficiencyScore -= wordyCount * 4;
-    // Penalize over-explanation markers
+    const wordyRate = wordyCount / Math.max(totalWords, 1) * 1000;
     const overExplain = (lower.match(/\b(in other words|that is to say|what this means is|to put it simply|as mentioned before|as we have seen|it should be noted that|it is worth noting)\b/g) || []).length;
-    efficiencyScore -= overExplain * 6;
-    // Penalize "stage direction" (unnecessary physical action narration)
     const stageDir = (lower.match(/\b(he turned and|she turned and|he looked at|she looked at|he walked to|she walked to|he sat down|she sat down|he stood up|she stood up|he reached for|she reached for)\b/g) || []).length;
-    efficiencyScore -= Math.min(20, stageDir * 2);
-    // Reward concise paragraphs (avg < 100 words)
     const avgParaWords = totalWords / Math.max(paragraphs.length, 1);
-    if (avgParaWords < 80) efficiencyScore += 5;
-    if (avgParaWords > 150) efficiencyScore -= 10;
+    if (wordyRate < 1) efficiencyScore += 20; else if (wordyRate < 3) efficiencyScore += 12; else efficiencyScore -= wordyCount * 3;
+    if (overExplain === 0) efficiencyScore += 15; else efficiencyScore -= overExplain * 6;
+    if (stageDir === 0) efficiencyScore += 10; else efficiencyScore -= stageDir * 3;
+    if (avgParaWords < 80) efficiencyScore += 15; else if (avgParaWords < 120) efficiencyScore += 8; else if (avgParaWords > 180) efficiencyScore -= 15;
 
-    // === ENGAGEMENT (does it maintain curiosity, avoid boredom?) ===
-    let engagementScore = 100;
-    // Penalize info dumps (paragraphs > 200 words with no dialogue)
-    const infoDumps = paragraphs.filter(p => p.split(/\s+/).length > 200 && !/[""\u201C]/.test(p)).length;
-    engagementScore -= infoDumps * 8;
-    // Penalize consecutive paragraphs without dialogue (3+ in a row)
+    let engagementScore = 15;
+    const infoDumps = paragraphs.filter(p => p.split(/\s+/).length > 200 && !/[\u201C""]/.test(p)).length;
     let noDialogueStreak = 0, maxStreak = 0;
-    paragraphs.forEach(p => { if (!/[""\u201C]/.test(p)) { noDialogueStreak++; maxStreak = Math.max(maxStreak, noDialogueStreak) } else { noDialogueStreak = 0 } });
-    if (maxStreak > 5) engagementScore -= (maxStreak - 5) * 3;
-    // Reward question hooks (sentences ending with ?)
+    paragraphs.forEach(p => { if (!/[\u201C""]/.test(p)) { noDialogueStreak++; maxStreak = Math.max(maxStreak, noDialogueStreak) } else { noDialogueStreak = 0 } });
     const questions = (text.match(/\?/g) || []).length;
-    if (questions > 0) engagementScore += Math.min(8, questions * 2);
-    // Reward sensory language
     const sensory = (lower.match(/\b(smell|taste|touch|sound|sight|heard|felt|warm|cold|rough|smooth|bitter|sweet|sharp|soft|bright|dim|loud|quiet|whisper|roar|glimmer|shadow|echo)\b/g) || []).length;
     const sensoryRate = sensory / Math.max(totalWords, 1) * 1000;
-    if (sensoryRate > 3) engagementScore += 5;
-    // Penalize over-attribution in dialogue ("he said angrily", "she replied sadly")
-    const emotionTags = (text.match(/[""\u201D]\s*\w+\s+(angrily|sadly|happily|nervously|excitedly|furiously|quietly|loudly|softly|tearfully|breathlessly)/gi) || []).length;
-    engagementScore -= emotionTags * 3;
+    const emotionTags = (text.match(/[\u201D""]\s*\w+\s+(angrily|sadly|happily|nervously|excitedly|furiously|quietly|loudly|softly|tearfully|breathlessly)/gi) || []).length;
+    if (infoDumps === 0) engagementScore += 15; else engagementScore -= infoDumps * 8;
+    if (maxStreak <= 3) engagementScore += 15; else if (maxStreak <= 5) engagementScore += 5; else engagementScore -= (maxStreak - 5) * 4;
+    if (questions > 0) engagementScore += Math.min(12, questions * 2);
+    if (sensoryRate > 5) engagementScore += 15; else if (sensoryRate > 3) engagementScore += 10; else if (sensoryRate > 1) engagementScore += 5;
+    engagementScore -= emotionTags * 4;
+    const hasDialogue = paragraphs.some(p => /[\u201C""]/.test(p));
+    if (hasDialogue) engagementScore += 8;
 
-    // === DIALOGUE QUALITY (minimal intrusion, realistic) ===
     let dialogueQuality = dialogue.score;
-    // Reward "said" being dominant (invisible tag)
     if (dialogue.count > 0 && dialogue.saidRatio > 60 && dialogue.saidRatio < 90) dialogueQuality += 5;
-    // Penalize exotic tags overuse
     if (dialogue.count > 0 && dialogue.saidRatio < 30) dialogueQuality -= 10;
     dialogueQuality = Math.min(100, Math.max(0, dialogueQuality));
 
-    // === FORWARD MOMENTUM (does text keep moving?) ===
-    let momentumScore = 100;
-    // Penalize flashback/backstory markers
+    let momentumScore = 20;
     const backstory = (lower.match(/\b(he remembered|she remembered|years ago|back when|it had been|there had been|used to be|once upon a time|long ago|in those days)\b/g) || []).length;
-    momentumScore -= Math.min(20, backstory * 4);
-    // Reward scene breaks / chapter structure
+    const backstoryRate = backstory / Math.max(totalWords, 1) * 1000;
     const sceneBreaks = (text.match(/\n\s*\*\s*\*\s*\*|\n\s*#|\n\s*---/g) || []).length;
-    if (sceneBreaks > 0) momentumScore += 3;
+    const actionVerbs = (lower.match(/\b(ran|grabbed|turned|slammed|pushed|pulled|threw|shouted|raced|lunged|leaped|opened|decided|chose|moved|stepped|spoke|asked|demanded|refused)\b/g) || []).length;
+    const actionRate = actionVerbs / Math.max(totalWords, 1) * 1000;
+    if (backstoryRate < 0.5) momentumScore += 20; else if (backstoryRate < 1.5) momentumScore += 10; else momentumScore -= backstory * 4;
+    if (sceneBreaks > 0) momentumScore += 10;
+    if (actionRate > 5) momentumScore += 20; else if (actionRate > 2) momentumScore += 12; else if (actionRate > 1) momentumScore += 5;
+    if (hasDialogue) momentumScore += 10;
 
     // Clamp all scores
     clarityScore = Math.min(100, Math.max(0, Math.round(clarityScore)));
@@ -1551,12 +1543,14 @@ const Analyzer = {
 
     // === 1. TONE CONSISTENCY ===
     // Are the word choices serving a consistent emotional register?
-    let toneScore = 100;
+    let toneScore = 20;
     // Detect tonal clashes: formal words near casual words
     const formalWords = (lower.match(/\b(nevertheless|furthermore|notwithstanding|henceforth|whereby|therein|aforementioned|commenced|endeavored|subsequently|utilized|ascertained|pursuant|heretofore)\b/g) || []).length;
     const casualWords = (lower.match(/\b(gonna|wanna|gotta|kinda|sorta|stuff|things|cool|awesome|totally|basically|literally|super|pretty much|you know|like)\b/g) || []).length;
-    if (formalWords > 0 && casualWords > 0) {
-      toneScore -= Math.min(20, (formalWords + casualWords) * 4);
+    if (formalWords === 0 && casualWords === 0) toneScore += 25;
+    else if (formalWords === 0 || casualWords === 0) toneScore += 15;
+    else {
+      toneScore -= (formalWords + casualWords) * 4;
       findings.push({ type: 'tone', severity: 'medium', message: 'Tonal clash: ' + formalWords + ' formal words mixed with ' + casualWords + ' casual words. Pick a register and stay consistent.' });
     }
     // Detect emotional whiplash (rapid mood shifts without transition)
@@ -1571,13 +1565,16 @@ const Analyzer = {
       if (mood && prevMood && mood !== prevMood) moodShifts++;
       if (mood) prevMood = mood;
     });
-    if (moodShifts > sentences.length * 0.15) {
-      toneScore -= 10;
+    const moodShiftRate = moodShifts / Math.max(sentences.length, 1);
+    if (moodShiftRate < 0.05) toneScore += 20;
+    else if (moodShiftRate < 0.1) toneScore += 10;
+    else if (moodShifts > sentences.length * 0.15) {
+      toneScore -= 15;
       findings.push({ type: 'tone', severity: 'low', message: 'Frequent mood shifts (' + moodShifts + ') without transition. Readers may feel disoriented.' });
     }
 
     // === 2. SENTENCE FLOW (do sentences connect naturally?) ===
-    let flowScore = 100;
+    let flowScore = 15;
     // Check for abrupt topic shifts between consecutive sentences
     let abruptShifts = 0;
     for (let i = 1; i < sentences.length; i++) {
@@ -1591,8 +1588,11 @@ const Analyzer = {
       }
     }
     const abruptRate = abruptShifts / Math.max(sentences.length - 1, 1);
-    if (abruptRate > 0.3) {
-      flowScore -= Math.round(abruptRate * 30);
+    if (abruptRate < 0.1) flowScore += 30;
+    else if (abruptRate < 0.2) flowScore += 20;
+    else if (abruptRate < 0.3) flowScore += 10;
+    else {
+      flowScore -= Math.round(abruptRate * 40);
       findings.push({ type: 'flow', severity: 'medium', message: Math.round(abruptRate * 100) + '% of sentence transitions are abrupt — no shared context or transition word. Sentences feel disconnected.' });
     }
     // Check sentence rhythm variety (consecutive same-length sentences)
@@ -1603,55 +1603,66 @@ const Analyzer = {
       const diff2 = Math.abs(lengths[i - 1] - lengths[i - 2]);
       if (diff1 < 3 && diff2 < 3) monotoneRuns++;
     }
-    if (monotoneRuns > sentences.length * 0.3) {
-      flowScore -= 10;
+    const monotoneRate = monotoneRuns / Math.max(sentences.length, 1);
+    if (monotoneRate < 0.1) flowScore += 20;
+    else if (monotoneRate < 0.2) flowScore += 10;
+    else if (monotoneRuns > sentences.length * 0.3) {
+      flowScore -= 15;
       findings.push({ type: 'flow', severity: 'low', message: 'Sentence lengths are too uniform — creates a monotone rhythm. Vary between short punches and longer flowing sentences.' });
     }
 
     // === 3. WORD PRECISION (are words earning their place?) ===
-    let precisionScore = 100;
+    let precisionScore = 15;
     // Vague/imprecise words
     const vagueWords = (lower.match(/\b(thing|things|stuff|something|somehow|somewhat|somewhere|nice|good|bad|big|small|very|really|quite|rather|pretty|a lot|a bit|kind of|sort of|got|get|went|came|made|did)\b/g) || []).length;
     const vagueRate = vagueWords / Math.max(totalWords, 1) * 100;
+    if (vagueRate < 1) precisionScore += 30;
+    else if (vagueRate < 2) precisionScore += 20;
+    else if (vagueRate < 3) precisionScore += 10;
     if (vagueRate > 3) {
       precisionScore -= Math.min(25, Math.round(vagueRate * 4));
       findings.push({ type: 'precision', severity: 'medium', message: vagueWords + ' vague/imprecise words (' + vagueRate.toFixed(1) + '%). Replace "thing", "stuff", "nice", "got" with specific language.' });
     }
     // Redundant modifiers (e.g. "completely destroyed", "very unique")
     const redundantMods = (lower.match(/\b(completely destroyed|totally ruined|very unique|absolutely perfect|completely finished|totally dead|very essential|extremely crucial|quite obvious|rather interesting|pretty good|really nice|very important|absolutely necessary)\b/g) || []).length;
-    if (redundantMods > 0) {
-      precisionScore -= redundantMods * 4;
+    if (redundantMods === 0) precisionScore += 15;
+    else {
+      precisionScore -= redundantMods * 5;
       findings.push({ type: 'precision', severity: 'low', message: redundantMods + ' redundant modifier(s) found ("very unique", "completely destroyed"). The modifier adds nothing.' });
     }
 
     // === 4. PACING RHYTHM (at sentence level) ===
-    let pacingScore = 100;
+    let pacingScore = 20;
     // Action scenes should have shorter sentences
     // Description scenes can be longer
     // But overall, variety is key
     const avgLen = lengths.reduce((a, b) => a + b, 0) / lengths.length;
     const stdDev = Math.sqrt(lengths.reduce((s, l) => s + Math.pow(l - avgLen, 2), 0) / lengths.length);
+    if (stdDev >= 5 && stdDev <= 12) pacingScore += 25;
+    else if (stdDev > 3 && stdDev < 5) pacingScore += 15;
     if (stdDev < 3) {
-      pacingScore -= 15;
+      pacingScore -= 20;
       findings.push({ type: 'pacing', severity: 'medium', message: 'Very low sentence length variation (stddev: ' + stdDev.toFixed(1) + '). Writing feels mechanical. Mix short and long.' });
-    } else if (stdDev > 4 && stdDev < 12) {
-      pacingScore += 5; // good variety
     }
     // Check for dialogue pacing: dialogue paragraphs should be snappy
     const dialogueParagraphs = paragraphs.filter(p => /[""\u201C]/.test(p));
     const longDialogueParagraphs = dialogueParagraphs.filter(p => p.split(/\s+/).length > 80);
-    if (longDialogueParagraphs.length > 0) {
-      pacingScore -= longDialogueParagraphs.length * 5;
+    if (dialogueParagraphs.length > 0 && longDialogueParagraphs.length === 0) pacingScore += 15;
+    else if (longDialogueParagraphs.length > 0) {
+      pacingScore -= longDialogueParagraphs.length * 6;
       findings.push({ type: 'pacing', severity: 'low', message: longDialogueParagraphs.length + ' dialogue paragraph(s) over 80 words. Dialogue should feel snappy — break into shorter exchanges.' });
     }
 
     // === 5. POV DISCIPLINE ===
-    let povScore = 100;
+    let povScore = 20;
     const firstPerson = (text.match(/\bI\b/g) || []).length;
     const thirdHeShe = (text.match(/\b(he|she)\b/gi) || []).length;
     const secondYou = (text.match(/\byou\b/gi) || []).length;
     const dominant = firstPerson > thirdHeShe ? 'first' : thirdHeShe > firstPerson ? 'third' : 'mixed';
     // Check for POV slips
+    if (dominant === 'third' && firstPerson <= 1) povScore += 25;
+    else if (dominant === 'first' && thirdHeShe <= 2) povScore += 25;
+    else if (dominant === 'mixed') povScore += 5;
     if (dominant === 'third' && firstPerson > 2) {
       const slipRate = firstPerson / (firstPerson + thirdHeShe);
       if (slipRate > 0.05) {
@@ -1669,32 +1680,35 @@ const Analyzer = {
       const heThoughts = thoughtVerbs.filter(t => /^he/i.test(t)).length;
       const sheThoughts = thoughtVerbs.filter(t => /^she/i.test(t)).length;
       if (heThoughts > 0 && sheThoughts > 0) {
-        povScore -= 10;
+        povScore -= 15;
         findings.push({ type: 'pov', severity: 'medium', message: 'Possible head-hopping: both "he thought/felt/knew" (' + heThoughts + ') and "she thought/felt/knew" (' + sheThoughts + '). In limited third person, only one character\'s thoughts should be accessible per scene.' });
       }
     }
 
     // === 6. EXTRANEOUS LANGUAGE ===
-    let extraneousScore = 100;
+    let extraneousScore = 20;
     // "began to", "started to" — just do the action
     const beganTo = (lower.match(/\b(began to|started to|proceeded to|continued to|attempted to|happened to|managed to)\b/g) || []).length;
-    if (beganTo > 0) {
-      extraneousScore -= beganTo * 3;
+    if (beganTo === 0) extraneousScore += 20;
+    else {
+      extraneousScore -= beganTo * 4;
       findings.push({ type: 'extraneous', severity: 'low', message: beganTo + ' filter phrase(s): "began to", "started to", etc. Cut the filter — just do the action. "She began to run" → "She ran."' });
     }
     // "that" overuse
     const thatCount = (lower.match(/\bthat\b/g) || []).length;
     const thatRate = thatCount / Math.max(totalWords, 1) * 100;
-    if (thatRate > 2.5) {
-      extraneousScore -= 8;
+    if (thatRate < 1.5) extraneousScore += 15;
+    else if (thatRate > 2.5) {
+      extraneousScore -= 12;
       findings.push({ type: 'extraneous', severity: 'low', message: '"That" appears ' + thatCount + ' times (' + thatRate.toFixed(1) + '%). Many can be removed: "She knew that he was" → "She knew he was."' });
     }
     // "in order to" / "the fact that" already caught by wordy, but reinforce
     // Dialogue attribution overload
     const attributions = (text.match(/[""\u201D]\s*(he|she|they|I)\s+(said|asked|replied|answered|whispered|shouted|muttered|exclaimed|declared|responded|cried|yelled|stated|remarked|noted)\b/gi) || []).length;
     const dialogueLines = (text.match(/[""\u201C][^""\u201D]*[""\u201D]/g) || []).length;
-    if (dialogueLines > 0 && attributions / dialogueLines > 0.8) {
-      extraneousScore -= 8;
+    if (dialogueLines > 0 && attributions / dialogueLines < 0.5) extraneousScore += 15;
+    else if (dialogueLines > 0 && attributions / dialogueLines > 0.8) {
+      extraneousScore -= 10;
       findings.push({ type: 'extraneous', severity: 'low', message: 'Dialogue is over-attributed (' + attributions + '/' + dialogueLines + ' lines tagged). In two-person dialogue, you can drop most tags after establishing who\'s speaking.' });
     }
 
@@ -2480,11 +2494,11 @@ const Analyzer = {
     const actionOpening = (first500.match(/\b(ran|grabbed|turned|slammed|pushed|pulled|threw|shouted|whispered|raced|lunged|leaped|opened|shut|dropped|said)\b/g) || []).length;
     const setupWords = (first500.match(/\b(had been|used to|always had|for years|remembered when|was born in|grew up|the history of|it all began)\b/g) || []).length;
 
-    let hook_strength = 5;
-    hook_strength += Math.min(2, tensionOpening / 3);
-    hook_strength += Math.min(1, questionOpening * 0.5);
-    hook_strength += Math.min(1, dialogueOpening * 0.4);
-    hook_strength += Math.min(1, actionOpening / 3);
+    let hook_strength = 2;
+    hook_strength += Math.min(3, tensionOpening / 2);
+    hook_strength += Math.min(2, questionOpening * 0.7);
+    hook_strength += Math.min(2, dialogueOpening * 0.5);
+    hook_strength += Math.min(2, actionOpening / 2);
     hook_strength -= Math.min(3, setupWords * 1.2);
     if (/^(it was|there was|there were|the sun|the rain|once upon)/i.test(text.trim())) hook_strength -= 1.5;
 
@@ -2494,13 +2508,14 @@ const Analyzer = {
     const transitionWords = (lower.match(/\b(however|therefore|meanwhile|furthermore|consequently|additionally|nevertheless|moreover|specifically|for example|in contrast|as a result|on the other hand)\b/g) || []).length;
     const jargon = (lower.match(/\b(aforementioned|notwithstanding|heretofore|wherein|thereof|pertaining|henceforth|inasmuch)\b/g) || []).length;
 
-    let clarity = 7;
+    let clarity = 2;
     clarity -= Math.min(2, passiveCount / Math.max(totalWords, 1) * 300);
     clarity -= Math.min(2, longSentences / Math.max(sentences.length, 1) * 10);
-    clarity += Math.min(1.5, transitionWords / Math.max(paragraphs.length, 1) * 3);
+    clarity += Math.min(3, transitionWords / Math.max(paragraphs.length, 1) * 4);
     clarity -= jargon * 0.5;
-    if (avgSentLen > 25) clarity -= 1.5;
-    else if (avgSentLen >= 12 && avgSentLen <= 20) clarity += 1;
+    if (avgSentLen > 25) clarity -= 2;
+    else if (avgSentLen >= 12 && avgSentLen <= 20) clarity += 2;
+    if (longSentences === 0) clarity += 2;
 
     // === FORWARD MOTION (1-10) ===
     const actionVerbs = (lower.match(/\b(ran|grabbed|turned|opened|slammed|pushed|pulled|threw|caught|shouted|raced|charged|lunged|leaped|darted|decided|chose|moved|crossed|stepped|drove|walked|spoke|asked|demanded|refused)\b/g) || []).length;
@@ -2514,9 +2529,9 @@ const Analyzer = {
     });
     const hookRate = paragraphs.length > 1 ? paraHooks / (paragraphs.length - 1) : 0;
 
-    let forward_motion = 5;
-    forward_motion += Math.min(2, actionVerbs / Math.max(totalWords, 1) * 500);
-    forward_motion += Math.min(1, hookRate * 2.5);
+    let forward_motion = 2;
+    forward_motion += Math.min(3, actionVerbs / Math.max(totalWords, 1) * 500);
+    forward_motion += Math.min(2, hookRate * 3);
     forward_motion += Math.min(0.5, dialogueLines / Math.max(totalWords, 1) * 200);
     forward_motion -= Math.min(3, stagnationWords / Math.max(totalWords, 1) * 400);
     if (dialogueLines === 0 && totalWords > 800) forward_motion -= 1;
@@ -2534,13 +2549,13 @@ const Analyzer = {
     const sensoryWords = (lower.match(/\b(cold|warm|hot|sharp|soft|rough|smooth|bright|dark|loud|quiet|bitter|sweet|sour|metallic|damp|dry|heavy|light|tight|loose|burning|aching|stinging|throbbing|pounding|trembling)\b/g) || []).length;
     const bodyLanguage = (lower.match(/\b(smiled|frowned|sighed|shook|nodded|shrugged|trembled|flinched|winced|clenched|gritted)\b/g) || []).length;
 
-    let specificity = 5;
+    let specificity = 2;
     specificity -= Math.min(2.5, vagueWords / Math.max(totalWords, 1) * 200);
-    specificity += Math.min(1.5, concreteNouns / Math.max(totalWords, 1) * 200);
-    specificity += Math.min(1, sensoryWords / Math.max(totalWords, 1) * 300);
-    specificity += Math.min(1, bodyLanguage / Math.max(totalWords, 1) * 500);
+    specificity += Math.min(3, concreteNouns / Math.max(totalWords, 1) * 250);
+    specificity += Math.min(2, sensoryWords / Math.max(totalWords, 1) * 300);
+    specificity += Math.min(2, bodyLanguage / Math.max(totalWords, 1) * 500);
     const lexicalDiversity = [...new Set(words.map(w => w.toLowerCase().replace(/[^a-z]/g, '')).filter(w => w.length > 2))].length / Math.max(words.length, 1);
-    specificity += Math.min(1.5, (lexicalDiversity - 0.3) * 8);
+    specificity += Math.min(2, (lexicalDiversity - 0.3) * 8);
 
     // === REDUNDANCY (1-10, 10 = no redundancy) ===
     const sentTexts = sentences.map(s => s.trim().toLowerCase());
@@ -2555,7 +2570,7 @@ const Analyzer = {
     }
     const redundancyRate = sentences.length > 2 ? nearDupes / sentences.length : 0;
 
-    let redundancy = 8;
+    let redundancy = 3;
     redundancy -= Math.min(5, redundancyRate * 30);
     const phraseMap = {};
     for (let i = 0; i < words.length - 2; i++) {
@@ -2571,10 +2586,10 @@ const Analyzer = {
     const surpriseWords = (lower.match(/\b(suddenly|unexpected|shock|gasp|froze|couldn't believe|impossible|never thought|stunned|stared|what the|no way|oh god|wait)\b/g) || []).length;
     const internalThoughts = (lower.match(/\b(thought|felt|wondered|realized|knew|remembered|wished|hoped|feared|dreaded|wanted|needed)\b/g) || []).length;
 
-    let payoff = 5;
-    payoff += Math.min(1.5, emotionWords / Math.max(totalWords, 1) * 300);
-    payoff += Math.min(1.5, revealWords / Math.max(totalWords, 1) * 500);
-    payoff += Math.min(1, surpriseWords / Math.max(totalWords, 1) * 400);
+    let payoff = 2;
+    payoff += Math.min(3, emotionWords / Math.max(totalWords, 1) * 300);
+    payoff += Math.min(2, revealWords / Math.max(totalWords, 1) * 500);
+    payoff += Math.min(2, surpriseWords / Math.max(totalWords, 1) * 400);
     payoff += Math.min(1, internalThoughts / Math.max(totalWords, 1) * 200);
     const lastPara = (paragraphs[paragraphs.length - 1] || '').toLowerCase();
     if (/[?!]$/.test(lastPara.trim()) || /\b(but|then|suddenly|never|everything changed|nothing|and then)\b/.test(lastPara)) payoff += 1;
@@ -2592,7 +2607,7 @@ const Analyzer = {
 
   _scoresToDNFRisk(scores, evalMode) {
     // Weighted average of dimensions → convert to risk on 0-100 scale.
-    // Calibration: all-5s ≈ 56 (Medium), all-8s ≈ 22 (Low), all-3s ≈ 78 (High).
+    // Baselines start at 2-3; quality must be earned. Mediocre text scores low.
     const wt = evalMode === 'opening'
       ? { hook_strength: 0.30, clarity: 0.20, forward_motion: 0.18, redundancy: 0.14, specificity: 0.12, payoff: 0.06 }
       : evalMode === 'closing'
