@@ -280,7 +280,10 @@ const Analyzer = {
           issueLen = issueText.length;
           suggestion = 'Replace with: “' + fixText + '”';
         } else {
-          suggestion = 'The subject is not doing the action. Flip it: “was opened by her” → “she opened.”';
+          const verb = lastWord;
+          const activePast = this.PARTICIPLE_TO_PAST[verb] || verb;
+          const auxiliary = match[0].split(/\s+/)[0].toLowerCase();
+          suggestion = 'Rewrite in active voice. “' + match[0] + '” → find the doer and lead with them: “[subject] ' + activePast + '.”';
         }
 
         issues.push({

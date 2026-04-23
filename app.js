@@ -632,7 +632,7 @@ function renderLeft(r){
   const ic=r.issueCounts||{};const scores=r.scores||{};
   const cards=[
     {name:'Engagement Score',score:rp.engagementScore||0,sub:'How hooked will readers be?',action:'+ Improve Opening',bar:true},
-    {name:'Hook Strength',score:rp.hookStrength||0,sub:((ic.passive||0)+(ic.adverb||0))+' Issues',action:'+ Improve Opening',bar:false},
+    {name:'Hook Strength',score:rp.hookStrength||0,sub:(r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0)+' Issues',action:'+ Improve Opening',bar:false},
     {name:'Clarity',score:rp.clarityScore||0,sub:'Weak transitions',bar:true},
     {name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':(rp.pacingFeel||'').includes('Slow')?'Slow':'Good'},
     {name:'DNF Risk',score:r.dnfAnalysis?r.dnfAnalysis.dnf_risk:rp.dnfRisk,sub:r.dnfAnalysis?r.dnfAnalysis.risk_band:rp.dnfRisk>60?'At Risk':rp.dnfRisk>30?'Moderate':'Safe',inv:true}
