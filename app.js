@@ -1277,13 +1277,11 @@ let syncTimer=null;
 function syncPreview(){
   clearTimeout(syncTimer);
   syncTimer=setTimeout(()=>{
-    // If preview is active and we have analysis, re-render with current text
     if(analysisResult&&extractedText){
-      // Update extractedText from editor
       const page=$('ed-annotated');
       if(page)extractedText=page.innerText;
-      // Re-render paginated preview will happen on next renderBookPreview call
-      // For now just trigger auto-save
+      renderBookPreview(analysisResult);
+      buildChapterNav();
     }
     autoSave();
   },500);
@@ -1862,14 +1860,23 @@ function buildChapterNav(){
 
   // Method 2: Regex fallback on plain text (catches chapters not yet formatted as H1)
   if(entries.length===0){
-    const chapterRe=/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*|part\s+\d+[^\n]*|part\s+[a-z]+[^\n]*|prologue[^\n]*|epilogue[^\n]*)/gim;
+    const chapterRe=/^(chapter\s+\d+\s*[:\-–—]?\s*[^\n]*|chapter\s+[a-z]+\s*[:\-–—]?\s*[^\n]*|part\s+\d+\s*[:\-–—]?\s*[^\n]*|part\s+[a-z]+\s*[:\-–—]?\s*[^\n]*|prologue[^\n]*|epilogue[^\n]*|dedication[^\n]*|copyright[^\n]*|introduction[^\n]*|foreword[^\n]*|preface[^\n]*|acknowledgm?ents?[^\n]*|about\s+the\s+author[^\n]*)/gim;
     const sectionRe=/^(section\s+\d+[^\n]*|scene\s+\d+[^\n]*)/gim;
     let m;
+    const seen=new Set();
     while((m=chapterRe.exec(text))!==null){
-      entries.push({title:m[1].trim(),index:m.index,level:1});
+      const title=m[1].trim();
+      const key=title.toLowerCase().replace(/\s+/g,' ').substring(0,40);
+      if(seen.has(key))continue;
+      seen.add(key);
+      entries.push({title:title,index:m.index,level:1});
     }
     while((m=sectionRe.exec(text))!==null){
-      entries.push({title:m[1].trim(),index:m.index,level:2});
+      const title=m[1].trim();
+      const key=title.toLowerCase().replace(/\s+/g,' ').substring(0,40);
+      if(seen.has(key))continue;
+      seen.add(key);
+      entries.push({title:title,index:m.index,level:2});
     }
     entries.sort((a,b)=>a.index-b.index);
   }
