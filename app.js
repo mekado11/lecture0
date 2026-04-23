@@ -694,10 +694,11 @@ const _issueWhy={
   wordy:'Extra words slow pacing and dilute impact. Tight prose holds attention.',
   repetition:'Repeated words in close proximity suggest limited vocabulary and can feel monotonous to readers.',
   'sentence-length':'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',
-  'confused-word':'Wrong word — sounds right but means something different. These slip past spell-check.'
+  'confused-word':'Wrong word — sounds right but means something different. These slip past spell-check.',
+  grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.'
 };
 
-const _REWRITE_TYPES = new Set(['passive','adverb','weak-verb','show-tell','wordy','cliche']);
+const _REWRITE_TYPES = new Set(['passive','adverb','weak-verb','show-tell','wordy','cliche','grammar']);
 
 function _isPaid() {
   return window.__isAdmin || window.__userPlan === 'starter' || window.__userPlan === 'premium' || window.__userPlan === 'beta';
@@ -1985,7 +1986,7 @@ function renderAnnotatedAsPages(text,issues){
     const hl=e.target.closest('.hl');
     if(hl&&!hl.classList.contains('off')){
       activeHL=hl;
-      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence','confused-word':'Wrong word'};
+      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence','confused-word':'Wrong word',grammar:'Grammar issue'};
       const t=hl.dataset.t;
       const sug=hl.dataset.s||'';
       // Determine if this issue has an auto-replacement available
@@ -2150,7 +2151,7 @@ c.innerHTML=h;c.querySelector('#clr-v')?.addEventListener('click',()=>{if(confir
 $('export-btn')?.addEventListener('click',()=>{
   if(!analysisResult||!extractedText)return;
   const r=analysisResult;
-  const issueColors={passive:'#FFD700','weak-verb':'#FFA500',adverb:'#87CEEB',cliche:'#FF6347',wordy:'#DDA0DD','show-tell':'#98FB98',repetition:'#F0E68C','sentence-length':'#FFC0CB'};
+  const issueColors={passive:'#FFD700','weak-verb':'#FFA500',adverb:'#87CEEB',cliche:'#FF6347',wordy:'#DDA0DD','show-tell':'#98FB98',repetition:'#F0E68C','sentence-length':'#FFC0CB',grammar:'#FF4444'};
   const issueLabels={passive:'Passive Voice','weak-verb':'Weak Verb',adverb:'Adverb',cliche:'Cliché',wordy:'Wordy','show-tell':'Show vs Tell',repetition:'Repetition','sentence-length':'Long Sentence'};
 
   // Build annotated HTML

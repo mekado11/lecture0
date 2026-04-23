@@ -1204,25 +1204,211 @@ const Analyzer = {
   },
 
   // ========================
-  // GRAMMAR API
+  // GRAMMAR CHECKER (local, no API dependency)
+  // Catches what a real human editor would flag:
+  // double words, agreement errors, punctuation, tense shifts,
+  // dialogue formatting, capitalization, fragments
   // ========================
-  async checkGrammarAPI(text, apiKey) {
-    try {
-      const response = await fetch('https://spelling-and-grammar-check-summarize-tool-compare-text.p.rapidapi.com/check', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-rapidapi-key': apiKey,
-          'x-rapidapi-host': 'spelling-and-grammar-check-summarize-tool-compare-text.p.rapidapi.com'
-        },
-        body: JSON.stringify({ text: text.substring(0, 5000) }) // API limit
+  findGrammarIssues(text) {
+    const issues = [];
+    const sentences = text.split(/(?<=[.!?])\s+/);
+
+    // --- 1. DOUBLE WORDS ("the the", "and and") ---
+    const doubleRe = /\b(\w{2,})\s+\1\b/gi;
+    let dm;
+    while ((dm = doubleRe.exec(text)) !== null) {
+      if (/^(had|that|is|do|was|in|so|no)$/i.test(dm[1])) continue;
+      issues.push({
+        type: 'grammar', text: dm[0], index: dm.index, length: dm[0].length,
+        severity: 'high', confidence: 0.95,
+        message: 'Repeated word "' + dm[1] + '." Likely a typo.',
+        suggestion: 'Remove the duplicate: "' + dm[1] + '"'
       });
-      const data = await response.json();
-      return data;
-    } catch (err) {
-      console.error('Grammar API error:', err);
-      return { error: err.message };
     }
+
+    // --- 2. SUBJECT-VERB AGREEMENT ---
+    const agreementPatterns = [
+      { re: /\b(he|she|it)\s+(don't)\b/gi, fix: '$1 doesn\'t', msg: '"$2" should be "doesn\'t" with "$1."' },
+      { re: /\b(they|we|you)\s+(doesn't)\b/gi, fix: '$1 don\'t', msg: '"$2" should be "don\'t" with "$1."' },
+      { re: /\b(he|she|it)\s+(were)\b/gi, fix: '$1 was', msg: '"$2" should be "was" with "$1" (unless subjunctive).' },
+      { re: /\b(they|we)\s+(was)\b/gi, fix: '$1 were', msg: '"$2" should be "were" with "$1."' },
+      { re: /\b(he|she|it)\s+(have)\s+(?!to\b|a\b|no\b|the\b|been\b)/gi, fix: '$1 has', msg: '"have" should be "has" with "$1."' },
+      { re: /\b(I)\s+(has)\b/gi, fix: '$1 have', msg: '"has" should be "have" with "I."' },
+      { re: /\b(he|she|it)\s+(are)\b/gi, fix: '$1 is', msg: '"are" should be "is" with "$1."' },
+      { re: /\b(I)\s+(is)\b/gi, fix: '$1 am', msg: '"is" should be "am" with "I."' },
+    ];
+    for (const p of agreementPatterns) {
+      let m;
+      const r = new RegExp(p.re.source, p.re.flags);
+      while ((m = r.exec(text)) !== null) {
+        const inDialogue = this._isInsideQuotes(text, m.index);
+        if (inDialogue) continue;
+        const fixed = p.fix.replace('$1', m[1]).replace('$2', m[2]);
+        issues.push({
+          type: 'grammar', text: m[0], index: m.index, length: m[0].length,
+          severity: 'high', confidence: 0.9,
+          message: p.msg.replace('$1', m[1]).replace('$2', m[2]),
+          suggestion: 'Replace with: "' + fixed + '"'
+        });
+      }
+    }
+
+    // --- 3. CAPITALIZATION AFTER SENTENCE-ENDING PUNCTUATION ---
+    const capRe = /([.!?])\s+([a-z])/g;
+    let cm;
+    while ((cm = capRe.exec(text)) !== null) {
+      const before = text.substring(Math.max(0, cm.index - 10), cm.index + 1);
+      if (/\b(Mr|Mrs|Ms|Dr|St|Jr|Sr|vs|etc|e\.g|i\.e)\.$/i.test(before)) continue;
+      if (/\.\.\.$/.test(before)) continue;
+      const charIdx = cm.index + cm[0].length - 1;
+      const badChar = text[charIdx];
+      issues.push({
+        type: 'grammar', text: cm[0], index: cm.index, length: cm[0].length,
+        severity: 'medium', confidence: 0.85,
+        message: 'Sentence should start with a capital letter.',
+        suggestion: 'Capitalize: "' + badChar.toUpperCase() + '"'
+      });
+    }
+
+    // --- 4. DIALOGUE PUNCTUATION ---
+    // Missing comma before dialogue tag: "Hello" he said
+    const dtagRe = /([.!?]?)("|")\s+(he|she|they|I|we|it|[A-Z][a-z]+)\s+(said|asked|whispered|shouted|yelled|muttered|replied|murmured|growled|hissed|snapped|stammered|called|cried|exclaimed|answered|demanded|pleaded|begged|insisted|warned|suggested|offered|added|continued|began|started|interrupted|responded|acknowledged|admitted|agreed|announced|argued|barked|bellowed|blurted|boasted|breathed|chanted|chided|chimed|choked|clucked|coaxed|commanded|commented|complained|conceded|concluded|confessed|confided|confirmed|croaked|crooned|cursed|declared|denied|drawled|echoed|elaborated|emphasized|encouraged|estimated|explained|faltered|gasped|giggled|gloated|grumbled|grunted|guessed|gulped|huffed|hummed|implored|informed|interjected|joked|lamented|laughed|lectured|lied|lisped|maintained|marveled|mentioned|mimicked|moaned|mocked|mumbled|mused|nagged|narrated|noted|objected|observed|ordered|panted|parroted|persisted|persuaded|piped|pondered|pouted|praised|prayed|pressed|proclaimed|promised|prompted|pronounced|proposed|protested|provoked|purred|quavered|quipped|quoted|ranted|reasoned|recalled|reckoned|recounted|reflected|refused|reminded|repeated|reported|requested|resumed|retorted|revealed|roared|sang|scoffed|scolded|screamed|sighed|slurred|smiled|smirked|sneered|snickered|sniffed|snorted|sobbed|speculated|spluttered|squeaked|squealed|stammered|stated|stuttered|surmised|taunted|teased|threatened|thundered|urged|uttered|ventured|vowed|wailed|warned|wept|whimpered|whined|whispered|wondered|worried|yawned)\b/g;
+    let dtm;
+    while ((dtm = dtagRe.exec(text)) !== null) {
+      if (dtm[1]) continue;
+      const fullMatch = dtm[0];
+      const qMark = dtm[2];
+      issues.push({
+        type: 'grammar', text: fullMatch, index: dtm.index, length: fullMatch.length,
+        severity: 'medium', confidence: 0.88,
+        message: 'Missing comma before dialogue tag.',
+        suggestion: 'Add a comma before the closing quote: ...,' + qMark + ' ' + dtm[3] + ' ' + dtm[4]
+      });
+    }
+
+    // --- 5. ITS vs IT'S ---
+    const itsRe = /\bit's\s+(own|way|place|name|best|worst|color|colour|shape|size|tail|head|body|eyes|mouth|teeth|legs|arms|paws|fur|skin|surface|contents?|core|edge|purpose|meaning|origin|source|target|focus|base|peak|center|centre|end|start|beginning|finish|top|bottom|side|front|back|heart|soul|nature|essence|beauty|power|strength|weight|value|worth|role|effect|impact|limit|potential|history|future|past)\b/gi;
+    let itsm;
+    while ((itsm = itsRe.exec(text)) !== null) {
+      issues.push({
+        type: 'grammar', text: itsm[0], index: itsm.index, length: itsm[0].length,
+        severity: 'high', confidence: 0.92,
+        message: '"It\'s" means "it is." For possession, use "its" (no apostrophe).',
+        suggestion: 'Replace with: "its ' + itsm[1] + '"'
+      });
+    }
+
+    // --- 6. THEIR/THERE/THEY'RE ---
+    const therePoss = /\b(there)\s+(car|house|home|dog|cat|kids?|children|family|parents?|mother|father|mom|dad|brother|sister|friend|friends|bag|phone|book|books?|stuff|things?|work|job|money|life|lives|team|group|class|school|idea|opinion|problem|fault|way|plan|goal|dream)\b/gi;
+    let tpm;
+    while ((tpm = therePoss.exec(text)) !== null) {
+      issues.push({
+        type: 'grammar', text: tpm[0], index: tpm.index, length: tpm[0].length,
+        severity: 'high', confidence: 0.88,
+        message: '"There" is a place. For possession, use "their."',
+        suggestion: 'Replace with: "their ' + tpm[2] + '"'
+      });
+    }
+
+    // --- 7. YOUR/YOU'RE ---
+    const yourContraction = /\b(your)\s+(going|coming|being|doing|making|getting|running|walking|looking|trying|saying|telling|asking|thinking|feeling|leaving|staying|kidding|joking|wrong|right|welcome|sure|correct|crazy|insane|mad|angry|happy|sad|beautiful|amazing|wonderful|terrible|horrible|fired|hired|invited|finished|done)\b/gi;
+    let ycm;
+    while ((ycm = yourContraction.exec(text)) !== null) {
+      issues.push({
+        type: 'grammar', text: ycm[0], index: ycm.index, length: ycm[0].length,
+        severity: 'high', confidence: 0.9,
+        message: '"Your" is possessive. "You\'re" (you are) is needed here.',
+        suggestion: 'Replace with: "you\'re ' + ycm[2] + '"'
+      });
+    }
+
+    // --- 8. THEN vs THAN ---
+    const thenComp = /\b(more|less|better|worse|bigger|smaller|taller|shorter|faster|slower|older|younger|harder|easier|stronger|weaker|greater|fewer|higher|lower|rather|other)\s+then\b/gi;
+    let tcm;
+    while ((tcm = thenComp.exec(text)) !== null) {
+      issues.push({
+        type: 'grammar', text: tcm[0], index: tcm.index, length: tcm[0].length,
+        severity: 'high', confidence: 0.92,
+        message: '"Then" is about time. "Than" is for comparisons.',
+        suggestion: 'Replace with: "' + tcm[1] + ' than"'
+      });
+    }
+
+    // --- 9. DANGLING COMMA BEFORE "AND" IN TWO-ITEM LIST (Oxford comma misuse) ---
+    // Skip — too many false positives in fiction
+
+    // --- 10. MISSING APOSTROPHE IN COMMON CONTRACTIONS ---
+    const contractionRe = /\b(dont|wont|cant|didnt|doesnt|isnt|wasnt|arent|werent|wouldnt|couldnt|shouldnt|hasnt|havent|hadnt|aint|mustnt|neednt)\b/g;
+    let crm;
+    while ((crm = contractionRe.exec(text)) !== null) {
+      const inQ = this._isInsideQuotes(text, crm.index);
+      if (inQ) continue;
+      const word = crm[1];
+      const fixMap = {
+        dont:"don't",wont:"won't",cant:"can't",didnt:"didn't",doesnt:"doesn't",
+        isnt:"isn't",wasnt:"wasn't",arent:"aren't",werent:"weren't",
+        wouldnt:"wouldn't",couldnt:"couldn't",shouldnt:"shouldn't",
+        hasnt:"hasn't",havent:"haven't",hadnt:"hadn't",aint:"ain't",
+        mustnt:"mustn't",neednt:"needn't"
+      };
+      issues.push({
+        type: 'grammar', text: word, index: crm.index, length: word.length,
+        severity: 'medium', confidence: 0.93,
+        message: 'Missing apostrophe in contraction.',
+        suggestion: 'Replace with: "' + fixMap[word] + '"'
+      });
+    }
+
+    // --- 11. SENTENCE FRAGMENTS (very short "sentences" with no verb) ---
+    const fragRe = /(?:^|\n|[.!?]\s+)([A-Z][a-z]{0,12}\.)\s/g;
+    let frm;
+    while ((frm = fragRe.exec(text)) !== null) {
+      const frag = frm[1];
+      if (/^(Mr|Mrs|Ms|Dr|St|Jr|Sr|Prof|Gen|Gov|Rep|Sen|Sgt|Cpl|Pvt|Lt|Capt|Maj|Col|Rev|Hon)\./i.test(frag)) continue;
+      if (frag.length <= 3) continue;
+    }
+
+    // --- 12. TENSE CONSISTENCY within paragraphs ---
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 100);
+    for (const para of paragraphs) {
+      if (this._isInsideQuotes(text, text.indexOf(para))) continue;
+      const pastRe = /\b\w+(ed)\b/g;
+      const presentRe = /\b(he|she|it)\s+(walks|runs|says|goes|comes|looks|takes|makes|gives|thinks|feels|sees|hears|knows|wants|needs|gets|puts|turns|moves|stands|sits|falls|holds|keeps|brings|finds|tells|shows|leaves|calls|reads|writes|speaks|plays|works|lives|loves|tries|seems|begins|starts|stops|opens|closes|pulls|pushes|reaches|catches|throws|drops|picks|cuts|hits|sets|lets|pays|wins|loses|leads|follows|meets|breaks|draws|grows|sends|builds|drives|flies|carries|lays|rises|wears|speaks|eats|drinks|sleeps|wakes|dies|cries|lies|hangs|shakes|strikes)\b/gi;
+      const pastMatches = para.match(pastRe) || [];
+      const presentMatches = para.match(presentRe) || [];
+      if (pastMatches.length >= 4 && presentMatches.length >= 2) {
+        const ratio = presentMatches.length / (pastMatches.length + presentMatches.length);
+        if (ratio > 0.15 && ratio < 0.5) {
+          const firstPresent = presentRe.exec(para);
+          if (firstPresent) {
+            const paraIdx = text.indexOf(para);
+            const issueIdx = paraIdx + firstPresent.index;
+            if (issueIdx >= 0 && issueIdx < text.length) {
+              issues.push({
+                type: 'grammar', text: firstPresent[0], index: issueIdx, length: firstPresent[0].length,
+                severity: 'medium', confidence: 0.75,
+                message: 'Possible tense shift. This paragraph mixes past and present tense.',
+                suggestion: 'Check tense consistency — this paragraph appears mostly past tense.'
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return issues;
+  },
+
+  _isInsideQuotes(text, index) {
+    let inSingle = false, inDouble = false, inSmart = false;
+    for (let i = 0; i < index && i < text.length; i++) {
+      const c = text[i];
+      if (c === '"' && !inSingle) inDouble = !inDouble;
+      else if (c === "'" && !inDouble && (i === 0 || /\s/.test(text[i-1]))) inSingle = !inSingle;
+      else if (c === '“') inSmart = true;
+      else if (c === '”') inSmart = false;
+    }
+    return inDouble || inSingle || inSmart;
   },
 
   // ========================
@@ -2598,7 +2784,7 @@ const Analyzer = {
   // ========================
   scoreCopyEditing(issues, totalWords) {
     // Only score copy-editing issue types, not style/structure issues
-    const copyTypes = new Set(['passive', 'adverb', 'cliche', 'wordy', 'confused-word', 'repetition']);
+    const copyTypes = new Set(['passive', 'adverb', 'cliche', 'wordy', 'confused-word', 'repetition', 'grammar']);
     const copyIssues = issues.filter(i => copyTypes.has(i.type));
     const issuesPerThousand = (copyIssues.length / Math.max(totalWords, 1)) * 1000;
     let score = 100;
@@ -2631,11 +2817,13 @@ const Analyzer = {
     const longSentenceIssues = this.findLongSentences(text);
     const showTellIssues = this.findShowVsTell(text);
     const confusedWordIssues = this.findConfusedWords(text);
+    const grammarIssues = this.findGrammarIssues(text);
 
     const rawIssues = [
       ...passiveIssues, ...adverbIssues, ...clicheIssues,
       ...weakVerbIssues, ...wordyIssues, ...repetitionIssues,
-      ...longSentenceIssues, ...showTellIssues, ...confusedWordIssues
+      ...longSentenceIssues, ...showTellIssues, ...confusedWordIssues,
+      ...grammarIssues
     ];
 
     // ========================================================
@@ -2702,26 +2890,36 @@ const Analyzer = {
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const copyScore = this.scoreCopyEditing(allIssues, totalWords);
     const lineEditing = this.analyzeLineEditing(text);
-    const lineScore = lineEditing.score; // true line editing, not just readability
+    const lineScore = lineEditing.score;
     const showTellScore = Math.max(0, 100 - showTellIssues.length * 5);
+
+    // Grammar score: penalize based on grammar issue density
+    const grammarFiltered = allIssues.filter(i => i.type === 'grammar');
+    const grammarPerK = (grammarFiltered.length / Math.max(totalWords, 1)) * 1000;
+    const grammarScore = Math.min(100, Math.max(0, Math.round(
+      100 - Math.min(50, grammarPerK * 8) -
+      Math.min(30, grammarFiltered.filter(i => i.severity === 'high').length * 4) -
+      Math.min(15, grammarFiltered.filter(i => i.severity === 'medium').length * 1.5)
+    )));
 
     // Deep writing quality engine
     const writingQuality = this.analyzeWritingQuality(text, allIssues, sentenceVariety, readability, dialogue, style);
 
-    // Overall: blend structural + writing quality + engagement
+    // Overall: blend structural + writing quality + engagement + grammar
     const overall = Math.round(
-      plot.score * 0.10 +
-      transitions.score * 0.08 +
-      copyScore * 0.12 +
-      lineScore * 0.10 +
-      style.score * 0.08 +
-      dialogue.score * 0.07 +
-      showTellScore * 0.08 +
-      writingQuality.clarityScore * 0.10 +
-      writingQuality.disciplineScore * 0.08 +
-      writingQuality.efficiencyScore * 0.07 +
+      plot.score * 0.09 +
+      transitions.score * 0.07 +
+      copyScore * 0.10 +
+      lineScore * 0.09 +
+      style.score * 0.07 +
+      dialogue.score * 0.06 +
+      showTellScore * 0.07 +
+      grammarScore * 0.10 +
+      writingQuality.clarityScore * 0.09 +
+      writingQuality.disciplineScore * 0.07 +
+      writingQuality.efficiencyScore * 0.06 +
       writingQuality.engagementScore * 0.07 +
-      writingQuality.momentumScore * 0.05
+      writingQuality.momentumScore * 0.06
     );
 
     // Issue density normalized per 1000 words
@@ -2732,7 +2930,7 @@ const Analyzer = {
       scores: {
         plot: plot.score, transitions: transitions.score, copy: copyScore,
         line: lineScore, style: style.score, dialogue: dialogue.score,
-        showTell: showTellScore, grammar: 0
+        showTell: showTellScore, grammar: grammarScore
       },
       writingQuality, lineEditing, blurbs, scifiWorld, genreElements, openingDiagnosis, sceneEmotions,
       plot, transitions, dialogue, style, sentenceVariety, readability,
@@ -2745,6 +2943,7 @@ const Analyzer = {
         wordy: wordyIssues.length, repetition: repetitionIssues.length,
         'sentence-length': longSentenceIssues.length, 'show-tell': showTellIssues.length,
         'confused-word': confusedWordIssues.length,
+        grammar: grammarIssues.length,
         pov: lineEditing.findings ? lineEditing.findings.filter(f => f.type === 'pov').length : 0,
         dialogue: dialogue.findings ? dialogue.findings.length : 0
       }
