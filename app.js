@@ -36,7 +36,7 @@ $('analyze-btn').addEventListener('click',async()=>{
   try{
     $('loader-text').textContent='Extracting...';
     extractedText=await ext(uploadedFile);
-    _smartScanDone=false;_batchFixDone=false;
+    _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;
     $('loader-text').textContent='Analyzing...';
     if(_analyzerWorker){
       _analyzeVersion++;
@@ -241,6 +241,46 @@ function renderAll(){
   maybeRunSmartScan(r);
   // Batch Fix — one call per manuscript, cached 24h
   maybeBatchFix(r);
+  // LanguageTool grammar enhancement — runs async after initial render
+  _enhanceGrammar(r);
+}
+
+let _ltEnhanceDone=false;
+async function _enhanceGrammar(r){
+  if(_ltEnhanceDone||!r||!extractedText)return;
+  if(typeof GrammarEnhance==='undefined')return;
+  _ltEnhanceDone=true;
+  try{
+    const ltIssues=await GrammarEnhance.check(extractedText);
+    if(!ltIssues.length)return;
+    const existingPositions=new Set();
+    r.issues.forEach(i=>{if(i.type==='grammar')existingPositions.add(i.index+':'+i.length)});
+    let added=0;
+    for(const lt of ltIssues){
+      const key=lt.index+':'+lt.length;
+      if(existingPositions.has(key))continue;
+      let overlaps=false;
+      for(const ex of r.issues){
+        if(ex.type==='grammar'&&Math.abs(ex.index-lt.index)<5){overlaps=true;break}
+      }
+      if(overlaps)continue;
+      r.issues.push(lt);
+      added++;
+    }
+    if(added>0){
+      r.issueCounts.grammar=(r.issueCounts.grammar||0)+added;
+      const grammarFiltered=r.issues.filter(i=>i.type==='grammar');
+      const grammarPerK=(grammarFiltered.length/Math.max(r.totalWords,1))*1000;
+      r.scores.grammar=Math.min(100,Math.max(0,Math.round(
+        100-Math.min(50,grammarPerK*8)-
+        Math.min(30,grammarFiltered.filter(i=>i.severity==='high').length*4)-
+        Math.min(15,grammarFiltered.filter(i=>i.severity==='medium').length*1.5)
+      )));
+      renderRight(r);
+      renderAnnotated(extractedText,r.issues);
+      console.log('[GrammarEnhance] +'+added+' issues from LanguageTool (total grammar: '+grammarFiltered.length+')');
+    }
+  }catch(e){console.warn('[GrammarEnhance] skipped:',e.message)}
 }
 
 // AI-powered smart scan: runs once per manuscript for paid/admin users
@@ -528,7 +568,7 @@ function _onAnalysisComplete(newResult){
     const newCount=newResult.issues.length;
     if(newCount<prevCount)_issuesResolved+=(prevCount-newCount);
     analysisResult=newResult;
-    _batchFixDone=false;_smartScanDone=false;
+    _batchFixDone=false;_smartScanDone=false;_ltEnhanceDone=false;
     diffHighlights(newResult.issues);
     updateScoresOnly(newResult);
     document.querySelectorAll('.rsc,.rp-detail,.gauge-wrap').forEach(el=>el.classList.remove('scores-pending'));
