@@ -108,14 +108,57 @@ const Analyzer = {
       if (/^\s*[,.]/.test(after) && /\b(is|was|were|are|been|being|seem|look|feel|appear|become)\b/.test(before)) confidence = 0.3; // predicate adjective
       if (confidence < 0.6) continue; // skip low confidence
 
+      // Find the verb the adverb modifies (word immediately before or after)
+      const beforeWords = text.substring(Math.max(0, match.index - 40), match.index).match(/\b(\w+)\b/g) || [];
+      const afterWords = text.substring(match.index + match[1].length, Math.min(text.length, match.index + match[1].length + 40)).match(/\b(\w+)\b/g) || [];
+      const candidateVerb = (beforeWords[beforeWords.length - 1] || afterWords[0] || '').toLowerCase();
+      const specificRewrite = this._adverbToStrongVerb(candidateVerb, word);
+
       issues.push({
         type: 'adverb', text: match[1], index: match.index, length: match[1].length,
         severity: 'low', confidence,
         message: `Adverb "${match[1]}" — consider a stronger verb that doesn't need modification.`,
-        suggestion: `Remove "${match[1]}" and strengthen the verb it modifies.`
+        suggestion: specificRewrite || `Remove "${match[1]}" and strengthen the verb it modifies.`
       });
     }
     return issues;
+  },
+
+  // Adverb+verb → single strong verb map
+  // Matches common patterns like "walked quickly" → "hurried/dashed/rushed"
+  _adverbToStrongVerb(verb, adverb) {
+    const map = {
+      'walked+quickly':['hurried','dashed','rushed'],'walked+slowly':['strolled','ambled','sauntered'],
+      'walked+quietly':['crept','tiptoed','stole'],'walked+heavily':['trudged','plodded','stomped'],
+      'ran+quickly':['sprinted','bolted','raced'],'ran+slowly':['jogged','trotted'],
+      'said+quietly':['whispered','murmured','muttered'],'said+loudly':['shouted','yelled','bellowed'],
+      'said+angrily':['snapped','growled','barked'],'said+happily':['laughed','beamed','chirped'],
+      'said+sadly':['sighed','mumbled'],'said+quickly':['blurted','rushed'],
+      'said+firmly':['declared','stated','asserted'],'said+nervously':['stammered','faltered'],
+      'looked+quickly':['glanced','glimpsed'],'looked+carefully':['scrutinized','examined','studied'],
+      'looked+angrily':['glared','scowled'],'looked+sadly':['gazed'],
+      'moved+quickly':['darted','lunged','bolted'],'moved+slowly':['crept','edged','drifted'],
+      'laughed+loudly':['roared','cackled','howled'],'laughed+quietly':['chuckled','giggled'],
+      'cried+loudly':['wailed','howled','sobbed'],'cried+quietly':['whimpered','wept'],
+      'ate+quickly':['devoured','gobbled','wolfed'],'ate+slowly':['nibbled','picked'],
+      'drank+quickly':['gulped','guzzled'],'drank+slowly':['sipped','nursed'],
+      'hit+hard':['slammed','smashed','punched'],'hit+softly':['tapped','patted'],
+      'closed+quickly':['slammed','snapped'],'closed+softly':['eased','pulled'],
+      'opened+quickly':['flung','yanked','wrenched'],'opened+slowly':['eased','edged'],
+      'spoke+quickly':['blurted','rushed'],'spoke+quietly':['whispered','murmured'],
+      'held+tightly':['clenched','gripped','clutched'],'held+loosely':['cradled','cupped'],
+      'turned+quickly':['spun','whirled','wheeled'],'turned+slowly':['pivoted','swiveled'],
+      'sat+heavily':['slumped','collapsed','flopped'],'sat+quietly':['settled','perched'],
+      'smiled+broadly':['grinned','beamed'],'smiled+sadly':['grimaced'],
+      'thought+carefully':['pondered','considered','deliberated'],'thought+quickly':['realized'],
+      'breathed+heavily':['panted','gasped','puffed'],'breathed+quietly':['exhaled']
+    };
+    const key = verb + '+' + adverb.toLowerCase();
+    const alts = map[key];
+    if (alts && alts.length) {
+      return `Try: "${verb} ${adverb}" → "${alts.slice(0,3).join('" / "')}"`;
+    }
+    return null;
   },
 
   // ========================
@@ -358,13 +401,22 @@ const Analyzer = {
       const sentence = match[0].trim();
       const wordCount = sentence.split(/\s+/).length;
       if (wordCount > 35) {
+        // Find the best natural break point (conjunction, clause boundary)
+        let breakHint = '';
+        const conjMatch = sentence.match(/^(.{40,}?)\s+(,\s+)?(but|and|however|because|although|while|when|which|who|though|since|yet|so|or|where|that)\s+(.+)$/i);
+        if (conjMatch) {
+          breakHint = `Break after "${conjMatch[3]}": "${conjMatch[1].trim()}." then "${conjMatch[3].charAt(0).toUpperCase() + conjMatch[3].slice(1)} ${conjMatch[4].substring(0, 40).trim()}..."`;
+        } else {
+          const commaMatch = sentence.match(/^(.{40,}?),\s+(.+)$/);
+          if (commaMatch) breakHint = `Break at the comma: "${commaMatch[1].trim()}." then "${commaMatch[2].substring(0, 50).trim()}..."`;
+        }
         issues.push({
           type: 'sentence-length',
           text: sentence,
           index: match.index, length: sentence.length, confidence: 0.95,
           severity: wordCount > 50 ? 'high' : 'medium',
           message: `Long sentence (${wordCount} words). Consider breaking it up.`,
-          suggestion: 'Split into 2-3 shorter sentences for better readability.'
+          suggestion: breakHint || `Split this ${wordCount}-word sentence at a conjunction or clause boundary.`
         });
       }
     }
@@ -376,21 +428,76 @@ const Analyzer = {
   // ========================
   findShowVsTell(text) {
     const issues = [];
+    // Emotion-specific show suggestions: physical sensation, action, or behavior
+    const showMap = {
+      angry: 'jaw tightened, hands clenched, voice sharpened',
+      furious: 'knuckles whitened, breath hissed through teeth, vision narrowed',
+      sad: 'tears pricked, throat tightened, shoulders slumped',
+      miserable: 'chest hollowed, eyes fixed on the floor, voice flat',
+      happy: 'smile pulled at her mouth, steps lightened, laughter spilled out',
+      delighted: 'grin spread wide, laughter bubbled up, she bounced on her heels',
+      scared: 'pulse raced, skin prickled, breath caught',
+      afraid: 'knees weakened, mouth went dry, pulse hammered in the ears',
+      terrified: 'blood drained, every muscle locked, she could not swallow',
+      nervous: 'fingers drummed, foot tapped, breath came shallow',
+      anxious: 'stomach knotted, eyes darted to the door, nails bit into palms',
+      excited: 'pulse quickened, grin broke free, words tumbled out',
+      lonely: 'silence pressed in, the empty chair drew the eye',
+      jealous: 'chest tightened when she saw them, jaw locked',
+      proud: 'chin lifted, shoulders squared, chest filled',
+      guilty: 'gaze dropped, throat worked, words caught',
+      ashamed: 'cheeks burned, eyes would not meet his, shoulders curled inward',
+      confused: 'brow furrowed, gaze lost focus, words trailed',
+      frustrated: 'fist struck the table, breath huffed out, jaw ground',
+      disappointed: 'shoulders fell, smile faded, eyes turned away',
+      relieved: 'shoulders dropped, breath released, eyes closed',
+      grateful: 'hand found his, eyes softened, voice thickened',
+      hopeful: 'leaned forward, chin lifted, breath caught',
+      desperate: 'fingers clawed at the door, voice cracked, eyes wild',
+      tired: 'rubbed his eyes, shoulders sagged, each step dragged',
+      exhausted: 'collapsed into the chair, eyelids drooped, voice a croak',
+      bored: 'eyes wandered the room, fingers tapped, mouth flattened',
+      annoyed: 'jaw tightened, breath hissed out, eyes narrowed',
+      beautiful: 'heads turned when she entered, conversation faltered',
+      ugly: 'children looked twice, then looked away',
+      gorgeous: 'the room seemed to quiet around her',
+      handsome: 'women glanced, then glanced again'
+    };
     const tellingPatterns = [
-      { regex: /\b(felt|feeling)\s+(angry|happy|sad|scared|afraid|nervous|anxious|excited|lonely|jealous|proud|guilty|ashamed|confused|frustrated|disappointed|relieved|grateful|hopeful|desperate)\b/gi, msg: 'Telling emotion instead of showing' },
-      { regex: /\b(was|were|seemed|looked)\s+(beautiful|ugly|tired|angry|happy|sad|scared|afraid|nervous|excited|bored|confused|annoyed|furious|delighted|miserable|exhausted|terrified|gorgeous|handsome|attractive|hideous)\b/gi, msg: 'Telling state instead of showing' },
-      { regex: /\b(obviously|clearly|evidently|apparently)\b/gi, msg: 'Telling the reader what is obvious rather than showing' },
-      { regex: /\bshe knew\b|\bhe knew\b|\bthey knew\b|\bshe realized\b|\bhe realized\b/gi, msg: 'Telling internal state - show through action or dialogue' },
-      { regex: /\bcould feel\b|\bcould sense\b|\bcould tell\b|\bcould see\b/gi, msg: 'Filter word - remove for more direct prose' }
+      {
+        regex: /\b(felt|feeling)\s+(angry|happy|sad|scared|afraid|nervous|anxious|excited|lonely|jealous|proud|guilty|ashamed|confused|frustrated|disappointed|relieved|grateful|hopeful|desperate|miserable|furious|terrified|delighted)\b/gi,
+        msg: 'Telling emotion',
+        sugFn: m => showMap[m[2].toLowerCase()] ? `Show it instead of naming it. Try a physical tell: "${showMap[m[2].toLowerCase()]}"` : 'Show through physical sensation or action.'
+      },
+      {
+        regex: /\b(was|were|seemed|looked)\s+(beautiful|ugly|tired|angry|happy|sad|scared|afraid|nervous|excited|bored|confused|annoyed|furious|delighted|miserable|exhausted|terrified|gorgeous|handsome|attractive|hideous)\b/gi,
+        msg: 'Telling state',
+        sugFn: m => showMap[m[2].toLowerCase()] ? `Show the state instead of declaring it. Try: "${showMap[m[2].toLowerCase()]}"` : 'Show through action or reaction from others.'
+      },
+      {
+        regex: /\b(obviously|clearly|evidently|apparently)\b/gi,
+        msg: 'Telling the reader what is obvious',
+        sugFn: () => 'Cut the word. If it\'s obvious to the reader, you don\'t need to say so. If it\'s not obvious, show the evidence.'
+      },
+      {
+        regex: /\b(she|he|they)\s+(knew|realized|understood)\b/gi,
+        msg: 'Telling internal realization',
+        sugFn: m => `Don't announce the realization — show what triggers it. Instead of "${m[0]}", show the detail or dialogue that makes the reader realize it too.`
+      },
+      {
+        regex: /\bcould\s+(feel|sense|tell|see|hear|smell|taste)\b/gi,
+        msg: 'Filter word distances the reader',
+        sugFn: m => `Remove "could ${m[1]}". Instead of "she could feel the cold," write "the cold bit through her coat." Drop the filter, go direct to sensation.`
+      }
     ];
-    for (const { regex, msg } of tellingPatterns) {
+    for (const { regex, msg, sugFn } of tellingPatterns) {
       let match;
       const r = new RegExp(regex.source, regex.flags);
       while ((match = r.exec(text)) !== null) {
         issues.push({
           type: 'show-tell', text: match[0], index: match.index, length: match[0].length,
           severity: 'medium', confidence: 0.85, message: `${msg}: "${match[0]}"`,
-          suggestion: 'Show through action, dialogue, or sensory detail instead.'
+          suggestion: sugFn(match)
         });
       }
     }

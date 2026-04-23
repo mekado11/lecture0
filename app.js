@@ -2083,10 +2083,34 @@ document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{
     d.querySelectorAll('.rpd-ign-btn').forEach(btn=>{btn.addEventListener('click',()=>{const card=btn.closest('.rpd-issue');const page=$('ed-annotated');const q=card.dataset.issueText.substring(0,60).replace(/"/g,'&quot;');const hl=page?.querySelector('.hl[data-q="'+q+'"]');if(hl)hl.classList.add('off');card.remove()})});
   }
   if(mode==='tone shift'){
-    d.innerHTML='<div class="rpd-title">Tone Analysis</div><div class="rpd-issue"><div class="rpd-issue-head">Current Tone</div><div class="rpd-desc">POV: '+esc(r.style.pov)+'<br>Lexical Diversity: '+r.style.lexicalDiversity+'/100<br>Avg Word Length: '+r.style.avgWordLength+' chars</div></div><div class="rpd-issue"><div class="rpd-issue-head">Emotional Tone</div><div class="rpd-desc">'+r.readerPerspective.emotionalJourney.map(e=>e.emotion+': '+e.intensity+'%').join(' &middot; ')+'</div></div><div class="rpd-issue"><div class="rpd-issue-head">Suggestion</div><div class="rpd-desc">'+(r.style.lexicalDiversity<40?'Consider using more varied vocabulary to enrich the tone.':r.style.lexicalDiversity>70?'Strong vocabulary variety. Consider if some words are too obscure for your audience.':'Good tonal balance. The vocabulary suits the genre well.')+'</div></div>';
+    const toneFindings=(r.lineEditing?.findings||[]).filter(f=>f.type==='tone'||f.type==='flow');
+    const scoreLine=(r.lineEditing?.tone?.score!==undefined)?'<div class="rpd-desc" style="font-size:.72rem;color:var(--muted)">Tone score: <b style="color:'+(r.lineEditing.tone.score<50?'var(--red)':r.lineEditing.tone.score<75?'var(--yellow)':'var(--green)')+'">'+r.lineEditing.tone.score+'/100</b> &middot; Flow: <b>'+r.lineEditing.flow.score+'/100</b></div>':'';
+    let html='<div class="rpd-title">Tone & Flow</div>'+scoreLine;
+    if(toneFindings.length===0){
+      html+='<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No tonal inconsistencies detected. Register and mood stay consistent.</p>';
+    }else{
+      html+=toneFindings.slice(0,6).map(f=>{
+        const sev=f.severity==='high'?'var(--red)':f.severity==='medium'?'var(--yellow)':'var(--muted)';
+        return '<div class="rpd-issue"><div class="rpd-issue-head"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+sev+';margin-right:5px"></span>'+(f.type==='tone'?'Tone':'Flow')+' &middot; '+f.severity+'</div><div class="rpd-desc">'+esc(f.message)+'</div></div>';
+      }).join('');
+    }
+    d.innerHTML=html;
   }
   if(mode.startsWith('dial')){
-    d.innerHTML='<div class="rpd-title">Dialogue Analysis</div><div class="rpd-issue"><div class="rpd-issue-head">Dialogue Stats</div><div class="rpd-desc">Lines: '+r.dialogue.count+'<br>Ratio: '+r.dialogue.ratio+'% of text<br>"Said" usage: '+r.dialogue.saidRatio+'%<br>Tag variety: '+Object.keys(r.dialogue.tags).length+' unique tags</div></div>'+(r.dialogue.count===0?'<div class="rpd-issue"><div class="rpd-desc">No dialogue detected. If this is fiction, adding dialogue can improve pacing and character development.</div></div>':'<div class="rpd-issue"><div class="rpd-issue-head">Tags Used</div><div class="rpd-desc">'+Object.entries(r.dialogue.tags).map(([k,v])=>k+' ('+v+')').join(', ')+'</div></div>');
+    const dialFindings=r.dialogue?.findings||[];
+    const statLine='<div class="rpd-desc" style="font-size:.72rem;color:var(--muted)">'+r.dialogue.count+' lines &middot; '+r.dialogue.ratio+'% of text &middot; "said" used '+r.dialogue.saidRatio+'% &middot; '+Object.keys(r.dialogue.tags).length+' tag types</div>';
+    let html='<div class="rpd-title">Dialogue Issues</div>'+statLine;
+    if(r.dialogue.count===0){
+      html+='<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No dialogue detected. If this is fiction, adding dialogue improves pacing and character voice.</p>';
+    }else if(dialFindings.length===0){
+      html+='<p style="color:var(--green);font-size:.78rem;padding:.5rem">Dialogue reads clean. No issues flagged.</p>';
+    }else{
+      html+=dialFindings.slice(0,8).map(f=>{
+        const sev=f.severity==='high'?'var(--red)':f.severity==='medium'?'var(--yellow)':'var(--muted)';
+        return '<div class="rpd-issue"><div class="rpd-issue-head"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+sev+';margin-right:5px"></span>'+esc(f.type||'Dialogue')+'</div><div class="rpd-desc">'+esc(f.message)+'</div>'+(f.example?'<div class="rpd-quote">‘'+esc(f.example.substring(0,80))+'’</div>':'')+'</div>';
+      }).join('');
+    }
+    d.innerHTML=html;
   }
 })});
 
