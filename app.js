@@ -667,7 +667,8 @@ function renderRight(r){
     {k:'style',name:'Style & Voice',score:scores.style||0,issues:countType('weak-verb'),weight:'8%'},
     {k:'dialogue',name:'Dialogue',score:scores.dialogue||0,issues:countType('dialogue'),weight:'7%'},
     {k:'showTell',name:'Show vs Tell',score:scores.showTell||0,issues:stIssues,weight:'8%'},
-    {k:'copy',name:'Copy Editing',score:scores.copy||0,issues:countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word'),weight:'12%'}
+    {k:'copy',name:'Copy Editing',score:scores.copy||0,issues:countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word'),weight:'10%'},
+    {k:'grammar',name:'Grammar',score:scores.grammar||0,issues:countType('grammar'),weight:'10%'}
   ];
   const container=$('rp-scores');
   container.innerHTML=cats.map(c=>{
@@ -825,9 +826,9 @@ async function doRewrite(card) {
 
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
-  const typeMap={plot:'pov',clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:'dialogue',showTell:'show-tell',copy:null};
+  const typeMap={plot:'pov',clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:'dialogue',showTell:'show-tell',copy:null,grammar:'grammar'};
   const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing'};
-  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word'};
+  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar'};
   const t=typeMap[cat];
 
   // Sort by severity: high first, then medium, then low
