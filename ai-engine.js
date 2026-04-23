@@ -72,7 +72,11 @@ const AIEngine = {
     // Always use server proxy — API keys never touch the browser
     const endpoint = this.API_ENDPOINT;
     const headers = { 'content-type': 'application/json' };
-    const currentUser = typeof firebase !== 'undefined' && firebase.auth().currentUser ? firebase.auth().currentUser : null;
+    let currentUser = typeof firebase !== 'undefined' ? firebase.auth().currentUser : null;
+    if (!currentUser && typeof firebase !== 'undefined') {
+      await new Promise(r => { const u = firebase.auth().onAuthStateChanged(user => { u(); r(user); }); });
+      currentUser = firebase.auth().currentUser;
+    }
     headers['x-user-id'] = currentUser ? currentUser.uid : 'anon';
     if (currentUser) {
       try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch (e) {}
@@ -104,11 +108,14 @@ const AIEngine = {
 
     let response = await fetch(endpoint, { method: 'POST', headers, body: bodyPayload });
 
-    if (response.status === 401 && currentUser) {
-      try {
-        headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(true);
-        response = await fetch(endpoint, { method: 'POST', headers, body: bodyPayload });
-      } catch (e) {}
+    if (response.status === 401) {
+      const freshUser = typeof firebase !== 'undefined' ? firebase.auth().currentUser : null;
+      if (freshUser) {
+        try {
+          headers['authorization'] = 'Bearer ' + await freshUser.getIdToken(true);
+          response = await fetch(endpoint, { method: 'POST', headers, body: bodyPayload });
+        } catch (e) {}
+      }
     }
 
     if (!response.ok) {
@@ -510,7 +517,11 @@ Rules:
   async _callClaudeRewrite(systemText, userText) {
     const endpoint = this.API_ENDPOINT;
     const headers = { 'content-type': 'application/json' };
-    const currentUser = typeof firebase !== 'undefined' && firebase.auth().currentUser ? firebase.auth().currentUser : null;
+    let currentUser = typeof firebase !== 'undefined' ? firebase.auth().currentUser : null;
+    if (!currentUser && typeof firebase !== 'undefined') {
+      await new Promise(r => { const u = firebase.auth().onAuthStateChanged(user => { u(); r(user); }); });
+      currentUser = firebase.auth().currentUser;
+    }
     headers['x-user-id'] = currentUser ? currentUser.uid : 'anon';
     if (currentUser) {
       try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch(e) {}
@@ -523,11 +534,14 @@ Rules:
       messages: [{ role: 'user', content: userText }]
     });
     let response = await fetch(endpoint, { method: 'POST', headers, body: rewriteBody });
-    if (response.status === 401 && currentUser) {
-      try {
-        headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(true);
-        response = await fetch(endpoint, { method: 'POST', headers, body: rewriteBody });
-      } catch (e) {}
+    if (response.status === 401) {
+      const freshUser = typeof firebase !== 'undefined' ? firebase.auth().currentUser : null;
+      if (freshUser) {
+        try {
+          headers['authorization'] = 'Bearer ' + await freshUser.getIdToken(true);
+          response = await fetch(endpoint, { method: 'POST', headers, body: rewriteBody });
+        } catch (e) {}
+      }
     }
     if (!response.ok) {
       const err = await response.json().catch(()=>({}));
@@ -606,7 +620,11 @@ Rules:
     const fp = fingerprint ? Analyzer.fingerprintToPrompt(fingerprint) : '';
     const endpoint = this.API_ENDPOINT;
     const headers = { 'content-type': 'application/json' };
-    const currentUser = typeof firebase !== 'undefined' && firebase.auth().currentUser ? firebase.auth().currentUser : null;
+    let currentUser = typeof firebase !== 'undefined' ? firebase.auth().currentUser : null;
+    if (!currentUser && typeof firebase !== 'undefined') {
+      await new Promise(r => { const u = firebase.auth().onAuthStateChanged(user => { u(); r(user); }); });
+      currentUser = firebase.auth().currentUser;
+    }
     if (currentUser) {
       headers['x-user-id'] = currentUser.uid;
       try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch(e) {}
@@ -629,11 +647,14 @@ Rules:
     });
 
     let response = await fetch(endpoint, { method: 'POST', headers, body: batchBody });
-    if (response.status === 401 && currentUser) {
-      try {
-        headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(true);
-        response = await fetch(endpoint, { method: 'POST', headers, body: batchBody });
-      } catch (e) {}
+    if (response.status === 401) {
+      const freshUser = typeof firebase !== 'undefined' ? firebase.auth().currentUser : null;
+      if (freshUser) {
+        try {
+          headers['authorization'] = 'Bearer ' + await freshUser.getIdToken(true);
+          response = await fetch(endpoint, { method: 'POST', headers, body: batchBody });
+        } catch (e) {}
+      }
     }
 
     if (!response.ok) {
