@@ -26,7 +26,7 @@ module.exports = async (req, res) => {
   const params = new URLSearchParams({
     text: text,
     language: req.body.language || 'en-US',
-    disabledCategories: 'TYPOS,CASING,REDUNDANCY,STYLE',
+    disabledCategories: 'CASING,REDUNDANCY,STYLE',
     disabledRules: 'WHITESPACE_RULE,EN_QUOTES,DASH_RULE,WORD_CONTAINS_UNDERSCORE',
     level: 'picky'
   });

@@ -90,7 +90,7 @@ const GrammarEnhance = {
     const params = new URLSearchParams({
       text: text,
       language: 'en-US',
-      disabledCategories: 'TYPOS,CASING,REDUNDANCY,STYLE',
+      disabledCategories: 'CASING,REDUNDANCY,STYLE',
       disabledRules: 'WHITESPACE_RULE,EN_QUOTES,DASH_RULE,WORD_CONTAINS_UNDERSCORE',
       level: 'picky'
     });
@@ -119,8 +119,11 @@ const GrammarEnhance = {
 
       if (this._isInsideQuotes(fullText, offset) && this._isDialogueSafe(m.rule?.id)) continue;
 
+      const catId = m.rule?.category?.id || '';
+      if (catId === 'TYPOS' && this._isLikelyProperNoun(matchedText, fullText, offset)) continue;
+
       const replacement = m.replacements?.[0]?.value;
-      const severity = this._mapSeverity(m.rule?.category?.id);
+      const severity = this._mapSeverity(catId);
 
       issues.push({
         type: 'grammar',
@@ -156,6 +159,18 @@ const GrammarEnhance = {
       if (text[i] === '"' || text[i] === '“' || text[i] === '”') count++;
     }
     return count % 2 === 1;
+  },
+
+  _isLikelyProperNoun(word, text, offset) {
+    if (!word || word.length < 2) return false;
+    if (word[0] === word[0].toUpperCase() && word[0] !== word[0].toLowerCase()) {
+      const afterPeriod = offset > 0 && /[.!?]\s*$/.test(text.substring(Math.max(0, offset - 5), offset));
+      if (!afterPeriod) return true;
+    }
+    if (word.length > 10 && /[^aeiou]{4,}/i.test(word)) return true;
+    const occurrences = text.split(new RegExp('\\b' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g')).length - 1;
+    if (occurrences >= 3) return true;
+    return false;
   },
 
   _isDialogueSafe(ruleId) {
