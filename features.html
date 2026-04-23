@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AuthorScrolls — Product Features</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',sans-serif;background:#0a0705;color:#e8dfd4;overflow-x:hidden;min-height:100vh}
+
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,7,5,.92);backdrop-filter:blur(12px);border-bottom:1px solid rgba(200,149,108,.12);padding:.55rem 2rem;display:flex;justify-content:space-between;align-items:center}
+.nb{display:flex;align-items:center;gap:.4rem;font-family:'Lora',serif;font-size:1.1rem;font-weight:700;color:#dbb08a;text-decoration:none}
+.nl{display:flex;gap:.7rem;align-items:center}
+.nl a{color:#9c9085;font-size:.82rem;text-decoration:none;font-family:'Inter',sans-serif}
+.nl a:hover{color:#dbb08a}
+.nc{padding:.45rem 1.3rem;background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff;border:none;border-radius:6px;font-size:.82rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .3s;text-decoration:none}
+.nc:hover{box-shadow:0 0 18px rgba(255,200,120,.35)}
+
+/* HERO */
+.hero{padding:120px 2rem 60px;text-align:center;max-width:760px;margin:0 auto}
+.eyebrow{font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#c8956c;margin-bottom:1rem}
+.hero h1{font-family:'Lora',serif;font-size:2.8rem;font-weight:700;line-height:1.2;color:#f0e6d8;margin-bottom:1rem}
+.hero h1 em{font-style:italic;color:#dbb08a}
+.hero p{font-size:1.05rem;color:#9c9085;line-height:1.7;max-width:580px;margin:0 auto 2rem}
+.hero-cta{display:inline-block;padding:.75rem 2.2rem;background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff;border-radius:8px;font-size:.95rem;font-weight:600;text-decoration:none;font-family:'Lora',serif;transition:all .3s;box-shadow:0 3px 12px rgba(138,101,72,.35)}
+.hero-cta:hover{box-shadow:0 0 22px rgba(255,200,120,.45);transform:translateY(-2px)}
+
+/* DIVIDER */
+.rule{width:80px;height:1px;background:linear-gradient(90deg,transparent,#b89860,transparent);margin:0 auto}
+.diamond{text-align:center;color:#b89860;font-size:.6rem;margin:.4rem 0;letter-spacing:.2em}
+
+/* SECTION */
+.section{max-width:960px;margin:0 auto;padding:60px 2rem}
+.section-label{font-size:.7rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#c8956c;text-align:center;margin-bottom:.6rem}
+.section-title{font-family:'Lora',serif;font-size:1.8rem;font-weight:700;color:#f0e6d8;text-align:center;margin-bottom:.6rem}
+.section-sub{font-size:.92rem;color:#6b6158;text-align:center;line-height:1.6;max-width:560px;margin:0 auto 2.5rem}
+
+/* FEATURE GRID */
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem}
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:1.5rem}
+.card{background:linear-gradient(145deg,#161210,#1a1512);border:1px solid rgba(200,149,108,.12);border-radius:12px;padding:1.6rem;transition:.25s}
+.card:hover{border-color:rgba(200,149,108,.3);transform:translateY(-3px)}
+.card-icon{font-size:1.8rem;margin-bottom:.75rem}
+.card h3{font-family:'Lora',serif;font-size:1rem;font-weight:700;color:#dbb08a;margin-bottom:.4rem}
+.card p{font-size:.82rem;color:#7a7068;line-height:1.55}
+.card .badge{display:inline-block;font-size:.58rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:.18rem .5rem;border-radius:3px;margin-bottom:.5rem}
+.badge-free{background:rgba(93,186,125,.12);color:#5dba7d;border:1px solid rgba(93,186,125,.2)}
+.badge-paid{background:rgba(200,149,108,.12);color:#dbb08a;border:1px solid rgba(200,149,108,.2)}
+
+/* HIGHLIGHT CARD (spans 2 cols) */
+.card-wide{grid-column:span 2}
+.card-split{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;align-items:start}
+
+/* STAT ROW */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:3rem}
+.stat{text-align:center;padding:1.2rem;background:linear-gradient(145deg,#161210,#1a1512);border:1px solid rgba(200,149,108,.1);border-radius:10px}
+.stat-num{font-family:'Lora',serif;font-size:2rem;font-weight:700;color:#dbb08a}
+.stat-lbl{font-size:.72rem;color:#6b6158;margin-top:.25rem;line-height:1.4}
+
+/* HONESTY BOX */
+.honesty{background:linear-gradient(145deg,#13100d,#1a1410);border:1px solid rgba(200,149,108,.18);border-left:3px solid #c8956c;border-radius:10px;padding:1.8rem 2rem;margin:2.5rem 0}
+.honesty h3{font-family:'Lora',serif;font-size:1.1rem;color:#dbb08a;margin-bottom:.6rem}
+.honesty p{font-size:.85rem;color:#7a7068;line-height:1.65}
+
+/* BOTTOM CTA */
+.cta-block{text-align:center;padding:60px 2rem 80px;border-top:1px solid rgba(200,149,108,.08)}
+.cta-block h2{font-family:'Lora',serif;font-size:1.9rem;color:#f0e6d8;margin-bottom:.6rem}
+.cta-block p{font-size:.92rem;color:#6b6158;margin-bottom:1.8rem}
+
+/* FOOTER */
+footer{text-align:center;padding:2rem;color:#3a3530;font-size:.72rem;border-top:1px solid rgba(200,149,108,.06)}
+footer a{color:#5a5048;text-decoration:none}
+footer a:hover{color:#9c9085}
+
+@media(max-width:700px){
+  .grid-3,.grid-2{grid-template-columns:1fr}
+  .card-wide{grid-column:span 1}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .hero h1{font-size:1.9rem}
+  .card-split{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="nb" href="index.html">&#127807; AuthorScrolls</a>
+  <div class="nl">
+    <a href="features.html" style="color:#dbb08a">Features</a>
+    <a href="pricing.html">Pricing</a>
+    <a href="blog.html">Blog</a>
+    <a class="nc" href="app.html">Start Free</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="eyebrow">Product Features</div>
+  <h1>The manuscript diagnostic<br>built for <em>serious</em> authors.</h1>
+  <p>Not a grammar checker. Not a spell-checker. A structural engine that reads your manuscript the way an editor does — and tells you exactly what isn't working, before you pay someone else to find it.</p>
+  <a href="app.html" class="hero-cta">Diagnose Your Manuscript Free</a>
+</div>
+
+<div class="rule"></div><div class="diamond">&#9670;</div><div class="rule"></div>
+
+<!-- STATS -->
+<div class="section" style="padding-bottom:0">
+  <div class="stats">
+    <div class="stat"><div class="stat-num">19</div><div class="stat-lbl">Genres detected automatically</div></div>
+    <div class="stat"><div class="stat-num">12</div><div class="stat-lbl">Independently scored dimensions</div></div>
+    <div class="stat"><div class="stat-num">2,000+</div><div class="stat-lbl">Grammar rules via LanguageTool</div></div>
+    <div class="stat"><div class="stat-num">0</div><div class="stat-lbl">Inflated scores &mdash; everything starts at zero</div></div>
+  </div>
+</div>
+
+<!-- CORE ENGINE -->
+<div class="section">
+  <div class="section-label">Core Engine &mdash; Free</div>
+  <div class="section-title">Runs locally. Results in seconds.</div>
+  <div class="section-sub">The analysis engine runs entirely in your browser. Nothing is sent to a server until you choose to use AI features. Your manuscript stays private.</div>
+
+  <div class="grid-3">
+    <div class="card">
+      <div class="badge badge-free">Free</div>
+      <div class="card-icon">&#128683;</div>
+      <h3>DNF Prediction Engine</h3>
+      <p>Scores your manuscript on six reader-dropout dimensions: hook strength, clarity, forward motion, specificity, redundancy, and payoff. Tells you which section loses readers first and exactly why.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-free">Free</div>
+      <div class="card-icon">&#128200;</div>
+      <h3>Plot &amp; Structure</h3>
+      <p>Detects your story arc across four quarters of the manuscript. Rising action, climax, resolution, and cliffhanger patterns scored and mapped. Flags a sagging middle before you submit.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-free">Free</div>
+      <div class="card-icon">&#9196;</div>
+      <h3>Pacing Heatmap</h3>
+      <p>Visualizes the balance of action, dialogue, description, exposition, and reflection across your manuscript. Spots where your pacing stalls or rushes.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-free">Free</div>
+      <div class="card-icon">&#128172;</div>
+      <h3>Dialogue Analysis</h3>
+      <p>Scores tag discipline, conciseness, naturalness, and show-not-tell within dialogue. Flags exposition dumps, repetitive speech patterns, and over-attribution.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-free">Free</div>
+      <div class="card-icon">&#128065;</div>
+      <h3>Show vs. Tell Detection</h3>
+      <p>Maps 32 emotions to their physical manifestations. Flags "she felt angry" and suggests "jaw tightened, hands clenched, voice sharpened." Not a generic rule &mdash; a specific replacement.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-free">Free</div>
+      <div class="card-icon">&#9997;</div>
+      <h3>Line Editing Score</h3>
+      <p>Six sub-scores: tone consistency, flow, word precision, sentence pacing, POV discipline, and extraneous language. Each scored independently, each improvable.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-free">Free</div>
+      <div class="card-icon">&#128290;</div>
+      <h3>Copy Editing Detection</h3>
+      <p>Passive voice with active-voice rewrites. Adverbs mapped to stronger verbs. 90+ clichés flagged. Weak verbs replaced. Wordy phrases trimmed. All with specific suggestions, not just flags.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-free">Free</div>
+      <div class="card-icon">&#9999;</div>
+      <h3>Grammar &amp; Typos</h3>
+      <p>2,000+ grammar rules via LanguageTool: comma splices, run-ons, subject-verb agreement, confused words, tense shifts, dialogue punctuation. Proper nouns and invented names filtered to avoid false flags.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-free">Free</div>
+      <div class="card-icon">&#127919;</div>
+      <h3>Opening Diagnosis</h3>
+      <p>Your first pages scored on hook strength, tension, specificity, clarity, forward motion, and genre-matching. Tells you what a cold reader &mdash; or agent &mdash; encounters in the first 500 words.</p>
+    </div>
+  </div>
+</div>
+
+<div class="rule"></div><div class="diamond">&#9670;</div><div class="rule"></div>
+
+<!-- AI FEATURES -->
+<div class="section">
+  <div class="section-label">AI Features &mdash; Paid Plans</div>
+  <div class="section-title">Deeper analysis when you&rsquo;re close to ready.</div>
+  <div class="section-sub">AI features send your manuscript to language models for analysis that goes beyond pattern matching. Used when you&rsquo;re actively revising or preparing to query.</div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="badge badge-paid">Starter &amp; Premium</div>
+      <div class="card-icon">&#9889;</div>
+      <h3>Deep Narrative Critique</h3>
+      <p>A full developmental editorial pass: character arc, stakes, conflict engine, voice consistency, pacing at the chapter level. The kind of feedback a developmental editor gives at $2,000+. Delivered in one click.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-paid">Starter &amp; Premium</div>
+      <div class="card-icon">&#128270;</div>
+      <h3>Weak Passage Diagnosis</h3>
+      <p>Identifies your three weakest passages by paragraph, explains exactly why each one loses reader momentum, and suggests a concrete rewrite. Specific text from your manuscript, not generic advice.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-paid">Starter &amp; Premium</div>
+      <div class="card-icon">&#128214;</div>
+      <h3>Query Letter Draft</h3>
+      <p>A query letter scaffold drawn from your manuscript&rsquo;s actual story beats, genre, word count, and themes. Not a template with blanks to fill &mdash; a draft built from what&rsquo;s in your book.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-paid">Starter &amp; Premium</div>
+      <div class="card-icon">&#128218;</div>
+      <h3>Comparable Titles</h3>
+      <p>Identifies comparable published titles based on genre, themes, voice, and structural patterns in your manuscript. Gives you the comp titles agents ask for, grounded in what you actually wrote.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-paid">Premium</div>
+      <div class="card-icon">&#128101;</div>
+      <h3>Beta Reader Simulation</h3>
+      <p>Five distinct reader personas respond to your manuscript: the casual reader, the genre purist, the literary reader, the agent, and the skeptic. Surface problems that only real readers would catch.</p>
+    </div>
+    <div class="card">
+      <div class="badge badge-paid">Premium</div>
+      <div class="card-icon">&#128202;</div>
+      <h3>Market Readiness Score</h3>
+      <p>An honest assessment of where your manuscript stands against current publishing standards for your genre. Not a vanity score &mdash; a gap analysis between where you are and where you need to be.</p>
+    </div>
+  </div>
+</div>
+
+<div class="rule"></div><div class="diamond">&#9670;</div><div class="rule"></div>
+
+<!-- GENRE COVERAGE -->
+<div class="section">
+  <div class="section-label">Genre Coverage</div>
+  <div class="section-title">19 genres. Each judged on its own terms.</div>
+  <div class="section-sub">Genre context changes what good writing looks like. A thriller opening is scored on tension and pace. A self-help introduction is scored on authority and clarity of promise. The engine knows the difference.</div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3 style="margin-bottom:.75rem">Fiction</h3>
+      <p style="line-height:2">Science Fiction &middot; Fantasy &middot; Romance &middot; Thriller / Suspense &middot; Mystery / Crime &middot; Horror / Paranormal &middot; Historical Fiction &middot; Dystopian &middot; Young Adult &middot; Literary Fiction &middot; Romantasy &middot; Cozy Mystery &middot; Adventure &middot; Western</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:.75rem">Nonfiction</h3>
+      <p style="line-height:2">Self-Help &middot; Biography &middot; History &middot; True Crime &middot; Philosophy / Religion</p>
+      <p style="font-size:.78rem;color:#5a5048;margin-top:1rem;line-height:1.5">Nonfiction scoring weights authority establishment, structural clarity, reader promise, and argument momentum differently from fiction&rsquo;s tension and character arcs.</p>
+    </div>
+  </div>
+</div>
+
+<div class="rule"></div><div class="diamond">&#9670;</div><div class="rule"></div>
+
+<!-- HONESTY SECTION -->
+<div class="section">
+  <div class="honesty">
+    <h3>What AuthorScrolls doesn&rsquo;t do &mdash; and won&rsquo;t claim to.</h3>
+    <p>This tool does not replace a copy editor, line editor, or proofreader. It does not guarantee publication. It does not rewrite your book. A developmental editor, a copy editor, and a proofreader are still part of the path to a finished, publishable manuscript.<br><br>What AuthorScrolls does: finds the structural, stylistic, and craft problems you can fix yourself &mdash; before you spend money on professional editors to find them for you. Most writers go through two or three rounds of expensive editing before the core problems are addressed. This is the step that changes that.</p>
+  </div>
+</div>
+
+<!-- BOTTOM CTA -->
+<div class="cta-block">
+  <h2>Start with your manuscript.</h2>
+  <p>No credit card. No limit on how many times you analyze. The full diagnostic engine is free.</p>
+  <a href="app.html" class="hero-cta">Analyze Your Manuscript Free &rsaquo;</a>
+</div>
+
+<footer>
+  <p>AuthorScrolls &middot; &copy; 2026</p>
+  <p style="margin-top:.3rem"><a href="index.html">Home</a> &middot; <a href="pricing.html">Pricing</a> &middot; <a href="faq.html">Resources</a> &middot; <a href="legal.html#terms">Terms</a> &middot; <a href="legal.html#privacy">Privacy</a> &middot; <a href="legal.html#contact">Contact</a></p>
+</footer>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="landing-init.js"></script>
+</body>
+</html>
