@@ -1185,10 +1185,12 @@ function renderReader(r){
     h+='</div>';
   }
   const ec={exciting:'#c0392b',tense:'#f39c12',sad:'#2980b9',calm:'#27ae60',hopeful:'#8e44ad'};
+  if(rp.emotionalJourney&&rp.emotionalJourney.length>0){
   h+='<div class="a-sec"><h3>Emotional Journey</h3>';
   rp.emotionalJourney.forEach(e=>{h+='<div class="emo-row"><span class="emo-name">'+e.emotion+'</span><div class="emo-track"><div class="emo-fill" style="width:'+e.intensity+'%;background:'+(ec[e.emotion]||'#888')+'"></div></div><span style="font-size:.62rem;color:var(--muted);width:35px">'+e.intensity+'%</span></div>'});
   h+='</div>';
-  if(rp.immersionBreakers.length>0){h+='<div class="a-sec"><h3>Immersion Breakers ('+rp.immersionBreakers.length+')</h3>';rp.immersionBreakers.forEach(b=>{h+='<div style="padding:.35rem .5rem;border-left:3px solid var(--yellow);margin-bottom:.3rem;font-size:.78rem;background:var(--surface2);border-radius:0 var(--rs) var(--rs) 0"><div>'+esc(b.reason)+'</div><div style="font-size:.65rem;color:var(--muted)">'+esc(b.location)+'</div></div>'});h+='</div>'}
+  }
+  if(rp.immersionBreakers&&rp.immersionBreakers.length>0){h+='<div class="a-sec"><h3>Immersion Breakers ('+rp.immersionBreakers.length+')</h3>';rp.immersionBreakers.forEach(b=>{h+='<div style="padding:.35rem .5rem;border-left:3px solid var(--yellow);margin-bottom:.3rem;font-size:.78rem;background:var(--surface2);border-radius:0 var(--rs) var(--rs) 0"><div>'+esc(b.reason)+'</div><div style="font-size:.65rem;color:var(--muted)">'+esc(b.location)+'</div></div>'});h+='</div>'}
   d.innerHTML=h;
   // AI Weakness Diagnosis handler
   const diagBtn=d.querySelector('.ai-diagnose-btn');
