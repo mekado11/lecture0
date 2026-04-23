@@ -122,7 +122,10 @@ const AIEngine = {
       const err = await response.json().catch(() => ({}));
       console.error('[AI API error]', response.status, err, 'User:', currentUser?.email || 'none', 'Had token:', !!headers['authorization']);
       if (err.error?.code === 'UNAUTHENTICATED') {
-        throw new Error('SESSION_EXPIRED');
+        const reason = err.error?.reason || 'unknown';
+        const diag = err.error?.diagnostic || '';
+        console.error('[AUTH DIAGNOSTIC] reason:', reason, '|', diag);
+        throw new Error('SERVER_AUTH_ERROR:' + reason + ':' + diag);
       }
       throw new Error(err.error?.message || 'API call failed: ' + response.status);
     }

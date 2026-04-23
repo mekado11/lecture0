@@ -6,6 +6,7 @@
 
 let admin;
 let initialized = false;
+let initMode = 'none'; // 'service_account', 'project_id', or 'none'
 
 function getAdmin() {
   if (initialized) return admin;
@@ -15,38 +16,42 @@ function getAdmin() {
     const projectId = process.env.FIREBASE_PROJECT_ID;
 
     if (!sa && !projectId) {
-      console.error('Firebase Admin: neither FIREBASE_SERVICE_ACCOUNT nor FIREBASE_PROJECT_ID is set. All API calls will be rejected.');
+      initMode = 'none';
       return null;
     }
 
     admin = require('firebase-admin');
     if (!admin.apps.length) {
       if (sa) {
-        // Full service account — enables all Admin SDK features
+        initMode = 'service_account';
         admin.initializeApp({ credential: admin.credential.cert(JSON.parse(sa)) });
       } else {
-        // Project ID only — sufficient for verifyIdToken(); no write operations
+        initMode = 'project_id';
         admin.initializeApp({ projectId });
       }
     }
     return admin;
   } catch (e) {
     console.error('Firebase Admin init failed:', e.message);
+    initMode = 'init_error';
     return null;
   }
 }
 
 async function verifyToken(req) {
   const header = req.headers.authorization || '';
-  if (!header.startsWith('Bearer ')) return null;
+  if (!header.startsWith('Bearer ')) return { user: null, reason: 'no_token' };
   const token = header.slice(7);
   const fb = getAdmin();
-  if (!fb) return null;
+  if (!fb) return { user: null, reason: 'admin_not_configured', initMode };
   try {
-    return await fb.auth().verifyIdToken(token);
+    const decoded = await fb.auth().verifyIdToken(token);
+    return { user: decoded, reason: 'ok' };
   } catch (e) {
-    return null;
+    return { user: null, reason: 'token_invalid', detail: e.code || e.message };
   }
 }
 
-module.exports = { verifyToken, getAdmin };
+function getInitMode() { return initMode; }
+
+module.exports = { verifyToken, getAdmin, getInitMode };
