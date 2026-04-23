@@ -530,7 +530,7 @@ Rules:
     if (currentUser) {
       try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch(e) {}
     }
-    headers['x-model'] = 'claude';
+    headers['x-model'] = 'openai-fast';
     const rewriteBody = JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 256,
