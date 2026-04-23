@@ -4,8 +4,8 @@ const { verifyToken, getAdmin } = require('./_auth');
 module.exports = async (req, res) => {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
 
-  const decoded = await verifyToken(req);
-  if (!decoded) {
+  const auth = await verifyToken(req);
+  if (!auth.user) {
     res.status(401).json({ error: 'Authentication required' });
     return;
   }
@@ -23,7 +23,7 @@ module.exports = async (req, res) => {
   }
 
   const db = fb.firestore();
-  const uid = decoded.uid;
+  const uid = auth.user.uid;
 
   try {
     const userDoc = await db.collection('users').doc(uid).get();

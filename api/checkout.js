@@ -16,15 +16,15 @@ module.exports = async (req, res) => {
   if (!stripeKey) { res.status(500).json({ error: 'Stripe not configured' }); return; }
 
   // Verify Firebase ID token — always fail closed; never trust client-supplied userId/email
-  const decoded = await verifyToken(req);
-  if (!decoded) {
+  const auth = await verifyToken(req);
+  if (!auth.user) {
     res.status(401).json({ error: 'Authentication required' }); return;
   }
 
   const safeOrigin = allowed.includes(origin) ? origin : 'https://authorscrolls.com';
   const { plan } = req.body;
-  const userId = decoded.uid;
-  const email = decoded.email;
+  const userId = auth.user.uid;
+  const email = auth.user.email;
   if (!userId || !email) { res.status(400).json({ error: 'Missing userId or email' }); return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { res.status(400).json({ error: 'Invalid email' }); return; }
 
