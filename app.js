@@ -1186,17 +1186,13 @@ function renderReader(r){
     await Storage.whenReady();
     const user=typeof firebase!=='undefined'?firebase.auth().currentUser:null;
     if(!user){alert('Please sign in first');return}
-    const isAdmin=window.__isAdmin||false;
-    if(!isAdmin){
-      // Check if paid (for now, show upgrade prompt for free users)
-      diagBtn.textContent='Analyzing...';diagBtn.disabled=true;
-    }
+    try{ await user.getIdToken(true); }catch(_){}
     try{
-      diagBtn.textContent='&#9889; AI analyzing weak passages...';diagBtn.disabled=true;
+      diagBtn.innerHTML='⚡ Analyzing weak passages...';diagBtn.disabled=true;
       const result=await AIEngine.analyzeWeaknesses(null,extractedText,analysisResult);
       const container=$('ai-weakness-result');
       if(!container)return;
-      if(result.parseError){container.innerHTML='<p style="color:var(--red);font-size:.75rem">AI analysis failed. Try again.</p>';diagBtn.disabled=false;diagBtn.textContent='&#9889; Retry AI Diagnosis';return}
+      if(result.parseError){container.innerHTML='<p style="color:var(--red);font-size:.75rem">AI analysis failed. Try again.</p>';diagBtn.disabled=false;diagBtn.innerHTML='⚡ Retry Diagnosis';return}
       let wh='';
       if(result.overall_pattern){wh+='<div style="background:var(--surface2);border-radius:var(--rs);padding:.5rem .65rem;margin-bottom:.5rem;border-left:3px solid var(--yellow)"><div style="font-size:.68rem;font-weight:600;color:var(--yellow);margin-bottom:.15rem">Pattern Detected</div><div style="font-size:.75rem;color:var(--text)">'+esc(result.overall_pattern)+'</div></div>'}
       if(result.priority_fix){wh+='<div style="background:var(--surface2);border-radius:var(--rs);padding:.5rem .65rem;margin-bottom:.5rem;border-left:3px solid var(--green)"><div style="font-size:.68rem;font-weight:600;color:var(--green);margin-bottom:.15rem">Priority Fix</div><div style="font-size:.75rem;color:var(--text)">'+esc(result.priority_fix)+'</div></div>'}
@@ -1213,11 +1209,11 @@ function renderReader(r){
         });
       }
       container.innerHTML=wh;
-      diagBtn.textContent='&#9889; Re-diagnose with AI';diagBtn.disabled=false;
+      diagBtn.innerHTML='⚡ Re-diagnose';diagBtn.disabled=false;
     }catch(e){
-      diagBtn.textContent='&#9889; Diagnose Weak Passages with AI';diagBtn.disabled=false;
+      diagBtn.innerHTML='⚡ Diagnose Weak Passages';diagBtn.disabled=false;
       const container=$('ai-weakness-result');
-      const diagMsg=e.message==='SESSION_EXPIRED'?'Session expired — reload the page to continue.':esc(e.message);
+      const diagMsg=e.message==='SESSION_EXPIRED'?'Connection issue — please try again. If it persists, reload the page.':esc(e.message);
       if(container)container.innerHTML='<p style="color:var(--red);font-size:.75rem">'+diagMsg+'</p>';
     }
   })}
@@ -2125,8 +2121,10 @@ async function runAI(key){
   if(!analysisResult)return;
   const st=$('ai-status'),stxt=$('ai-status-text');
   st.classList.remove('hidden');
-  stxt.textContent='Connecting to AI...';
+  stxt.textContent='Connecting...';
   await Storage.whenReady();
+  const u=typeof firebase!=='undefined'?firebase.auth().currentUser:null;
+  if(u){try{ await u.getIdToken(true); }catch(_){}}
   try{
     const ai=await AIEngine.runAllFeatures(key,extractedText,analysisResult,(l,i,n)=>{stxt.textContent=l+' ('+(i+1)+'/'+n+')'});
     // Check if first result has an error (proxy might be misconfigured)
