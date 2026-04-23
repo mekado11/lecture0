@@ -1,16 +1,18 @@
 // LanguageTool Grammar Enhancement
-// Calls the free LanguageTool API to supplement the local regex grammar checker
-// with 2000+ linguistic rules: comma splices, run-ons, dangling modifiers,
-// pronoun agreement, parallel structure, advanced punctuation, etc.
+// Calls LanguageTool API (via server proxy, with direct fallback) to supplement
+// the local regex grammar checker with 2000+ linguistic rules: comma splices,
+// run-ons, dangling modifiers, pronoun agreement, parallel structure, etc.
 //
 // The local checker handles: double words, subject-verb agreement, its/it's,
 // their/there, your/you're, tense shifts, capitalization, dialogue punctuation.
 // LanguageTool fills the gaps our regex can't reach.
 
 const GrammarEnhance = {
-  API_URL: 'https://api.languagetool.org/v2/check',
-  MAX_CHARS: 15000, // free tier limit per request
+  PROXY_URL: '/api/grammar',
+  DIRECT_URL: 'https://api.languagetool.org/v2/check',
+  MAX_CHARS: 15000,
   _cache: new Map(),
+  _useProxy: true,
 
   async check(text) {
     if (!text || text.length < 50) return [];
@@ -25,9 +27,7 @@ const GrammarEnhance = {
 
       for (const chunk of chunks) {
         const matches = await this._callAPI(chunk.text);
-        matches.forEach(m => {
-          m.offset += chunk.offset;
-        });
+        matches.forEach(m => { m.offset += chunk.offset; });
         allMatches.push(...matches);
       }
 
@@ -63,24 +63,44 @@ const GrammarEnhance = {
   },
 
   async _callAPI(text) {
+    if (this._useProxy) {
+      try {
+        return await this._callProxy(text);
+      } catch (e) {
+        console.warn('[GrammarEnhance] Proxy failed, trying direct:', e.message);
+        this._useProxy = false;
+      }
+    }
+    return await this._callDirect(text);
+  },
+
+  async _callProxy(text) {
+    const response = await fetch(this.PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text, language: 'en-US' })
+    });
+    if (!response.ok) throw new Error('Proxy returned ' + response.status);
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
+    return data.matches || [];
+  },
+
+  async _callDirect(text) {
     const params = new URLSearchParams({
       text: text,
       language: 'en-US',
-      disabledCategories: 'CASING,REDUNDANCY,STYLE',
+      disabledCategories: 'TYPOS,CASING,REDUNDANCY,STYLE',
       disabledRules: 'WHITESPACE_RULE,EN_QUOTES,DASH_RULE,WORD_CONTAINS_UNDERSCORE',
       level: 'picky'
     });
 
-    const response = await fetch(this.API_URL, {
+    const response = await fetch(this.DIRECT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString()
     });
-
-    if (!response.ok) {
-      throw new Error('LanguageTool API returned ' + response.status);
-    }
-
+    if (!response.ok) throw new Error('LanguageTool returned ' + response.status);
     const data = await response.json();
     return data.matches || [];
   },
@@ -100,7 +120,7 @@ const GrammarEnhance = {
       if (this._isInsideQuotes(fullText, offset) && this._isDialogueSafe(m.rule?.id)) continue;
 
       const replacement = m.replacements?.[0]?.value;
-      const severity = this._mapSeverity(m.rule?.category?.id, m.rule?.id);
+      const severity = this._mapSeverity(m.rule?.category?.id);
 
       issues.push({
         type: 'grammar',
@@ -122,7 +142,7 @@ const GrammarEnhance = {
     return issues;
   },
 
-  _mapSeverity(categoryId, ruleId) {
+  _mapSeverity(categoryId) {
     const high = ['AGREEMENT', 'GRAMMAR', 'TYPOS', 'CONFUSED_WORDS'];
     const medium = ['PUNCTUATION', 'COMPOUNDING', 'MISC'];
     if (high.includes(categoryId)) return 'high';

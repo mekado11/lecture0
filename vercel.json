@@ -4,7 +4,8 @@
     { "source": "/api/checkout", "destination": "/api/checkout" },
     { "source": "/api/notify", "destination": "/api/notify" },
     { "source": "/api/webhook", "destination": "/api/webhook" },
-    { "source": "/api/redeem", "destination": "/api/redeem" }
+    { "source": "/api/redeem", "destination": "/api/redeem" },
+    { "source": "/api/grammar", "destination": "/api/grammar" }
   ],
   "headers": [
     {
