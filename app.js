@@ -667,7 +667,8 @@ function renderRight(r){
     {k:'style',name:'Style & Voice',score:scores.style||0,issues:countType('weak-verb'),weight:'8%'},
     {k:'dialogue',name:'Dialogue',score:scores.dialogue||0,issues:countType('dialogue'),weight:'7%'},
     {k:'showTell',name:'Show vs Tell',score:scores.showTell||0,issues:stIssues,weight:'8%'},
-    {k:'copy',name:'Copy Editing',score:scores.copy||0,issues:countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word'),weight:'12%'}
+    {k:'copy',name:'Copy Editing',score:scores.copy||0,issues:countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word'),weight:'10%'},
+    {k:'grammar',name:'Grammar',score:scores.grammar||0,issues:countType('grammar'),weight:'10%'}
   ];
   const container=$('rp-scores');
   container.innerHTML=cats.map(c=>{
@@ -694,10 +695,11 @@ const _issueWhy={
   wordy:'Extra words slow pacing and dilute impact. Tight prose holds attention.',
   repetition:'Repeated words in close proximity suggest limited vocabulary and can feel monotonous to readers.',
   'sentence-length':'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',
-  'confused-word':'Wrong word — sounds right but means something different. These slip past spell-check.'
+  'confused-word':'Wrong word — sounds right but means something different. These slip past spell-check.',
+  grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.'
 };
 
-const _REWRITE_TYPES = new Set(['passive','adverb','weak-verb','show-tell','wordy','cliche']);
+const _REWRITE_TYPES = new Set(['passive','adverb','weak-verb','show-tell','wordy','cliche','grammar']);
 
 function _isPaid() {
   return window.__isAdmin || window.__userPlan === 'starter' || window.__userPlan === 'premium' || window.__userPlan === 'beta';
@@ -824,9 +826,9 @@ async function doRewrite(card) {
 
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
-  const typeMap={plot:'pov',clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:'dialogue',showTell:'show-tell',copy:null};
+  const typeMap={plot:'pov',clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:'dialogue',showTell:'show-tell',copy:null,grammar:'grammar'};
   const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing'};
-  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word'};
+  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar'};
   const t=typeMap[cat];
 
   // Sort by severity: high first, then medium, then low
@@ -1181,6 +1183,7 @@ function renderReader(r){
   // AI Weakness Diagnosis handler
   const diagBtn=d.querySelector('.ai-diagnose-btn');
   if(diagBtn){diagBtn.addEventListener('click',async()=>{
+    await Storage.whenReady();
     const user=typeof firebase!=='undefined'?firebase.auth().currentUser:null;
     if(!user){alert('Please sign in first');return}
     const isAdmin=window.__isAdmin||false;
@@ -1984,7 +1987,7 @@ function renderAnnotatedAsPages(text,issues){
     const hl=e.target.closest('.hl');
     if(hl&&!hl.classList.contains('off')){
       activeHL=hl;
-      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence','confused-word':'Wrong word'};
+      const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence','confused-word':'Wrong word',grammar:'Grammar issue'};
       const t=hl.dataset.t;
       const sug=hl.dataset.s||'';
       // Determine if this issue has an auto-replacement available
@@ -2099,6 +2102,7 @@ async function runAI(key){
   const st=$('ai-status'),stxt=$('ai-status-text');
   st.classList.remove('hidden');
   stxt.textContent='Connecting to AI...';
+  await Storage.whenReady();
   try{
     const ai=await AIEngine.runAllFeatures(key,extractedText,analysisResult,(l,i,n)=>{stxt.textContent=l+' ('+(i+1)+'/'+n+')'});
     // Check if first result has an error (proxy might be misconfigured)
@@ -2122,7 +2126,7 @@ async function runAI(key){
         intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Daily Limit Reached</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Free accounts get 3 AI analyses per day.</p><p style="color:var(--muted);font-size:.78rem">Resets at midnight UTC.</p><button class="btn-gold ai-upgrade-btn" style="width:auto;padding:.5rem 1.5rem;margin-top:1rem">&#9733; Upgrade to Premium — $5/mo</button><p style="color:var(--dim);font-size:.7rem;margin-top:.5rem">50 AI analyses/day + Claude deep critique</p></div>';
         intro.querySelector('.ai-upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
       }else if(isExpired){
-        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Session Expired</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Your session timed out after inactivity.</p><div style="display:flex;justify-content:center"><button class="btn-gold" style="width:auto;padding:.5rem 1.5rem" onclick="window.location.reload()">Reload to Continue</button></div></div>';
+        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Session Expired</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Your session timed out after inactivity.</p><div style="display:flex;justify-content:center"><button class="btn-gold" style="width:fit-content;padding:.5rem 1.5rem" onclick="window.location.reload()">Reload to Continue</button></div></div>';
       }else{
         intro.innerHTML='<div style="color:var(--red);padding:1rem"><h4>AI Analysis Error</h4><p style="margin:.5rem 0;font-size:.85rem">'+esc(msg)+'</p><button class="btn-gold" style="width:auto;padding:.4rem 1rem;margin-top:.75rem" onclick="runAI(null)">Retry</button></div>';
       }
@@ -2148,7 +2152,7 @@ c.innerHTML=h;c.querySelector('#clr-v')?.addEventListener('click',()=>{if(confir
 $('export-btn')?.addEventListener('click',()=>{
   if(!analysisResult||!extractedText)return;
   const r=analysisResult;
-  const issueColors={passive:'#FFD700','weak-verb':'#FFA500',adverb:'#87CEEB',cliche:'#FF6347',wordy:'#DDA0DD','show-tell':'#98FB98',repetition:'#F0E68C','sentence-length':'#FFC0CB'};
+  const issueColors={passive:'#FFD700','weak-verb':'#FFA500',adverb:'#87CEEB',cliche:'#FF6347',wordy:'#DDA0DD','show-tell':'#98FB98',repetition:'#F0E68C','sentence-length':'#FFC0CB',grammar:'#FF4444'};
   const issueLabels={passive:'Passive Voice','weak-verb':'Weak Verb',adverb:'Adverb',cliche:'Cliché',wordy:'Wordy','show-tell':'Show vs Tell',repetition:'Repetition','sentence-length':'Long Sentence'};
 
   // Build annotated HTML
