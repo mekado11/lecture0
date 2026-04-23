@@ -3,6 +3,15 @@ let uploadedFile=null,extractedText='',analysisResult=null;
 const $=id=>document.getElementById(id);
 document.body.classList.add('lib-mode'); // Library is first view — allow scroll
 
+function _authDiagnosticMessage(msg) {
+  const parts = msg.replace('SERVER_AUTH_ERROR:', '').split(':');
+  const reason = parts[0];
+  if (reason === 'admin_not_configured') return 'Server config error: Firebase not initialized. The site admin needs to set FIREBASE_PROJECT_ID in Vercel environment variables.';
+  if (reason === 'no_token') return 'Your browser did not send an auth token. Try reloading the page.';
+  if (reason === 'token_invalid') return 'Your login token was rejected by the server. Try signing out and back in.';
+  return 'Authentication failed (' + reason + '). Try reloading the page.';
+}
+
 // Web Worker for off-main-thread analysis
 // Note: no global onmessage handler here — each caller adds its own per-request handler
 // to avoid double-processing the same result (global + per-request both firing).
@@ -27,7 +36,7 @@ $('analyze-btn').addEventListener('click',async()=>{
   try{
     $('loader-text').textContent='Extracting...';
     extractedText=await ext(uploadedFile);
-    _smartScanDone=false;_batchFixDone=false;
+    _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;
     $('loader-text').textContent='Analyzing...';
     if(_analyzerWorker){
       _analyzeVersion++;
@@ -232,6 +241,46 @@ function renderAll(){
   maybeRunSmartScan(r);
   // Batch Fix — one call per manuscript, cached 24h
   maybeBatchFix(r);
+  // LanguageTool grammar enhancement — runs async after initial render
+  _enhanceGrammar(r);
+}
+
+let _ltEnhanceDone=false;
+async function _enhanceGrammar(r){
+  if(_ltEnhanceDone||!r||!extractedText)return;
+  if(typeof GrammarEnhance==='undefined')return;
+  _ltEnhanceDone=true;
+  try{
+    const ltIssues=await GrammarEnhance.check(extractedText);
+    if(!ltIssues.length)return;
+    const existingPositions=new Set();
+    r.issues.forEach(i=>{if(i.type==='grammar')existingPositions.add(i.index+':'+i.length)});
+    let added=0;
+    for(const lt of ltIssues){
+      const key=lt.index+':'+lt.length;
+      if(existingPositions.has(key))continue;
+      let overlaps=false;
+      for(const ex of r.issues){
+        if(ex.type==='grammar'&&Math.abs(ex.index-lt.index)<5){overlaps=true;break}
+      }
+      if(overlaps)continue;
+      r.issues.push(lt);
+      added++;
+    }
+    if(added>0){
+      r.issueCounts.grammar=(r.issueCounts.grammar||0)+added;
+      const grammarFiltered=r.issues.filter(i=>i.type==='grammar');
+      const grammarPerK=(grammarFiltered.length/Math.max(r.totalWords,1))*1000;
+      r.scores.grammar=Math.min(100,Math.max(0,Math.round(
+        100-Math.min(50,grammarPerK*8)-
+        Math.min(30,grammarFiltered.filter(i=>i.severity==='high').length*4)-
+        Math.min(15,grammarFiltered.filter(i=>i.severity==='medium').length*1.5)
+      )));
+      renderRight(r);
+      renderAnnotated(extractedText,r.issues);
+      console.log('[GrammarEnhance] +'+added+' issues from LanguageTool (total grammar: '+grammarFiltered.length+')');
+    }
+  }catch(e){console.warn('[GrammarEnhance] skipped:',e.message)}
 }
 
 // AI-powered smart scan: runs once per manuscript for paid/admin users
@@ -519,7 +568,7 @@ function _onAnalysisComplete(newResult){
     const newCount=newResult.issues.length;
     if(newCount<prevCount)_issuesResolved+=(prevCount-newCount);
     analysisResult=newResult;
-    _batchFixDone=false;_smartScanDone=false;
+    _batchFixDone=false;_smartScanDone=false;_ltEnhanceDone=false;
     diffHighlights(newResult.issues);
     updateScoresOnly(newResult);
     document.querySelectorAll('.rsc,.rp-detail,.gauge-wrap').forEach(el=>el.classList.remove('scores-pending'));
@@ -809,14 +858,15 @@ async function doRewrite(card) {
     });
 
   } catch(err) {
-    const errMsg=err.message==='SESSION_EXPIRED'?'Session expired — reload the page to continue.':esc(err.message);
+    const isAuthErr = err.message.startsWith('SERVER_AUTH_ERROR:');
+    const errMsg = isAuthErr ? _authDiagnosticMessage(err.message) : esc(err.message);
     btns.innerHTML =
       '<div class="rpd-rewrite-error">⚠ ' + errMsg + '</div>' +
       '<div class="rpd-rewrite-actions">' +
-        (err.message==='SESSION_EXPIRED'?'<button class="rpd-retry-btn" onclick="window.location.reload()">Reload</button>':'<button class="rpd-retry-btn">Try Again</button>') +
+        (isAuthErr?'<button class="rpd-retry-btn" onclick="window.location.reload()">Reload</button>':'<button class="rpd-retry-btn">Try Again</button>') +
         '<button class="rpd-skip-btn">Skip</button>' +
       '</div>';
-    if(err.message!=='SESSION_EXPIRED')btns.querySelector('.rpd-retry-btn').addEventListener('click', () => doRewrite(card));
+    if(!isAuthErr)btns.querySelector('.rpd-retry-btn').addEventListener('click', () => doRewrite(card));
     btns.querySelector('.rpd-skip-btn').addEventListener('click', () => {
       btns.innerHTML = _cardBtnsHtml(card);
       wireCardBtns(card, btns);
@@ -1175,10 +1225,12 @@ function renderReader(r){
     h+='</div>';
   }
   const ec={exciting:'#c0392b',tense:'#f39c12',sad:'#2980b9',calm:'#27ae60',hopeful:'#8e44ad'};
+  if(rp.emotionalJourney&&rp.emotionalJourney.length>0){
   h+='<div class="a-sec"><h3>Emotional Journey</h3>';
   rp.emotionalJourney.forEach(e=>{h+='<div class="emo-row"><span class="emo-name">'+e.emotion+'</span><div class="emo-track"><div class="emo-fill" style="width:'+e.intensity+'%;background:'+(ec[e.emotion]||'#888')+'"></div></div><span style="font-size:.62rem;color:var(--muted);width:35px">'+e.intensity+'%</span></div>'});
   h+='</div>';
-  if(rp.immersionBreakers.length>0){h+='<div class="a-sec"><h3>Immersion Breakers ('+rp.immersionBreakers.length+')</h3>';rp.immersionBreakers.forEach(b=>{h+='<div style="padding:.35rem .5rem;border-left:3px solid var(--yellow);margin-bottom:.3rem;font-size:.78rem;background:var(--surface2);border-radius:0 var(--rs) var(--rs) 0"><div>'+esc(b.reason)+'</div><div style="font-size:.65rem;color:var(--muted)">'+esc(b.location)+'</div></div>'});h+='</div>'}
+  }
+  if(rp.immersionBreakers&&rp.immersionBreakers.length>0){h+='<div class="a-sec"><h3>Immersion Breakers ('+rp.immersionBreakers.length+')</h3>';rp.immersionBreakers.forEach(b=>{h+='<div style="padding:.35rem .5rem;border-left:3px solid var(--yellow);margin-bottom:.3rem;font-size:.78rem;background:var(--surface2);border-radius:0 var(--rs) var(--rs) 0"><div>'+esc(b.reason)+'</div><div style="font-size:.65rem;color:var(--muted)">'+esc(b.location)+'</div></div>'});h+='</div>'}
   d.innerHTML=h;
   // AI Weakness Diagnosis handler
   const diagBtn=d.querySelector('.ai-diagnose-btn');
@@ -1213,7 +1265,7 @@ function renderReader(r){
     }catch(e){
       diagBtn.innerHTML='⚡ Diagnose Weak Passages';diagBtn.disabled=false;
       const container=$('ai-weakness-result');
-      const diagMsg=e.message==='SESSION_EXPIRED'?'Connection issue — please try again. If it persists, reload the page.':esc(e.message);
+      const diagMsg=e.message.startsWith('SERVER_AUTH_ERROR:')?_authDiagnosticMessage(e.message):esc(e.message);
       if(container)container.innerHTML='<p style="color:var(--red);font-size:.75rem">'+diagMsg+'</p>';
     }
   })}
@@ -2141,14 +2193,15 @@ async function runAI(key){
     st.classList.add('hidden');
     const msg=e.message||'Unknown error';
     const isRateLimit=msg.includes('limit reached')||msg.includes('RATE_LIMITED');
-    const isExpired=msg==='SESSION_EXPIRED';
+    const isAuthErr=msg.startsWith('SERVER_AUTH_ERROR:');
     const intro=document.querySelector('.ai-intro');
     if(intro){
       if(isRateLimit){
         intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Daily Limit Reached</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Free accounts get 3 AI analyses per day.</p><p style="color:var(--muted);font-size:.78rem">Resets at midnight UTC.</p><button class="btn-gold ai-upgrade-btn" style="width:auto;padding:.5rem 1.5rem;margin-top:1rem">&#9733; Upgrade to Premium — $5/mo</button><p style="color:var(--dim);font-size:.7rem;margin-top:.5rem">50 AI analyses/day + Claude deep critique</p></div>';
         intro.querySelector('.ai-upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
-      }else if(isExpired){
-        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Session Expired</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Your session timed out after inactivity.</p><div style="display:flex;justify-content:center"><button class="btn-gold" style="width:fit-content;padding:.5rem 1.5rem" onclick="window.location.reload()">Reload to Continue</button></div></div>';
+      }else if(isAuthErr){
+        const diagText=_authDiagnosticMessage(msg);
+        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Authentication Error</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">'+esc(diagText)+'</p><div style="display:flex;justify-content:center"><button class="btn-gold" style="width:fit-content;padding:.5rem 1.5rem" onclick="window.location.reload()">Reload to Continue</button></div></div>';
       }else{
         intro.innerHTML='<div style="color:var(--red);padding:1rem"><h4>AI Analysis Error</h4><p style="margin:.5rem 0;font-size:.85rem">'+esc(msg)+'</p><button class="btn-gold" style="width:auto;padding:.4rem 1rem;margin-top:.75rem" onclick="runAI(null)">Retry</button></div>';
       }

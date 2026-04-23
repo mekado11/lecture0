@@ -2,7 +2,7 @@
 // Routes: OpenAI (fast/cheap) for most tasks, Claude (premium) for deep analysis
 // Rate limited per user per day
 const https = require('https');
-const { verifyToken, getAdmin } = require('./_auth');
+const { verifyToken, getAdmin, getInitMode } = require('./_auth');
 const { checkAndIncrement, getCount } = require('./_ratelimit');
 
 const LIMITS = { dev: 9999, beta: 5, premium: 5, starter: 1, free: 0 };
@@ -46,20 +46,56 @@ module.exports = async (req, res) => {
   } else {
     res.setHeader('Access-Control-Allow-Origin', 'https://authorscrolls.com');
   }
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, X-Model, Authorization');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
+  // GET = health check — visit /api/claude in browser to see server config status
+  if (req.method === 'GET') {
+    const fb = getAdmin();
+    const mode = getInitMode();
+    const hasClaudeKey = !!process.env.CLAUDE_API_KEY;
+    const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
+    res.status(200).json({
+      status: fb ? 'ok' : 'misconfigured',
+      firebase_admin: fb ? 'initialized' : 'NOT initialized — auth will fail for all requests',
+      init_mode: mode,
+      env_vars: {
+        FIREBASE_SERVICE_ACCOUNT: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+        FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID || false,
+        CLAUDE_API_KEY: hasClaudeKey,
+        OPENAI_API_KEY: hasOpenAIKey
+      },
+      fix: !fb ? 'Set FIREBASE_PROJECT_ID=writers-manuscript in Vercel Environment Variables, then redeploy' : null
+    });
+    return;
+  }
+
   if (req.method !== 'POST') { res.status(405).json({ error: { message: 'Method not allowed' } }); return; }
 
   if (req.body.test === true && process.env.NODE_ENV !== 'production') { res.json({ ok: true }); return; }
 
   // Verify Firebase ID token — always fail closed; no fallback to client-supplied identity
-  const decoded = await verifyToken(req);
-  if (!decoded) {
-    res.status(401).json({ error: { message: 'Authentication required', code: 'UNAUTHENTICATED' } });
+  const auth = await verifyToken(req);
+  if (!auth.user) {
+    const diagMessages = {
+      no_token: 'No Authorization header sent by client',
+      admin_not_configured: 'Server misconfigured: Firebase Admin not initialized (set FIREBASE_PROJECT_ID or FIREBASE_SERVICE_ACCOUNT env var)',
+      token_invalid: 'Token verification failed: ' + (auth.detail || 'unknown'),
+      init_error: 'Firebase Admin failed to initialize'
+    };
+    res.status(401).json({
+      error: {
+        message: 'Authentication required',
+        code: 'UNAUTHENTICATED',
+        reason: auth.reason,
+        diagnostic: diagMessages[auth.reason] || auth.reason
+      }
+    });
     return;
   }
 
+  const decoded = auth.user;
   const userId = decoded.uid;
   const userEmail = (decoded.email || '').toLowerCase();
   const today = new Date().toISOString().split('T')[0];
