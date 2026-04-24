@@ -28,7 +28,7 @@ dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over
 fi.addEventListener('change',e=>{if(e.target.files.length)hf(e.target.files[0])});
 $('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('analyze-btn').classList.add('hidden');fi.value=''});
 function hf(f){const x=f.name.split('.').pop().toLowerCase();if(!['docx','pdf','txt'].includes(x)){alert('Upload .docx, .pdf, or .txt');return}if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');$('analyze-btn').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden')}
-async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const c=await(await p.getPage(i)).getTextContent();t+=c.items.map(x=>x.str).join(' ')+'\n\n'}return t}}
+async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const content=await(await p.getPage(i)).getTextContent();const items=content.items;let pageLines=[];let curLine='';let prevY=null,prevX=null,prevW=0;for(const item of items){if(!item.str)continue;const ix=item.transform[4],iy=item.transform[5];if(prevY!==null&&Math.abs(iy-prevY)>3){if(curLine.trim())pageLines.push(curLine.trim());curLine='';prevX=null;prevW=0;}if(prevX!==null&&ix-(prevX+prevW)>1)curLine+=' ';curLine+=item.str;prevY=iy;prevX=ix;prevW=item.width||0;}if(curLine.trim())pageLines.push(curLine.trim());t+=pageLines.join('\n')+'\n\n';}return t}}
 $('analyze-btn').addEventListener('click',async()=>{
   if(!uploadedFile)return;
   $('analyze-btn').classList.add('hidden');
@@ -1988,8 +1988,11 @@ function renderAnnotatedAsPages(text,issues){
   const chapterRe=/^(chapter\s+\d+\s*:?[^\n]*|chapter\s+[a-z]+\s*:?[^\n]*|part\s+\d+\s*:?[^\n]*|part\s+[a-z]+\s*:?[^\n]*|prologue\s*:?[^\n]*|epilogue\s*:?[^\n]*)/i;
   const sceneBreakRe=/^\s*(\*\s*\*\s*\*|#\s*#\s*#|---+|~~~+|\* \* \*)\s*$/;
 
+  // sentence-length issues span full sentences (100-300 chars) and block all per-word highlights
+  // inside them — show them in the scores panel only, not as inline annotation spans
+  const inlineIssues=issues.filter(i=>i.type!=='sentence-length'&&i.index>=0&&i.length>0);
   // Build non-overlapping issues sorted by position
-  const sorted=[...issues].sort((a,b)=>a.index-b.index);
+  const sorted=[...inlineIssues].sort((a,b)=>a.index-b.index);
   const noOverlap=[];let lastEnd=-1;
   for(const i of sorted){if(i.index>=lastEnd){noOverlap.push(i);lastEnd=i.index+i.length}}
 
