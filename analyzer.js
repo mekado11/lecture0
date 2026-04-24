@@ -2582,7 +2582,7 @@ const Analyzer = {
   _scoreSection(text, evalMode) {
     const words = text.split(/\s+/).filter(w => w.length > 0);
     const totalWords = words.length;
-    if (totalWords < 10) return null;
+    if (totalWords < 10) return { hook_strength: 2, clarity: 2, forward_motion: 2, specificity: 2, redundancy: 5, payoff: 2 };
 
     const lower = text.toLowerCase();
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 5);
@@ -2709,8 +2709,7 @@ const Analyzer = {
   },
 
   _scoresToDNFRisk(scores, evalMode) {
-    // Weighted average of dimensions → convert to risk on 0-100 scale.
-    // Baselines start at 2-3; quality must be earned. Mediocre text scores low.
+    if (!scores) return 80;
     const wt = evalMode === 'opening'
       ? { hook_strength: 0.30, clarity: 0.20, forward_motion: 0.18, redundancy: 0.14, specificity: 0.12, payoff: 0.06 }
       : evalMode === 'closing'
@@ -2723,6 +2722,7 @@ const Analyzer = {
   },
 
   _buildReasons(scores, evalMode) {
+    if (!scores) return ['Insufficient text for analysis'];
     const reasons = [];
     const labels = {
       hook_strength: 'Weak opening — no curiosity, tension, or promise to hook the reader',
@@ -2846,7 +2846,7 @@ const Analyzer = {
     const avgScores = {};
     const dims = ['hook_strength', 'clarity', 'forward_motion', 'specificity', 'redundancy', 'payoff'];
     for (const d of dims) {
-      avgScores[d] = Math.round(sectionScores.reduce((s, sec) => s + sec.scores[d], 0) / sectionScores.length);
+      avgScores[d] = Math.round(sectionScores.reduce((s, sec) => s + (sec.scores?.[d] || 2), 0) / sectionScores.length);
     }
 
     const overallRisk = this._scoresToDNFRisk(avgScores, evalMode);
