@@ -199,7 +199,6 @@ function renderAll(){
   _ltEnhanceDone=false;_smartScanDone=false;_batchFixDone=false;
   $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
-  $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
   drawGauge(r.overall||0);
 
   // Live score + delta tracking
@@ -226,6 +225,9 @@ function renderAll(){
   if(genreOverride&&r.genre){
     if(!genreOverride.value&&r.genre.primary){genreOverride.value=r.genre.primary}
   }
+  // Topbar genre shows the user-overridden label (secondary cleared on override)
+  if(activeGenre&&r.genre)r.genre.secondary=null;
+  $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
 
   renderSceneIntel(r);
   renderBookPreview(r);
