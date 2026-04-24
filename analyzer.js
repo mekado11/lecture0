@@ -60,7 +60,14 @@ const Analyzer = {
     'pleased','satisfied','determined','experienced','advanced','complicated',
     'dedicated','detailed','distinguished','educated','exhausted','fascinated',
     'frightened','frustrated','motivated','organized','overwhelmed','relaxed',
-    'reserved','skilled','stressed','talented','thrilled','touched','troubled'
+    'reserved','skilled','stressed','talented','thrilled','touched','troubled',
+    'terrified','scared','concerned','convinced','confused','depressed',
+    'embarrassed','amazed','annoyed','ashamed','devoted','disappointed',
+    'disgusted','horrified','impressed','obsessed','panicked','perplexed',
+    'prepared','puzzled','relieved','shocked','startled','stunned',
+    'committed','focused','inspired','attached','composed','connected',
+    'distracted','disturbed','doomed','engaged','humiliated','isolated',
+    'offended','paralyzed','rattled','resigned','settled','trapped'
   ]),
 
   // ========================

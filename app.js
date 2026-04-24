@@ -940,22 +940,22 @@ function showDetail(cat){
     const searchQ=issueText.substring(0,60).replace(/"/g,'&quot;');
     const hl=page.querySelector('.hl[data-q="'+searchQ+'"]');
     if(hl){hl.scrollIntoView({behavior:'smooth',block:'center'});hl.style.outline='3px solid var(--gold)';hl.style.outlineOffset='3px';setTimeout(()=>{hl.style.outline=''},3000)}
+    else{_showSaveToast('This is a general finding — review the annotated text for examples')}
   })});
   d.querySelectorAll('.rpd-fix-btn').forEach(btn=>{btn.addEventListener('click',()=>{
     const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;
     const page=$('ed-annotated');
     const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');
-    if(!hl)return;
     // Switch to annotated view
     document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
     document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
     document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
     $('ed-annotated')?.classList.add('active');
+    if(!hl){_showSaveToast('This is a general finding — review the annotated text for examples');return}
     if(card.dataset.hasFix==='1'){
       replaceAndFix(hl);
       card.style.opacity='.3';card.style.pointerEvents='none';
     }else{
-      // No auto-fix — scroll to it and select for editing
       hl.scrollIntoView({behavior:'smooth',block:'center'});
       setTimeout(()=>{
         const sel=window.getSelection();const range=document.createRange();
