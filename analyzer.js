@@ -325,8 +325,19 @@ const Analyzer = {
         } else {
           const verb = lastWord;
           const activePast = this.PARTICIPLE_TO_PAST[verb] || verb;
-          const auxiliary = match[0].split(/\s+/)[0].toLowerCase();
-          suggestion = 'Rewrite in active voice. “' + match[0] + '” → find the doer and lead with them: “[subject] ' + activePast + '.”';
+          // Look backward for a subject (pronoun or name) in the same sentence
+          const sentBack = text.lastIndexOf('.', match.index - 1);
+          const beforePassive = text.substring(sentBack === -1 ? 0 : sentBack + 1, match.index).trim();
+          const pronounHit = beforePassive.match(/\b(I|you|he|she|they|we|it|anyone|someone|everyone|nobody)\b/gi);
+          const nameHit = beforePassive.match(/\b([A-Z][a-z]{2,})\b/g);
+          const subject = pronounHit ? pronounHit[pronounHit.length - 1] : nameHit ? nameHit[nameHit.length - 1] : null;
+          const doer = subject || 'someone';
+          // Build a plain-English suggestion with a concrete example
+          if (activePast !== verb) {
+            suggestion = `”${match[0].trim()}” hides who's acting. Ask: who did this? Then rewrite starting with them. Try: “${doer} ${activePast}...”`;
+          } else {
+            suggestion = `”${match[0].trim()}” is passive — we don't see who's responsible. Ask: who is doing this to whom? Start your sentence with that person instead.`;
+          }
         }
 
         issues.push({
