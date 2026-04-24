@@ -199,7 +199,6 @@ function renderAll(){
   _ltEnhanceDone=false;_smartScanDone=false;_batchFixDone=false;
   $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
-  $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
   drawGauge(r.overall||0);
 
   // Live score + delta tracking
@@ -226,6 +225,9 @@ function renderAll(){
   if(genreOverride&&r.genre){
     if(!genreOverride.value&&r.genre.primary){genreOverride.value=r.genre.primary}
   }
+  // Topbar genre shows the user-overridden label (secondary cleared on override)
+  if(activeGenre&&r.genre)r.genre.secondary=null;
+  $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
 
   renderSceneIntel(r);
   renderBookPreview(r);
@@ -473,14 +475,14 @@ function renderSceneIntel(r){
   el.innerHTML=h;
   // Focus mode: hides sidebars
   $('focus-toggle')?.addEventListener('click',()=>{
-    const lp=$('left-panel'),rp2=$('right-panel'),pp=$('preview-panel'),gb=$('goal-bar'),badge=document.querySelector('.focus-badge');
+    const lp=$('left-panel'),rp2=$('right-panel'),gb=$('goal-bar'),badge=document.querySelector('.focus-badge');
     const isOn=badge.textContent==='ON';
     if(isOn){
-      if(lp)lp.style.display='';if(rp2)rp2.style.display='';if(pp)pp.style.display='';if(gb)gb.style.display='';
+      if(lp)lp.style.display='';if(rp2)rp2.style.display='';if(gb)gb.style.display='';
       badge.textContent='OFF';badge.className='focus-badge off';
       document.getElementById('focus-exit-pill')?.remove();
     }else{
-      if(lp)lp.style.display='none';if(rp2)rp2.style.display='none';if(pp)pp.style.display='none';if(gb)gb.style.display='none';
+      if(lp)lp.style.display='none';if(rp2)rp2.style.display='none';if(gb)gb.style.display='none';
       badge.textContent='ON';badge.className='focus-badge';
       // Show a floating "Exit Focus Mode" pill
       let pill=document.getElementById('focus-exit-pill');
@@ -875,14 +877,29 @@ async function doRewrite(card) {
 
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
-  const typeMap={plot:'pov',clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:'dialogue',showTell:'show-tell',copy:null,grammar:'grammar'};
-  const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing'};
-  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar'};
-  const t=typeMap[cat];
+  const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
+  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar',pov:'POV Issue',hook:'Opening Problem',tags:'Dialogue Tags',conciseness:'Conciseness',showing:'Show Don\'t Tell',purpose:'Dialogue Purpose',naturalness:'Naturalness'};
+  const catWhy={clarity:'Passive voice distances the reader. Active voice creates immediacy and clarity.',pacing:'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Generic verbs ("made", "went", "got") miss an opportunity to create vivid, specific imagery.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing catches the mechanical issues — passive voice, adverbs, clichés, wordy phrasing, and word confusion.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:'Readers need forward momentum — clear stakes, rising tension, and consistent point of view.'};
+
+  // Canonical issue source per category — both card and detail derive from the same data
+  const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word']);
+  let issues;
+  if(cat==='hook'){
+    issues=(r.openingDiagnosis?.problems||[]).map(p=>({type:'hook',text:p.desc||p.title||'',suggestion:p.fix||p.desc||'',severity:p.severity||'medium',index:0,length:0}));
+  }else if(cat==='dialogue'){
+    issues=(r.dialogue?.findings||[]).map(f=>({type:f.type||'dialogue',text:f.message||'',suggestion:f.message||'',severity:f.severity||'medium',index:0,length:0}));
+  }else if(cat==='plot'){
+    issues=(r.lineEditing?.findings||[]).filter(f=>f.type==='pov').map(f=>({type:'pov',text:f.message||'',suggestion:f.message||'',severity:f.severity||'medium',index:0,length:0}));
+  }else if(cat==='copy'){
+    issues=r.issues.filter(i=>copyTypes.has(i.type));
+  }else{
+    const directMap={clarity:'passive',pacing:'sentence-length',style:'weak-verb',showTell:'show-tell',grammar:'grammar'};
+    const t=directMap[cat];
+    issues=t?r.issues.filter(i=>i.type===t):[];
+  }
 
   // Sort by severity: high first, then medium, then low
   const sevOrder={high:0,medium:1,low:2};
-  let issues=t?r.issues.filter(i=>i.type===t):r.issues.slice();
   issues.sort((a,b)=>(sevOrder[a.severity]||2)-(sevOrder[b.severity]||2));
   const totalForCat=issues.length;
   const shown=issues.slice(0,8);
@@ -897,7 +914,7 @@ function showDetail(cat){
 
   d.innerHTML=progressHtml+
     '<div class="rpd-title"><span style="font-size:1.1rem">'+titles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">'+totalForCat+' issue'+(totalForCat===1?'':'s')+'</span></div>'+
-    (_issueWhy[t]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+_issueWhy[t]+'</div>':'')+
+    (catWhy[cat]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+catWhy[cat]+'</div>':'')+
     (shown.length===0?(cat==='plot'&&r.scores.plot<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the plot structure score is <strong style="color:var(--yellow)">'+r.scores.plot+'/100</strong>.</p><p style="margin-top:.3rem">The engine evaluates arc progression, conflict setup, and tension distribution. Consider whether your opening establishes clear stakes and whether tension builds through the middle.</p></div>':cat==='dialogue'&&r.scores.dialogue<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the dialogue score is <strong style="color:var(--yellow)">'+r.scores.dialogue+'/100</strong>.</p><p style="margin-top:.3rem">Review dialogue for natural rhythm, distinct character voices, and balance between dialogue and narration.</p></div>':'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No issues in this category. Nice work!</p>'):
     shown.map((iss,idx)=>{
       const canAIFix=_REWRITE_TYPES.has(iss.type)&&_isPaid();
@@ -1279,9 +1296,8 @@ function syncPreview(){
     if(analysisResult&&extractedText){
       const page=$('ed-annotated');
       if(page)extractedText=page.innerText;
-      // Only re-paginate if the preview panel is actually visible
-      const pvPanel=$('preview-panel');
-      if(pvPanel&&pvPanel.style.display!=='none'){
+      // Only re-paginate if the preview tab is currently active
+      if($('ed-preview')?.classList.contains('active')){
         renderBookPreview(analysisResult);
         buildChapterNav();
       }
@@ -1546,14 +1562,6 @@ function renderBookPreview(r){
       }
     })});
 
-    // Collapse toggle
-    const pvToggleBtn=$('pv-toggle');
-      if(pvToggleBtn){
-      pvToggleBtn.addEventListener('click',()=>{
-        const p=$('preview-panel');p.classList.toggle('collapsed');
-        pvToggleBtn.textContent=p.classList.contains('collapsed')?'\u00BB':'\u00AB';
-      });
-      };
   }
 
   // Re-paginate on resize — use a single named handler so it can be replaced without stacking
@@ -1715,23 +1723,25 @@ document.querySelectorAll('.btab').forEach(t=>{t.addEventListener('click',()=>{
   const target=$('ed-'+t.dataset.p);
   if(target){
     target.classList.add('active');
-    if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page')){target.classList.add('dark-page')}
+    if(t.dataset.p!=='annotated'&&t.dataset.p!=='preview'&&!target.classList.contains('dark-page')){target.classList.add('dark-page')}
   }
-  // Chapter nav only visible on Detailed (annotated) tab
+  // Chapter nav only visible on annotated tab
   const chNav=$('chapter-nav');
   if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';
+  // Render book preview when preview tab is opened
+  if(t.dataset.p==='preview'&&analysisResult&&extractedText){renderBookPreview(analysisResult);buildChapterNav()}
 })});
 // Bottom-icon buttons
 (function(){
   const tabs=Array.from(document.querySelectorAll('.btab'));
-  function activateTab(t){tabs.forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}const chNav=$('chapter-nav');if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';}
+  function activateTab(t){tabs.forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(t.dataset.p!=='annotated'&&t.dataset.p!=='preview'&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}const chNav=$('chapter-nav');if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';if(t.dataset.p==='preview'&&analysisResult&&extractedText){renderBookPreview(analysisResult);buildChapterNav()}}
   $('bi-prev-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur>0)activateTab(tabs[cur-1])});
   $('bi-next-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur<tabs.length-1)activateTab(tabs[cur+1])});
   $('bi-fullscreen')?.addEventListener('click',()=>{
-    const lp=$('left-panel'),rp2=$('right-panel'),pp=$('preview-panel');
+    const lp=$('left-panel'),rp2=$('right-panel');
     const hidden=lp?.style.display==='none';
-    if(hidden){if(lp)lp.style.display='';if(rp2)rp2.style.display='';if(pp)pp.style.display=''}
-    else{if(lp)lp.style.display='none';if(rp2)rp2.style.display='none';if(pp)pp.style.display='none'}
+    if(hidden){if(lp)lp.style.display='';if(rp2)rp2.style.display=''}
+    else{if(lp)lp.style.display='none';if(rp2)rp2.style.display='none'}
   });
   let _fontSize=16;
   $('bi-zoom-in')?.addEventListener('click',()=>{_fontSize=Math.min(22,_fontSize+1);document.querySelectorAll('.ms-page').forEach(p=>p.style.fontSize=_fontSize+'px')});

@@ -325,8 +325,19 @@ const Analyzer = {
         } else {
           const verb = lastWord;
           const activePast = this.PARTICIPLE_TO_PAST[verb] || verb;
-          const auxiliary = match[0].split(/\s+/)[0].toLowerCase();
-          suggestion = 'Rewrite in active voice. “' + match[0] + '” → find the doer and lead with them: “[subject] ' + activePast + '.”';
+          // Look backward for a subject (pronoun or name) in the same sentence
+          const sentBack = text.lastIndexOf('.', match.index - 1);
+          const beforePassive = text.substring(sentBack === -1 ? 0 : sentBack + 1, match.index).trim();
+          const pronounHit = beforePassive.match(/\b(I|you|he|she|they|we|it|anyone|someone|everyone|nobody)\b/gi);
+          const nameHit = beforePassive.match(/\b([A-Z][a-z]{2,})\b/g);
+          const subject = pronounHit ? pronounHit[pronounHit.length - 1] : nameHit ? nameHit[nameHit.length - 1] : null;
+          const doer = subject || 'someone';
+          // Build a plain-English suggestion with a concrete example
+          if (activePast !== verb) {
+            suggestion = `”${match[0].trim()}” hides who's acting. Ask: who did this? Then rewrite starting with them. Try: “${doer} ${activePast}...”`;
+          } else {
+            suggestion = `”${match[0].trim()}” is passive — we don't see who's responsible. Ask: who is doing this to whom? Start your sentence with that person instead.`;
+          }
         }
 
         issues.push({
@@ -1376,9 +1387,14 @@ const Analyzer = {
     const capRe = /([.!?])\s+([a-z])/g;
     let cm;
     while ((cm = capRe.exec(text)) !== null) {
-      const before = text.substring(Math.max(0, cm.index - 10), cm.index + 1);
-      if (/\b(Mr|Mrs|Ms|Dr|St|Jr|Sr|vs|etc|e\.g|i\.e)\.$/i.test(before)) continue;
+      const before = text.substring(Math.max(0, cm.index - 15), cm.index + 1);
       if (/\.\.\.$/.test(before)) continue;
+      // Single uppercase letter + period (U.S., A.M., D.C.)
+      if (/\b[A-Z]\.\s*$/.test(before)) continue;
+      // Internal-period abbreviation (Ph.D., e.g., i.e., a.m.)
+      if (/\.\w\.$/i.test(before)) continue;
+      // Known abbreviations — titles, academic, months, legal, citation
+      if (/\b(Mr|Mrs|Ms|Dr|Prof|Rev|Gen|Gov|Rep|Sen|Sgt|Lt|Capt|Maj|Col|Jr|Sr|Hon|Fr|St|vs|etc|al|ed|eds|vol|no|pp|pt|ch|fig|sec|dept|govt|corp|inc|ltd|approx|est|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.\s*$/i.test(before)) continue;
       const charIdx = cm.index + cm[0].length - 1;
       const badChar = text[charIdx];
       issues.push({
@@ -1487,33 +1503,10 @@ const Analyzer = {
       if (frag.length <= 3) continue;
     }
 
-    // --- 12. TENSE CONSISTENCY within paragraphs ---
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 100);
-    for (const para of paragraphs) {
-      if (this._isInsideQuotes(text, text.indexOf(para))) continue;
-      const pastRe = /\b\w+(ed)\b/g;
-      const presentRe = /\b(he|she|it)\s+(walks|runs|says|goes|comes|looks|takes|makes|gives|thinks|feels|sees|hears|knows|wants|needs|gets|puts|turns|moves|stands|sits|falls|holds|keeps|brings|finds|tells|shows|leaves|calls|reads|writes|speaks|plays|works|lives|loves|tries|seems|begins|starts|stops|opens|closes|pulls|pushes|reaches|catches|throws|drops|picks|cuts|hits|sets|lets|pays|wins|loses|leads|follows|meets|breaks|draws|grows|sends|builds|drives|flies|carries|lays|rises|wears|speaks|eats|drinks|sleeps|wakes|dies|cries|lies|hangs|shakes|strikes)\b/gi;
-      const pastMatches = para.match(pastRe) || [];
-      const presentMatches = para.match(presentRe) || [];
-      if (pastMatches.length >= 4 && presentMatches.length >= 2) {
-        const ratio = presentMatches.length / (pastMatches.length + presentMatches.length);
-        if (ratio > 0.15 && ratio < 0.5) {
-          const firstPresent = presentRe.exec(para);
-          if (firstPresent) {
-            const paraIdx = text.indexOf(para);
-            const issueIdx = paraIdx + firstPresent.index;
-            if (issueIdx >= 0 && issueIdx < text.length) {
-              issues.push({
-                type: 'grammar', text: firstPresent[0], index: issueIdx, length: firstPresent[0].length,
-                severity: 'medium', confidence: 0.75,
-                message: 'Possible tense shift. This paragraph mixes past and present tense.',
-                suggestion: 'Check tense consistency — this paragraph appears mostly past tense.'
-              });
-            }
-          }
-        }
-      }
-    }
+    // --- 12. TENSE CONSISTENCY — REMOVED ---
+    // The -ed regex matched adjectives (excited, limited, adapted) as past-tense
+    // verbs, producing hundreds of false positives in nonfiction where authors
+    // intentionally mix past narration with present analysis. Removed entirely.
 
     return issues;
   },
