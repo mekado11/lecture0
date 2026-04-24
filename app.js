@@ -2523,7 +2523,8 @@ function _wireLibraryEvents(){
         const full=await Storage.getManuscript(lastOpen.manuscriptId).catch(()=>null);
         if(full&&full.text){
           extractedText=full.text;uploadedFile={name:full.fileName,size:0};
-          analysisResult=Analyzer.analyze(extractedText);Storage._currentManuscriptId=full.id;
+          try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);alert('Analysis failed. Please try re-uploading.');return}
+          Storage._currentManuscriptId=full.id;
           $('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');
           document.body.classList.remove('lib-mode');renderAll();
         }
@@ -2579,7 +2580,14 @@ async function _openManuscript(idx){
     if(!analysisResult||!analysisResult.scores){
       loadEl.textContent='Analyzing manuscript...';
       await new Promise(r=>setTimeout(r,50));
-      analysisResult=Analyzer.analyze(extractedText);
+      try{
+        analysisResult=Analyzer.analyze(extractedText);
+      }catch(analyzeErr){
+        console.error('Analyzer.analyze failed:',analyzeErr);
+        loadEl.remove();
+        alert('Analysis failed. Please try re-uploading the manuscript.');
+        return;
+      }
     }
     if(analysisResult&&analysisResult.error){loadEl.remove();alert(analysisResult.error);return}
 
@@ -2740,7 +2748,8 @@ Storage.whenReady().then(async user=>{
       if(full&&full.text){
         extractedText=full.text;
         uploadedFile={name:full.fileName,size:0};
-        analysisResult=Analyzer.analyze(extractedText);
+        try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);analysisResult=null}
+        if(!analysisResult){renderLibrary();return}
         Storage._currentManuscriptId=full.id;
         $('upload-view').classList.add('hidden');
         $('editor-view').classList.remove('hidden');
@@ -2780,7 +2789,8 @@ Storage.whenReady().then(async user=>{
       if(full&&full.text){
         extractedText=full.text;
         uploadedFile={name:full.fileName,size:0};
-        analysisResult=Analyzer.analyze(extractedText);
+        try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);analysisResult=null}
+        if(!analysisResult){renderLibrary();return}
         Storage._currentManuscriptId=m.id;
         localStorage.setItem('ml_last_open',JSON.stringify({fileName:m.fileName,manuscriptId:m.id}));
         $('upload-view').classList.add('hidden');

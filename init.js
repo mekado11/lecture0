@@ -24,7 +24,7 @@ firebase.auth().onAuthStateChanged(function(user) {
     btn.id = 'signout-btn';
     btn.className = 'tb-btn';
     btn.textContent = 'Sign Out';
-    btn.onclick = function() { firebase.auth().signOut().then(function(){ localStorage.removeItem('ml_autosave'); localStorage.removeItem('ml_session'); localStorage.removeItem('ml_last_open'); localStorage.removeItem('ml_push_subscribed'); sessionStorage.clear(); window.location.href = 'index.html'; }); };
+    btn.onclick = function() { localStorage.removeItem('ml_autosave'); localStorage.removeItem('ml_session'); localStorage.removeItem('ml_last_open'); localStorage.removeItem('ml_push_subscribed'); sessionStorage.clear(); firebase.auth().signOut().then(function(){ window.location.href = 'index.html'; }).catch(function(){ window.location.href = 'index.html'; }); };
     topRight.appendChild(btn);
   }
 });
