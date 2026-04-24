@@ -156,12 +156,39 @@ const AIEngine = {
   },
 
   // ========================
+  // ANALYSIS CONTEXT BUILDER
+  // Produces a compact, structured summary of analyzer findings to ground AI prompts.
+  // Appended to user messages — not system blocks — so prompt caching stays intact.
+  // ========================
+  _buildAnalysisContext(analysis) {
+    if (!analysis) return '';
+    const s = analysis.scores || {};
+    const ic = analysis.issueCounts || {};
+    const dnf = analysis.dnfAnalysis || {};
+    const rp = analysis.readerPerspective || {};
+    const lines = [
+      '\n\n--- AUTOMATED ANALYSIS DATA ---',
+      `Overall score: ${analysis.overall || 'N/A'}/100 | Grade: ${typeof Analyzer !== 'undefined' ? Analyzer.getGrade(analysis.overall || 0) : '?'}`,
+      `Genre: ${analysis.genre?.label || 'Unknown'} | Word count: ${(analysis.totalWords || 0).toLocaleString()}`,
+      `Dimension scores (0-100): Plot ${s.plot||'?'} | Copy ${s.copy||'?'} | Style ${s.style||'?'} | Dialogue ${s.dialogue||'?'} | Show/Tell ${s.showTell||'?'}`,
+    ];
+    const icEntries = Object.entries(ic).filter(([,v]) => v > 0).map(([k,v]) => `${k}:${v}`);
+    if (icEntries.length > 0) lines.push(`Issue counts: ${icEntries.join(' | ')}`);
+    if (dnf.dnf_risk !== undefined) lines.push(`DNF risk: ${dnf.dnf_risk}%`);
+    if (dnf.top_3_reasons?.length) lines.push(`Top reader drop-off reasons: ${dnf.top_3_reasons.join('; ')}`);
+    if (rp.engagementScore !== undefined) lines.push(`Reader engagement: ${rp.engagementScore}/100`);
+    lines.push('--- END ANALYSIS DATA ---');
+    return lines.join('\n');
+  },
+
+  // ========================
   // BATCH: Run all AI features in sequence (reusing cache)
   // ========================
   async runAllFeatures(apiKey, text, analysisResult, onProgress) {
     const results = {};
     const features = [
       { key: 'deepCritique', label: 'Deep narrative critique...', fn: () => this.deepCritique(apiKey, text, analysisResult) },
+      { key: 'weaknessAnalysis', label: 'Diagnosing weak passages...', fn: () => this.analyzeWeaknesses(apiKey, text, analysisResult) },
       { key: 'compTitles', label: 'Finding comparable titles...', fn: () => this.compTitles(apiKey, text, analysisResult) },
       { key: 'queryLetter', label: 'Drafting query letter...', fn: () => this.queryLetter(apiKey, text, analysisResult) },
       { key: 'betaReaders', label: 'Simulating beta readers...', fn: () => this.betaReaders(apiKey, text, analysisResult) },
@@ -185,19 +212,22 @@ const AIEngine = {
   // 1. DEEP NARRATIVE CRITIQUE
   // ========================
   async deepCritique(apiKey, text, analysis) {
+    const ctx = this._buildAnalysisContext(analysis);
     return this._callClaude(apiKey,
-      'Analyze this manuscript excerpt as a professional developmental editor.',
-      `Give a deep narrative critique. Return JSON:
+      'Analyze this manuscript excerpt as a professional developmental editor. Ground your critique in the automated analysis data provided — your feedback should explain and expand on what the scores and issue counts reveal, not contradict them.',
+      `Give a deep narrative critique. Reference the analysis data below to make your feedback specific and data-driven.${ctx}
+
+Return JSON:
 {
-  "overallAssessment": "2-3 sentences on the manuscript's strengths and weaknesses",
+  "overallAssessment": "2-3 sentences on the manuscript's strengths and weaknesses, referencing the score",
   "strengths": ["strength 1", "strength 2", "strength 3"],
-  "weaknesses": ["weakness 1", "weakness 2", "weakness 3"],
+  "weaknesses": ["weakness tied to a specific low score or high issue count", "weakness 2", "weakness 3"],
   "characterDepth": "assessment of character development",
   "worldBuilding": "assessment of setting/world",
   "narrativeVoice": "assessment of the author's voice",
   "emotionalImpact": "how effectively does it create emotional responses",
-  "suggestions": ["specific actionable suggestion 1", "suggestion 2", "suggestion 3", "suggestion 4", "suggestion 5"],
-  "priorityFix": "the single most important thing the author should fix first"
+  "suggestions": ["specific actionable suggestion addressing the top drop-off reason", "suggestion tied to weakest dimension score", "suggestion 3", "suggestion 4", "suggestion 5"],
+  "priorityFix": "the single most important thing to fix, grounded in what the analysis found"
 }`,
       text, 'deepCritique');
   },
@@ -249,28 +279,31 @@ const AIEngine = {
   // 4. BETA READER SIMULATION
   // ========================
   async betaReaders(apiKey, text, analysis) {
+    const ctx = this._buildAnalysisContext(analysis);
     return this._callClaude(apiKey,
-      'Simulate 4 different beta readers with distinct perspectives reading this manuscript.',
-      `Create 4 simulated beta reader responses. Return JSON:
+      'Simulate 4 different beta readers with distinct perspectives reading this manuscript. Ground their reactions in real analysis findings — readers should articulate the specific issues the analysis uncovered, not generic feedback.',
+      `Create 4 simulated beta reader responses. Use the analysis data below to make their feedback authentic and specific.${ctx}
+
+Return JSON:
 {
   "readers": [
     {
       "name": "Reader name",
       "profile": "e.g. 'Avid thriller reader, 35, reads 50 books/year'",
       "rating": 4,
-      "reaction": "Their overall gut reaction in 2-3 sentences",
+      "reaction": "Their gut reaction in 2-3 sentences — should reflect what the scores and issues reveal",
       "favoritepart": "What they loved most",
-      "confusion": "What confused them or they didn't like",
+      "confusion": "What confused them — tie to actual drop-off reasons or low-scoring dimensions",
       "wouldRecommend": true,
       "emoticon": "one emoji representing their feeling"
     },
-    {... reader 2 - a more critical reader},
-    {... reader 3 - the target audience reader},
-    {... reader 4 - a casual/non-genre reader}
+    {"...": "reader 2 - a more critical reader who notices the mechanical issues"},
+    {"...": "reader 3 - the target audience reader"},
+    {"...": "reader 4 - a casual/non-genre reader"}
   ],
   "consensusRating": 3.5,
-  "commonPraise": "What most readers would agree is strong",
-  "commonCriticism": "What most readers would agree needs work"
+  "commonPraise": "What most readers agree is strong",
+  "commonCriticism": "What most readers agree needs work — reference the analysis findings"
 }`,
       text, 'betaReaders');
   },
@@ -280,19 +313,22 @@ const AIEngine = {
   // ========================
   async marketReadiness(apiKey, text, analysis) {
     const genre = analysis?.genre?.label || 'Fiction';
+    const ctx = this._buildAnalysisContext(analysis);
     return this._callClaude(apiKey,
-      'You are a publishing industry expert who evaluates manuscript market readiness.',
-      `Evaluate this ${genre} manuscript for market readiness. Return JSON:
+      'You are a publishing industry expert who evaluates manuscript market readiness. Use the automated analysis scores as objective evidence — they reflect real mechanical and narrative quality signals.',
+      `Evaluate this ${genre} manuscript for market readiness. The analysis data below provides objective quality signals — factor them into your assessment.${ctx}
+
+Return JSON:
 {
-  "readinessScore": 72,
-  "readinessGrade": "B-",
+  "readinessScore": <number 0-100, informed by the overall score above>,
+  "readinessGrade": "letter grade",
   "publishingPath": "recommended path: traditional, indie, or hybrid",
   "marketFit": "How well this fits current market trends",
-  "strengths": ["market strength 1", "strength 2"],
-  "gaps": ["what's missing for market readiness", "gap 2"],
+  "strengths": ["market strength grounded in a high score or strong area", "strength 2"],
+  "gaps": ["gap tied to a specific low score or issue count", "gap 2"],
   "developmentalStage": "first draft / revised draft / near-ready / polished",
-  "nextSteps": ["step 1", "step 2", "step 3", "step 4"],
-  "estimatedRevisions": "how many more revision rounds needed",
+  "nextSteps": ["concrete step addressing the biggest gap", "step 2", "step 3", "step 4"],
+  "estimatedRevisions": "how many more revision rounds needed based on current scores",
   "trendAlignment": "how this aligns with current genre trends"
 }`,
       text, 'marketReadiness');
