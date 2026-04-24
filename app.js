@@ -875,14 +875,29 @@ async function doRewrite(card) {
 
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
-  const typeMap={plot:'pov',clarity:'passive',pacing:'sentence-length',hook:'adverb',style:'weak-verb',dialogue:'dialogue',showTell:'show-tell',copy:null,grammar:'grammar'};
-  const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing'};
-  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar'};
-  const t=typeMap[cat];
+  const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
+  const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar',pov:'POV Issue',hook:'Opening Problem',tags:'Dialogue Tags',conciseness:'Conciseness',showing:'Show Don\'t Tell',purpose:'Dialogue Purpose',naturalness:'Naturalness'};
+  const catWhy={clarity:'Passive voice distances the reader. Active voice creates immediacy and clarity.',pacing:'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Generic verbs ("made", "went", "got") miss an opportunity to create vivid, specific imagery.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing catches the mechanical issues — passive voice, adverbs, clichés, wordy phrasing, and word confusion.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:'Readers need forward momentum — clear stakes, rising tension, and consistent point of view.'};
+
+  // Canonical issue source per category — both card and detail derive from the same data
+  const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word']);
+  let issues;
+  if(cat==='hook'){
+    issues=(r.openingDiagnosis?.problems||[]).map(p=>({type:'hook',text:p.desc||p.title||'',suggestion:p.fix||p.desc||'',severity:p.severity||'medium',index:0,length:0}));
+  }else if(cat==='dialogue'){
+    issues=(r.dialogue?.findings||[]).map(f=>({type:f.type||'dialogue',text:f.message||'',suggestion:f.message||'',severity:f.severity||'medium',index:0,length:0}));
+  }else if(cat==='plot'){
+    issues=(r.lineEditing?.findings||[]).filter(f=>f.type==='pov').map(f=>({type:'pov',text:f.message||'',suggestion:f.message||'',severity:f.severity||'medium',index:0,length:0}));
+  }else if(cat==='copy'){
+    issues=r.issues.filter(i=>copyTypes.has(i.type));
+  }else{
+    const directMap={clarity:'passive',pacing:'sentence-length',style:'weak-verb',showTell:'show-tell',grammar:'grammar'};
+    const t=directMap[cat];
+    issues=t?r.issues.filter(i=>i.type===t):[];
+  }
 
   // Sort by severity: high first, then medium, then low
   const sevOrder={high:0,medium:1,low:2};
-  let issues=t?r.issues.filter(i=>i.type===t):r.issues.slice();
   issues.sort((a,b)=>(sevOrder[a.severity]||2)-(sevOrder[b.severity]||2));
   const totalForCat=issues.length;
   const shown=issues.slice(0,8);
@@ -897,7 +912,7 @@ function showDetail(cat){
 
   d.innerHTML=progressHtml+
     '<div class="rpd-title"><span style="font-size:1.1rem">'+titles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">'+totalForCat+' issue'+(totalForCat===1?'':'s')+'</span></div>'+
-    (_issueWhy[t]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+_issueWhy[t]+'</div>':'')+
+    (catWhy[cat]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+catWhy[cat]+'</div>':'')+
     (shown.length===0?(cat==='plot'&&r.scores.plot<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the plot structure score is <strong style="color:var(--yellow)">'+r.scores.plot+'/100</strong>.</p><p style="margin-top:.3rem">The engine evaluates arc progression, conflict setup, and tension distribution. Consider whether your opening establishes clear stakes and whether tension builds through the middle.</p></div>':cat==='dialogue'&&r.scores.dialogue<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the dialogue score is <strong style="color:var(--yellow)">'+r.scores.dialogue+'/100</strong>.</p><p style="margin-top:.3rem">Review dialogue for natural rhythm, distinct character voices, and balance between dialogue and narration.</p></div>':'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No issues in this category. Nice work!</p>'):
     shown.map((iss,idx)=>{
       const canAIFix=_REWRITE_TYPES.has(iss.type)&&_isPaid();
