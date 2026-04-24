@@ -230,7 +230,7 @@ function renderAll(){
   $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
 
   renderSceneIntel(r);
-  renderBookPreview(r);
+  // Book preview now renders on-demand when the Preview tab is activated — not here
   renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderBlurbs(r);renderVersions();
   // Auto-save
   autoSave();
@@ -2569,6 +2569,12 @@ async function _openManuscript(idx){
       Storage._currentManuscriptId=m.id;
     }
     uploadedFile={name:m.fileName||'Untitled',size:0};
+
+    if(!extractedText||!extractedText.trim()){
+      loadEl.remove();
+      alert('Manuscript text could not be loaded. Please re-upload the file.');
+      return;
+    }
 
     if(!analysisResult||!analysisResult.scores){
       loadEl.textContent='Analyzing manuscript...';
