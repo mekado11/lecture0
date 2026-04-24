@@ -475,14 +475,14 @@ function renderSceneIntel(r){
   el.innerHTML=h;
   // Focus mode: hides sidebars
   $('focus-toggle')?.addEventListener('click',()=>{
-    const lp=$('left-panel'),rp2=$('right-panel'),pp=$('preview-panel'),gb=$('goal-bar'),badge=document.querySelector('.focus-badge');
+    const lp=$('left-panel'),rp2=$('right-panel'),gb=$('goal-bar'),badge=document.querySelector('.focus-badge');
     const isOn=badge.textContent==='ON';
     if(isOn){
-      if(lp)lp.style.display='';if(rp2)rp2.style.display='';if(pp)pp.style.display='';if(gb)gb.style.display='';
+      if(lp)lp.style.display='';if(rp2)rp2.style.display='';if(gb)gb.style.display='';
       badge.textContent='OFF';badge.className='focus-badge off';
       document.getElementById('focus-exit-pill')?.remove();
     }else{
-      if(lp)lp.style.display='none';if(rp2)rp2.style.display='none';if(pp)pp.style.display='none';if(gb)gb.style.display='none';
+      if(lp)lp.style.display='none';if(rp2)rp2.style.display='none';if(gb)gb.style.display='none';
       badge.textContent='ON';badge.className='focus-badge';
       // Show a floating "Exit Focus Mode" pill
       let pill=document.getElementById('focus-exit-pill');
@@ -1296,9 +1296,8 @@ function syncPreview(){
     if(analysisResult&&extractedText){
       const page=$('ed-annotated');
       if(page)extractedText=page.innerText;
-      // Only re-paginate if the preview panel is actually visible
-      const pvPanel=$('preview-panel');
-      if(pvPanel&&pvPanel.style.display!=='none'){
+      // Only re-paginate if the preview tab is currently active
+      if($('ed-preview')?.classList.contains('active')){
         renderBookPreview(analysisResult);
         buildChapterNav();
       }
@@ -1563,14 +1562,6 @@ function renderBookPreview(r){
       }
     })});
 
-    // Collapse toggle
-    const pvToggleBtn=$('pv-toggle');
-      if(pvToggleBtn){
-      pvToggleBtn.addEventListener('click',()=>{
-        const p=$('preview-panel');p.classList.toggle('collapsed');
-        pvToggleBtn.textContent=p.classList.contains('collapsed')?'\u00BB':'\u00AB';
-      });
-      };
   }
 
   // Re-paginate on resize — use a single named handler so it can be replaced without stacking
@@ -1732,23 +1723,25 @@ document.querySelectorAll('.btab').forEach(t=>{t.addEventListener('click',()=>{
   const target=$('ed-'+t.dataset.p);
   if(target){
     target.classList.add('active');
-    if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page')){target.classList.add('dark-page')}
+    if(t.dataset.p!=='annotated'&&t.dataset.p!=='preview'&&!target.classList.contains('dark-page')){target.classList.add('dark-page')}
   }
-  // Chapter nav only visible on Detailed (annotated) tab
+  // Chapter nav only visible on annotated tab
   const chNav=$('chapter-nav');
   if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';
+  // Render book preview when preview tab is opened
+  if(t.dataset.p==='preview'&&analysisResult&&extractedText){renderBookPreview(analysisResult);buildChapterNav()}
 })});
 // Bottom-icon buttons
 (function(){
   const tabs=Array.from(document.querySelectorAll('.btab'));
-  function activateTab(t){tabs.forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}const chNav=$('chapter-nav');if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';}
+  function activateTab(t){tabs.forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(t.dataset.p!=='annotated'&&t.dataset.p!=='preview'&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}const chNav=$('chapter-nav');if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';if(t.dataset.p==='preview'&&analysisResult&&extractedText){renderBookPreview(analysisResult);buildChapterNav()}}
   $('bi-prev-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur>0)activateTab(tabs[cur-1])});
   $('bi-next-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur<tabs.length-1)activateTab(tabs[cur+1])});
   $('bi-fullscreen')?.addEventListener('click',()=>{
-    const lp=$('left-panel'),rp2=$('right-panel'),pp=$('preview-panel');
+    const lp=$('left-panel'),rp2=$('right-panel');
     const hidden=lp?.style.display==='none';
-    if(hidden){if(lp)lp.style.display='';if(rp2)rp2.style.display='';if(pp)pp.style.display=''}
-    else{if(lp)lp.style.display='none';if(rp2)rp2.style.display='none';if(pp)pp.style.display='none'}
+    if(hidden){if(lp)lp.style.display='';if(rp2)rp2.style.display=''}
+    else{if(lp)lp.style.display='none';if(rp2)rp2.style.display='none'}
   });
   let _fontSize=16;
   $('bi-zoom-in')?.addEventListener('click',()=>{_fontSize=Math.min(22,_fontSize+1);document.querySelectorAll('.ms-page').forEach(p=>p.style.fontSize=_fontSize+'px')});
