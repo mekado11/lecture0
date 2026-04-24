@@ -158,7 +158,7 @@ function undoLastFix(){
   extractedText=state.text;
   if(state.analysis){analysisResult=state.analysis;updateScoresOnly(analysisResult)}
   _lastSnapshotText=extractedText;
-  syncPreview();scheduleReanalyze();
+  scheduleReanalyze();
   _updateUndoBtn();
 }
 function redoLastFix(){
@@ -171,7 +171,7 @@ function redoLastFix(){
   extractedText=state.text;
   if(state.analysis){analysisResult=state.analysis;updateScoresOnly(analysisResult)}
   _lastSnapshotText=extractedText;
-  syncPreview();scheduleReanalyze();
+  scheduleReanalyze();
   _updateUndoBtn();
 }
 function _updateUndoBtn(){
@@ -539,7 +539,6 @@ function replaceAndFix(hlElement){
   $('tip').classList.remove('on');
   // Auto-reanalyze will pick up the change and update scores/highlights
   scheduleReanalyze();
-  syncPreview();
 }
 
 // AUTO RE-ANALYZE: debounced — runs automatically after any edit
@@ -669,8 +668,6 @@ function updateScoresOnly(r){
   renderRight(r);
   // Chapter nav rebuild
   buildChapterNav();
-  // Preview sync
-  syncPreview();
   // Auto-save
   autoSave();
 }
@@ -1288,289 +1285,6 @@ function renderReader(r){
 }
 function rc(t,s,c,desc){return '<div class="rdr-card"><h4>'+t+'</h4><div class="rdr-big" style="color:'+c+'">'+s+'/100</div><div class="rdr-bar"><div class="rdr-fill" style="width:'+s+'%;background:'+c+'"></div></div><div class="rdr-lbl">'+desc+'</div></div>'}
 
-// SYNC: editor → book preview (real-time, paginated)
-let syncTimer=null;
-function syncPreview(){
-  clearTimeout(syncTimer);
-  syncTimer=setTimeout(()=>{
-    if(analysisResult&&extractedText){
-      const page=$('ed-annotated');
-      if(page)extractedText=page.innerText;
-      // Only re-paginate if the preview tab is currently active
-      if($('ed-preview')?.classList.contains('active')){
-        renderBookPreview(analysisResult);
-        buildChapterNav();
-      }
-    }
-    autoSave();
-  },1000);
-}
-
-// BOOK PREVIEW — Paginated eBook Reader with chapter-aware pagination & search
-let _pvState={pages:[],currentPage:0,totalPages:0,fontSize:16,darkTheme:false,device:'kindle',showNotes:true,searchMatches:[],searchIdx:-1};
-let _pvParagraphs=[];let _pvParaHTML=[];let _pvChapterIndices=[];
-
-function renderBookPreview(r){
-  const pvEmotions=$('pv-emotions');const pvPage=$('pv-page');const frame=$('pv-device-frame');
-  if(!pvEmotions||!pvPage||!frame)return;
-  _pvParagraphs=extractedText.split(/\n\s*\n/).filter(p=>p.trim().length>0);
-  const emotions=r.sceneEmotions||{scenes:[],total:0};
-  frame.className='pv-device-frame '+_pvState.device;
-
-  // Emotion summary
-  const emotionMap={};
-  emotions.scenes.forEach(s=>{if(!emotionMap[s.emotion])emotionMap[s.emotion]={...s,count:0};emotionMap[s.emotion].count++});
-  pvEmotions.innerHTML=Object.values(emotionMap).map(e=>
-    '<span class="pv-emo-tag" style="background:'+e.color+'15;color:'+e.color+'">'+e.emoji+' '+e.label+' ('+e.count+')</span>'
-  ).join('');
-
-  // Build emotion lookup
-  const emotionByPara={};
-  emotions.scenes.forEach(s=>{emotionByPara[s.paragraph]=s});
-
-  // Detect chapter headings
-  _pvChapterIndices=[];
-  const chapterRe=/^(chapter\s+\d+|chapter\s+[a-z]+|part\s+\d+|part\s+[a-z]+|prologue|epilogue)/i;
-
-  // Build paragraph HTML with chapter detection
-  _pvParaHTML=_pvParagraphs.map((p,i)=>{
-    const emo=emotionByPara[i+1];
-    const isChapter=chapterRe.test(p.trim());
-    if(isChapter){
-      _pvChapterIndices.push(i);
-      return '<div class="pv-para chapter-heading" data-para="'+(i+1)+'">'+esc(p)+'</div>';
-    }
-    return '<div class="pv-para" data-para="'+(i+1)+'">'+(emo&&_pvState.showNotes?'<span class="pv-emo-inline">'+emo.emoji+'</span>':'')+esc(p)+'</div>';
-  });
-
-  // Chapter-aware paginate
-  function paginate(){
-    const container=pvPage;
-    const screenEl=container.parentElement;
-    const navH=$('pv-navbar')?.offsetHeight||80;
-    const searchH=$('pv-search-panel')?.classList.contains('hidden')?0:($('pv-search-panel')?.offsetHeight||0);
-    const maxH=screenEl.clientHeight-navH-searchH-20;
-    if(maxH<80)return;
-
-    let measurer=document.getElementById('_pv-measurer');
-    if(!measurer){
-      measurer=document.createElement('div');measurer.id='_pv-measurer';
-      measurer.style.cssText='position:absolute;top:-9999px;left:-9999px;visibility:hidden';
-      document.body.appendChild(measurer);
-    }
-    measurer.style.width=container.clientWidth+'px';
-    measurer.style.fontSize=_pvState.fontSize+'px';
-    const cs=window.getComputedStyle(container);
-    measurer.style.fontFamily=cs.fontFamily;
-    measurer.style.lineHeight=cs.lineHeight||'1.55';
-    measurer.style.textAlign=cs.textAlign;
-    measurer.style.padding='0';
-
-    const pages=[];
-    let curPage=[];
-    let curH=0;
-
-    for(let i=0;i<_pvParaHTML.length;i++){
-      // Chapter headings force a new page
-      const isChapterStart=_pvChapterIndices.includes(i);
-      if(isChapterStart&&curPage.length>0){
-        pages.push(curPage.slice());
-        curPage=[];curH=0;
-      }
-
-      measurer.innerHTML=_pvParaHTML[i];
-      const h=measurer.offsetHeight+10;
-
-      if(curH+h>maxH&&curPage.length>0){
-        pages.push(curPage.slice());
-        curPage=[i];curH=h;
-      }else{
-        curPage.push(i);curH+=h;
-      }
-    }
-    if(curPage.length>0)pages.push(curPage);
-    _pvState.pages=pages;
-    _pvState.totalPages=pages.length;
-    if(_pvState.currentPage>=_pvState.totalPages)_pvState.currentPage=Math.max(0,_pvState.totalPages-1);
-  }
-
-  function renderPage(){
-    const page=_pvState.pages[_pvState.currentPage];
-    if(!page){pvPage.innerHTML='<p style="color:#999;font-size:.8rem;text-align:center;margin-top:2rem">No content</p>';return}
-    pvPage.innerHTML=page.map(i=>_pvParaHTML[i]).join('');
-    pvPage.style.fontSize=_pvState.fontSize+'px';
-    $('pv-page-info').textContent='Page '+(_pvState.currentPage+1)+' of '+_pvState.totalPages;
-    const prev=$('pv-prev');const next=$('pv-next');
-    if(prev)prev.disabled=_pvState.currentPage<=0;
-    if(next)next.disabled=_pvState.currentPage>=_pvState.totalPages-1;
-    // Apply search highlights on current page
-    applySearchHighlights();
-    // Click paragraph → navigate to editor
-    pvPage.querySelectorAll('.pv-para').forEach(el=>{el.addEventListener('click',()=>{
-      document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
-      document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
-      document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
-      $('ed-annotated')?.classList.add('active');
-      const idx=parseInt(el.dataset.para)-1;
-      const pt=_pvParagraphs[idx]?.substring(0,30);
-      if(pt){const pg=$('ed-annotated');for(const n of pg.childNodes){if(n.textContent?.includes(pt)){n.scrollIntoView?.({behavior:'smooth',block:'center'});break}}}
-    })});
-  }
-  // Expose for external use
-  window._pvPaginate=paginate;window._pvRenderPage=renderPage;
-
-  // === SEARCH ENGINE ===
-  function doSearch(query){
-    _pvState.searchMatches=[];_pvState.searchIdx=-1;
-    if(!query||query.length<2)return;
-    const q=query.toLowerCase();
-    _pvParagraphs.forEach((p,i)=>{
-      const lower=p.toLowerCase();let pos=0;
-      while((pos=lower.indexOf(q,pos))!==-1){
-        // Find which page this paragraph is on
-        const pageIdx=_pvState.pages.findIndex(pg=>pg.includes(i));
-        _pvState.searchMatches.push({paraIdx:i,charIdx:pos,pageIdx});
-        pos+=q.length;
-      }
-    });
-    $('pv-search-count').textContent=_pvState.searchMatches.length>0?'1/'+_pvState.searchMatches.length:'0 results';
-    if(_pvState.searchMatches.length>0){_pvState.searchIdx=0;goToSearchMatch(0)}
-  }
-  function goToSearchMatch(idx){
-    if(idx<0||idx>=_pvState.searchMatches.length)return;
-    _pvState.searchIdx=idx;
-    const m=_pvState.searchMatches[idx];
-    if(m.pageIdx>=0&&m.pageIdx!==_pvState.currentPage){_pvState.currentPage=m.pageIdx;renderPage()}
-    else applySearchHighlights();
-    $('pv-search-count').textContent=(idx+1)+'/'+_pvState.searchMatches.length;
-  }
-  function applySearchHighlights(){
-    const query=($('pv-search-input')?.value||'').trim();
-    if(!query||query.length<2)return;
-    const re=new RegExp('('+query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
-    pvPage.querySelectorAll('.pv-para').forEach(el=>{
-      const paraIdx=parseInt(el.dataset.para)-1;
-      // Replace text content with highlighted version
-      const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);
-      const textNodes=[];
-      while(walker.nextNode())textNodes.push(walker.currentNode);
-      textNodes.forEach(tn=>{
-        if(re.test(tn.textContent)){
-          const span=document.createElement('span');
-          span.innerHTML=tn.textContent.replace(re,'<mark class="pv-highlight">$1</mark>');
-          tn.parentNode.replaceChild(span,tn);
-        }
-      });
-    });
-    // Mark active match
-    const marks=pvPage.querySelectorAll('mark.pv-highlight');
-    let globalIdx=0;
-    const currentMatch=_pvState.searchMatches[_pvState.searchIdx];
-    marks.forEach(m=>{
-      // Find all matches on this page and highlight the active one
-      const matchesOnPage=_pvState.searchMatches.filter(sm=>sm.pageIdx===_pvState.currentPage);
-      if(_pvState.searchIdx>=0){
-        const activeOnPage=matchesOnPage.findIndex(sm=>sm===currentMatch);
-        if(globalIdx===activeOnPage)m.classList.add('active');
-      }
-      globalIdx++;
-    });
-    // Scroll active mark into view
-    const active=pvPage.querySelector('mark.pv-highlight.active');
-    if(active)active.scrollIntoView({block:'center',behavior:'smooth'});
-  }
-
-  // Static UI bindings — guard with _pvWired flag so listeners are added only once
-  // (renderBookPreview can be called on every analysis; without the guard, every re-render
-  // stacks another copy of each listener onto the same DOM nodes)
-  const pvContainer=$('pv-screen');
-  if(pvContainer&&!pvContainer._pvWired){
-    pvContainer._pvWired=true;
-
-    const searchInput=$('pv-search-input');
-    if(searchInput){
-      let searchDebounce;
-      searchInput.addEventListener('input',()=>{clearTimeout(searchDebounce);searchDebounce=setTimeout(()=>doSearch(searchInput.value.trim()),300)});
-      searchInput.addEventListener('keydown',e=>{
-        if(e.key==='Enter'){e.preventDefault();if(e.shiftKey)goToSearchMatch(_pvState.searchIdx-1);else goToSearchMatch(_pvState.searchIdx+1)}
-        if(e.key==='Escape'){$('pv-search-panel')?.classList.add('hidden');_pvState.searchMatches=[];_pvState.searchIdx=-1;renderPage()}
-      });
-    }
-    $('pv-search-prev')?.addEventListener('click',()=>goToSearchMatch(_pvState.searchIdx-1));
-    $('pv-search-next')?.addEventListener('click',()=>goToSearchMatch(_pvState.searchIdx+1));
-    $('pv-search-close')?.addEventListener('click',()=>{$('pv-search-panel')?.classList.add('hidden');_pvState.searchMatches=[];_pvState.searchIdx=-1;if(searchInput)searchInput.value='';paginate();renderPage()});
-
-    $('pv-prev')?.addEventListener('click',()=>{if(_pvState.currentPage>0){_pvState.currentPage--;renderPage()}});
-    $('pv-next')?.addEventListener('click',()=>{if(_pvState.currentPage<_pvState.totalPages-1){_pvState.currentPage++;renderPage()}});
-
-    pvContainer.tabIndex=0;
-    pvContainer.addEventListener('keydown',e=>{
-      if(e.target.tagName==='INPUT')return;
-      if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();if(_pvState.currentPage<_pvState.totalPages-1){_pvState.currentPage++;renderPage()}}
-      if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();if(_pvState.currentPage>0){_pvState.currentPage--;renderPage()}}
-      if(e.key==='f'&&(e.ctrlKey||e.metaKey)){e.preventDefault();$('pv-search-panel')?.classList.remove('hidden');$('pv-search-input')?.focus();paginate();renderPage()}
-    });
-
-    document.querySelectorAll('.pv-dev').forEach(btn=>{btn.addEventListener('click',()=>{
-      document.querySelectorAll('.pv-dev').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active');
-      _pvState.device=btn.dataset.dev;
-      frame.className='pv-device-frame '+btn.dataset.dev;
-      setTimeout(()=>{paginate();renderPage()},50);
-    })});
-
-    // Font size control
-    const fontSlider=$('pv-fontsize');const fontLabel=$('pv-fontsize-label');
-    if(fontSlider){
-      fontSlider.value=_pvState.fontSize;
-      fontSlider.addEventListener('input',()=>{
-        _pvState.fontSize=parseInt(fontSlider.value);
-        if(fontLabel)fontLabel.textContent=_pvState.fontSize+'px';
-        paginate();renderPage();
-      });
-    }
-  
-    // Nav button actions
-    document.querySelectorAll('.pv-nbtn').forEach(btn=>{btn.addEventListener('click',()=>{
-      const action=btn.dataset.action;
-      if(action==='display'){$('pv-display-panel')?.classList.toggle('hidden')}
-      else if(action==='theme'){_pvState.darkTheme=!_pvState.darkTheme;$('pv-screen')?.classList.toggle('dark-theme',_pvState.darkTheme)}
-      else if(action==='workspace'){
-        // Switch center panel back to annotated view, collapse preview
-        document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
-        document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
-        document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
-        $('ed-annotated')?.classList.add('active');
-      }
-      else if(action==='search'){
-        const sp=$('pv-search-panel');sp?.classList.toggle('hidden');
-        if(!sp?.classList.contains('hidden')){$('pv-search-input')?.focus();paginate();renderPage()}
-      }
-      else if(action==='notes'){
-        _pvState.showNotes=!_pvState.showNotes;
-        btn.style.opacity=_pvState.showNotes?'1':'.4';
-        // Rebuild paraHTML with/without emotion markers and re-render
-        const emotionByP={};
-        (r.sceneEmotions||{scenes:[]}).scenes.forEach(s=>{emotionByP[s.paragraph]=s});
-        _pvParaHTML=_pvParagraphs.map((p,i)=>{
-          const emo=emotionByP[i+1];
-          const isChap=chapterRe.test(p.trim());
-          if(isChap)return '<div class="pv-para chapter-heading" data-para="'+(i+1)+'">'+esc(p)+'</div>';
-          return '<div class="pv-para" data-para="'+(i+1)+'">'+(emo&&_pvState.showNotes?'<span class="pv-emo-inline">'+emo.emoji+'</span>':'')+esc(p)+'</div>';
-        });
-        renderPage();
-      }
-    })});
-
-  }
-
-  // Re-paginate on resize — use a single named handler so it can be replaced without stacking
-  if(window._pvResizeHandler)window.removeEventListener('resize',window._pvResizeHandler);
-  let resizeTimer;
-  window._pvResizeHandler=()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(_pvState.pages.length>0){paginate();renderPage()}},200)};
-  window.addEventListener('resize',window._pvResizeHandler);
-}
-
 // OPENING COACH
 function showOpeningCoach(){
   if(!analysisResult)return;
@@ -1723,18 +1437,16 @@ document.querySelectorAll('.btab').forEach(t=>{t.addEventListener('click',()=>{
   const target=$('ed-'+t.dataset.p);
   if(target){
     target.classList.add('active');
-    if(t.dataset.p!=='annotated'&&t.dataset.p!=='preview'&&!target.classList.contains('dark-page')){target.classList.add('dark-page')}
+    if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page')){target.classList.add('dark-page')}
   }
   // Chapter nav only visible on annotated tab
   const chNav=$('chapter-nav');
   if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';
-  // Render book preview when preview tab is opened
-  if(t.dataset.p==='preview'&&analysisResult&&extractedText){renderBookPreview(analysisResult);buildChapterNav()}
 })});
 // Bottom-icon buttons
 (function(){
   const tabs=Array.from(document.querySelectorAll('.btab'));
-  function activateTab(t){tabs.forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(t.dataset.p!=='annotated'&&t.dataset.p!=='preview'&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}const chNav=$('chapter-nav');if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';if(t.dataset.p==='preview'&&analysisResult&&extractedText){renderBookPreview(analysisResult);buildChapterNav()}}
+  function activateTab(t){tabs.forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}const chNav=$('chapter-nav');if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';}
   $('bi-prev-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur>0)activateTab(tabs[cur-1])});
   $('bi-next-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur<tabs.length-1)activateTab(tabs[cur+1])});
   $('bi-fullscreen')?.addEventListener('click',()=>{
@@ -1758,45 +1470,6 @@ $('rp-collapse-btn')?.addEventListener('click',()=>{
   $('rp-collapse-btn').innerHTML=rp.classList.contains('panel-collapsed')?'&#9654;':'&#9660;';
 });
 
-// ============================================================
-// DRAG-TO-RESIZE PANELS
-// ============================================================
-(function initPanelResize(){
-  const panels=$('left-panel')?.parentElement; // .panels container
-  if(!panels)return;
-  const pp=$('preview-panel');
-  const cp=document.querySelector('.center-panel');
-  if(!pp||!cp)return;
-
-  // Resize handle between center and preview (right side of center)
-  const rHandle=document.createElement('div');
-  rHandle.className='panel-resize resize-right';
-  rHandle.title='Drag to resize';
-  cp.style.position='relative';
-  cp.appendChild(rHandle);
-
-  let dragging=false,startX=0,startW=0;
-  rHandle.addEventListener('mousedown',e=>{
-    e.preventDefault();
-    dragging=true;startX=e.clientX;startW=pp.offsetWidth;
-    rHandle.classList.add('dragging');
-    document.body.style.cursor='col-resize';
-    document.body.style.userSelect='none';
-  });
-  document.addEventListener('mousemove',e=>{
-    if(!dragging)return;
-    const dx=startX-e.clientX;
-    const newW=Math.max(150,Math.min(600,startW+dx));
-    pp.style.width=newW+'px';pp.style.minWidth=newW+'px';
-  });
-  document.addEventListener('mouseup',()=>{
-    if(!dragging)return;
-    dragging=false;
-    rHandle.classList.remove('dragging');
-    document.body.style.cursor='';
-    document.body.style.userSelect='';
-  });
-})();
 
 // ============================================================
 // TYPOGRAPHY CONTROLS — font family, size, line spacing
@@ -1991,7 +1664,7 @@ function renderAnnotatedAsPages(text,issues){
   p.setAttribute('contenteditable','true');
   p.setAttribute('spellcheck','false');
   if(!p._hasInputListener){
-    p.addEventListener('input',()=>{scheduleReanalyze();syncPreview();});
+    p.addEventListener('input',()=>{scheduleReanalyze();});
     p._hasInputListener=true;
   }
 
@@ -2233,12 +1906,103 @@ async function runAI(key){
   }
 }
 function renderAI(ai){
-  const dc=ai.deepCritique;if(dc&&!dc.error)$('ai-deep-critique').innerHTML='<h3>Deep Critique</h3><p>'+esc(dc.overallAssessment||'')+'</p><div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin:.5rem 0"><div><h4 style="color:var(--green);font-size:.75rem">Strengths</h4><ul class="ai-list">'+(dc.strengths||[]).map(s=>'<li>'+esc(s)+'</li>').join('')+'</ul></div><div><h4 style="color:var(--red);font-size:.75rem">Weaknesses</h4><ul class="ai-list">'+(dc.weaknesses||[]).map(s=>'<li>'+esc(s)+'</li>').join('')+'</ul></div></div><div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);margin-top:.4rem"><strong style="color:var(--yellow)">Priority Fix:</strong> '+esc(dc.priorityFix||'')+'</div>';
+  const dc=ai.deepCritique;
+  if(dc&&!dc.error){
+    let dcH='<h3>Deep Critique</h3><p style="font-size:.82rem;line-height:1.6;margin-bottom:.6rem">'+esc(dc.overallAssessment||'')+'</p>';
+    dcH+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin:.5rem 0">';
+    dcH+='<div><h4 style="color:var(--green);font-size:.75rem;margin-bottom:.3rem">Strengths</h4>';
+    const strengths=dc.strengths||[];
+    strengths.forEach(s=>{
+      if(typeof s==='string'){dcH+='<div style="font-size:.75rem;margin-bottom:.3rem;padding:.3rem .5rem;background:var(--surface2);border-radius:var(--rs);border-left:2px solid var(--green)">'+esc(s)+'</div>'}
+      else{dcH+='<div style="font-size:.75rem;margin-bottom:.3rem;padding:.3rem .5rem;background:var(--surface2);border-radius:var(--rs);border-left:2px solid var(--green)"><div>'+esc(s.observation||'')+'</div>'+(s.evidence?'<div style="font-size:.68rem;color:var(--muted);font-style:italic;margin-top:.15rem">"'+esc(s.evidence)+'"</div>':'')+'</div>'}
+    });
+    dcH+='</div><div><h4 style="color:var(--red);font-size:.75rem;margin-bottom:.3rem">Weaknesses</h4>';
+    const weaknesses=dc.weaknesses||[];
+    weaknesses.forEach(w=>{
+      if(typeof w==='string'){dcH+='<div style="font-size:.75rem;margin-bottom:.3rem;padding:.3rem .5rem;background:var(--surface2);border-radius:var(--rs);border-left:2px solid var(--red)">'+esc(w)+'</div>'}
+      else{dcH+='<div style="font-size:.75rem;margin-bottom:.3rem;padding:.3rem .5rem;background:var(--surface2);border-radius:var(--rs);border-left:2px solid var(--red)"><div style="font-weight:600">'+esc(w.issue||'')+'</div><div style="margin-top:.15rem">'+esc(w.explanation||'')+'</div>'+(w.example?'<div style="font-size:.68rem;color:var(--muted);font-style:italic;margin-top:.15rem">"'+esc(w.example)+'"</div>':'')+'</div>'}
+    });
+    dcH+='</div></div>';
+    if(dc.improvementStrategy&&dc.improvementStrategy.length>0){
+      dcH+='<div style="margin-top:.5rem"><h4 style="font-size:.75rem;color:var(--gold-l);margin-bottom:.3rem">Improvement Strategy</h4>';
+      dc.improvementStrategy.forEach(st=>{
+        dcH+='<div style="display:flex;gap:.4rem;margin-bottom:.3rem;padding:.35rem .5rem;background:var(--surface2);border-radius:var(--rs)"><span style="font-weight:700;color:var(--gold-l);min-width:1.2rem">'+st.step+'.</span><div style="font-size:.75rem"><div style="font-weight:600">'+esc(st.action||'')+'</div><div style="color:var(--muted);font-size:.68rem;margin-top:.1rem">'+esc(st.reason||'')+'</div></div></div>';
+      });
+      dcH+='</div>';
+    }
+    dcH+='<div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);margin-top:.4rem"><strong style="color:var(--yellow)">Priority Fix:</strong> '+esc(dc.priorityFix||'')+'</div>';
+    $('ai-deep-critique').innerHTML=dcH;
+  }
   const ct=ai.compTitles;if(ct&&!ct.error)$('ai-comp-titles').innerHTML='<h3>Comp Titles</h3><div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);font-weight:600;color:var(--gold-l);margin:.4rem 0">'+esc(ct.pitchLine||'')+'</div><div class="comp-grid">'+(ct.compTitles||[]).map(c=>'<div class="comp-card"><div class="comp-title">'+esc(c.title)+'</div><div class="comp-author">'+esc(c.author)+'</div><div class="comp-reason">'+esc(c.reason)+'</div></div>').join('')+'</div>';
   const ql=ai.queryLetter;if(ql&&!ql.error){const qlEl=$('ai-query-letter');qlEl.innerHTML='<h3>Query Letter</h3><div class="ql-text">'+esc(ql.queryLetter||'').replace(/\n/g,'<br>')+'</div><button class="btn-dark ql-copy-btn" style="margin-top:.4rem">Copy</button>';const qlCopyBtn=qlEl.querySelector('.ql-copy-btn');if(qlCopyBtn){const qlText=ql.queryLetter||'';qlCopyBtn.addEventListener('click',function(){navigator.clipboard.writeText(qlText);this.textContent='Copied!'})}}
   const br=ai.betaReaders;if(br&&!br.error)$('ai-beta-readers').innerHTML='<h3>Beta Readers</h3><div class="beta-grid">'+(br.readers||[]).map(r=>'<div class="beta-card"><div class="beta-hdr"><span class="beta-nm">'+esc(r.name)+' '+(r.emoticon||'')+'</span><span class="beta-rt">'+'\u2605'.repeat(r.rating||0)+'</span></div><div class="beta-pro">'+esc(r.profile)+'</div><div class="beta-rx">'+esc(r.reaction)+'</div></div>').join('')+'</div>';
   const mr=ai.marketReadiness;if(mr&&!mr.error)$('ai-market-readiness').innerHTML='<h3>Market Readiness</h3><div style="font-size:1.8rem;font-weight:800;color:'+sc(mr.readinessScore||0)+'">'+(mr.readinessScore||0)+'/100</div>'+sr('Path',mr.publishingPath||'')+sr('Stage',mr.developmentalStage||'')+sr('Trends',mr.trendAlignment||'');
   const cb=ai.chapterBreakdown;if(cb&&!cb.error)$('ai-chapter-breakdown').innerHTML='<h3>Chapters</h3><p style="font-size:.75rem;color:var(--muted)">'+esc(cb.structureAssessment||'')+'</p><div class="ch-grid2">'+(cb.chapters||[]).map(c=>'<div class="ch-card2"><div class="ch-num">'+c.number+'</div><div><div class="ch-ttl">'+esc(c.title||'')+'</div><div class="ch-sum">'+esc(c.summary||'')+'</div><div style="display:flex;gap:.2rem;margin-top:.2rem"><span class="ch-bdg">'+c.pacingGrade+'</span><span class="ch-bdg">'+c.tensionLevel+'</span></div></div></div>').join('')+'</div>';
+  // Opening Analysis
+  const oa=ai.openingAnalysis;
+  if(oa&&!oa.error){
+    const hkCol=oa.hookStrength>=7?'var(--green)':oa.hookStrength>=4?'var(--yellow)':'var(--red)';
+    let oaH='<h3>Opening Analysis</h3>';
+    oaH+='<div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.5rem"><div style="font-size:1.6rem;font-weight:800;color:'+hkCol+'">'+(oa.hookStrength||'?')+'/10</div><div style="font-size:.78rem;color:var(--text)">'+esc(oa.verdict||'')+'</div></div>';
+    oaH+='<div style="font-size:.68rem;color:var(--muted);margin-bottom:.5rem;padding:.25rem .5rem;background:var(--surface2);border-radius:var(--rs)">Opening type: '+esc(oa.openingType||'unknown')+' | Genre expects: '+esc(oa.genreExpectation||'')+'</div>';
+    oaH+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.5rem">';
+    oaH+='<div><h4 style="font-size:.72rem;color:var(--green);margin-bottom:.2rem">What Works</h4>';
+    (oa.whatWorks||[]).forEach(w=>{oaH+='<div style="font-size:.72rem;padding:.25rem .4rem;margin-bottom:.2rem;background:var(--surface2);border-radius:var(--rs);border-left:2px solid var(--green)">'+esc(w)+'</div>'});
+    oaH+='</div><div><h4 style="font-size:.72rem;color:var(--red);margin-bottom:.2rem">What Fails</h4>';
+    (oa.whatFails||[]).forEach(w=>{oaH+='<div style="font-size:.72rem;padding:.25rem .4rem;margin-bottom:.2rem;background:var(--surface2);border-radius:var(--rs);border-left:2px solid var(--red)">'+esc(w)+'</div>'});
+    oaH+='</div></div>';
+    if(oa.rewrites&&oa.rewrites.length>0){
+      oaH+='<h4 style="font-size:.72rem;color:var(--gold-l);margin-bottom:.3rem">Suggested Rewrites</h4>';
+      oa.rewrites.forEach(rw=>{
+        oaH+='<div style="margin-bottom:.4rem;padding:.4rem .5rem;background:var(--surface2);border-radius:var(--rs)">';
+        oaH+='<div style="font-size:.7rem;color:var(--muted);font-style:italic;border-left:2px solid var(--red);padding-left:.4rem;margin-bottom:.25rem">"'+esc(rw.original||'')+'"</div>';
+        oaH+='<div style="font-size:.7rem;color:var(--green);border-left:2px solid var(--green);padding-left:.4rem;margin-bottom:.2rem">'+esc(rw.suggested||'')+'</div>';
+        oaH+='<div style="font-size:.62rem;color:var(--dim)">'+esc(rw.reason||'')+'</div>';
+        oaH+='</div>';
+      });
+    }
+    $('ai-opening-analysis').innerHTML=oaH;
+  }
+  // Editing Roadmap
+  const er=ai.editingRoadmap;
+  if(er&&!er.error){
+    let erH='<h3>Editing Roadmap</h3>';
+    if(er.overallOutlook){erH+='<div style="font-size:.78rem;color:var(--text);margin-bottom:.5rem;padding:.4rem .6rem;background:var(--surface2);border-radius:var(--rs);border-left:3px solid var(--gold-l)">'+esc(er.overallOutlook)+'</div>'}
+    if(er.priorities&&er.priorities.length>0){
+      er.priorities.forEach(p=>{
+        const effortCol=p.effort==='light'?'var(--green)':p.effort==='moderate'?'var(--yellow)':'var(--red)';
+        erH+='<div style="margin-bottom:.4rem;padding:.5rem .6rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs)">';
+        erH+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.2rem"><span style="font-weight:700;color:var(--gold-l);font-size:.82rem">#'+p.rank+' '+esc(p.issue||'')+'</span><span style="font-size:.6rem;padding:.1rem .4rem;border-radius:3px;background:'+effortCol+';color:#fff">'+esc(p.effort||'')+'</span></div>';
+        erH+='<div style="font-size:.72rem;color:var(--text);margin-bottom:.15rem"><strong>Why first:</strong> '+esc(p.whyFirst||'')+'</div>';
+        erH+='<div style="font-size:.72rem;color:var(--muted)"><strong>Reader impact:</strong> '+esc(p.readerImpact||'')+'</div>';
+        erH+='</div>';
+      });
+    }
+    if(er.quickWin){erH+='<div style="margin-top:.3rem;padding:.4rem .6rem;background:var(--surface2);border-radius:var(--rs);border-left:3px solid var(--green)"><span style="font-size:.68rem;font-weight:600;color:var(--green)">Quick Win:</span> <span style="font-size:.75rem;color:var(--text)">'+esc(er.quickWin)+'</span></div>'}
+    $('ai-editing-roadmap').innerHTML=erH;
+  }
+  const wa=ai.weaknessAnalysis;
+  const waEl=$('ai-weakness-result');
+  if(wa&&!wa.error&&!wa.parseError&&waEl){
+    let wh='';
+    if(wa.overall_pattern){wh+='<div style="background:var(--surface2);border-radius:var(--rs);padding:.5rem .65rem;margin-bottom:.5rem;border-left:3px solid var(--yellow)"><div style="font-size:.68rem;font-weight:600;color:var(--yellow);margin-bottom:.15rem">Pattern Detected</div><div style="font-size:.75rem;color:var(--text)">'+esc(wa.overall_pattern)+'</div></div>'}
+    if(wa.priority_fix){wh+='<div style="background:var(--surface2);border-radius:var(--rs);padding:.5rem .65rem;margin-bottom:.5rem;border-left:3px solid var(--green)"><div style="font-size:.68rem;font-weight:600;color:var(--green);margin-bottom:.15rem">Priority Fix</div><div style="font-size:.75rem;color:var(--text)">'+esc(wa.priority_fix)+'</div></div>'}
+    if(wa.paragraphs&&wa.paragraphs.length>0){
+      wa.paragraphs.forEach(p=>{
+        const sevCol=p.severity==='high'?'var(--red)':p.severity==='medium'?'var(--yellow)':'var(--muted)';
+        wh+='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:.6rem;margin-bottom:.4rem;border-left:3px solid '+sevCol+'">';
+        wh+='<div style="display:flex;justify-content:space-between;margin-bottom:.3rem"><span style="font-size:.7rem;font-weight:600;color:'+sevCol+'">'+esc(p.category||'').toUpperCase()+'</span><span style="font-size:.6rem;color:var(--dim)">Para '+p.paragraph_number+'</span></div>';
+        wh+='<div style="font-size:.72rem;color:var(--text);margin-bottom:.3rem">'+esc(p.problem||'')+'</div>';
+        if(p.original_snippet){wh+='<div style="font-size:.7rem;color:var(--muted);background:var(--surface2);padding:.3rem .5rem;border-radius:3px;margin-bottom:.3rem;font-style:italic;border-left:2px solid var(--red)">“'+esc(p.original_snippet)+'”</div>'}
+        if(p.suggested_rewrite){wh+='<div style="font-size:.7rem;color:var(--green);background:var(--surface2);padding:.3rem .5rem;border-radius:3px;margin-bottom:.2rem;border-left:2px solid var(--green)">→ '+esc(p.suggested_rewrite)+'</div>'}
+        if(p.principle){wh+='<div style="font-size:.62rem;color:var(--dim);font-style:italic;margin-top:.2rem">Principle: '+esc(p.principle)+'</div>'}
+        wh+='</div>';
+      });
+    }
+    waEl.innerHTML=wh;
+    const diagBtn=waEl.closest('[class]')?.querySelector('.ai-diagnose-btn')||document.querySelector('.ai-diagnose-btn');
+    if(diagBtn){diagBtn.innerHTML='&#9889; Re-diagnose';diagBtn.disabled=false;}
+  }
 }
 
 // VERSIONS
@@ -2523,7 +2287,8 @@ function _wireLibraryEvents(){
         const full=await Storage.getManuscript(lastOpen.manuscriptId).catch(()=>null);
         if(full&&full.text){
           extractedText=full.text;uploadedFile={name:full.fileName,size:0};
-          analysisResult=Analyzer.analyze(extractedText);Storage._currentManuscriptId=full.id;
+          try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);alert('Analysis failed. Please try re-uploading.');return}
+          Storage._currentManuscriptId=full.id;
           $('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');
           document.body.classList.remove('lib-mode');renderAll();
         }
@@ -2579,7 +2344,14 @@ async function _openManuscript(idx){
     if(!analysisResult||!analysisResult.scores){
       loadEl.textContent='Analyzing manuscript...';
       await new Promise(r=>setTimeout(r,50));
-      analysisResult=Analyzer.analyze(extractedText);
+      try{
+        analysisResult=Analyzer.analyze(extractedText);
+      }catch(analyzeErr){
+        console.error('Analyzer.analyze failed:',analyzeErr);
+        loadEl.remove();
+        alert('Analysis failed. Please try re-uploading the manuscript.');
+        return;
+      }
     }
     if(analysisResult&&analysisResult.error){loadEl.remove();alert(analysisResult.error);return}
 
@@ -2740,7 +2512,8 @@ Storage.whenReady().then(async user=>{
       if(full&&full.text){
         extractedText=full.text;
         uploadedFile={name:full.fileName,size:0};
-        analysisResult=Analyzer.analyze(extractedText);
+        try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);analysisResult=null}
+        if(!analysisResult){renderLibrary();return}
         Storage._currentManuscriptId=full.id;
         $('upload-view').classList.add('hidden');
         $('editor-view').classList.remove('hidden');
@@ -2780,7 +2553,8 @@ Storage.whenReady().then(async user=>{
       if(full&&full.text){
         extractedText=full.text;
         uploadedFile={name:full.fileName,size:0};
-        analysisResult=Analyzer.analyze(extractedText);
+        try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);analysisResult=null}
+        if(!analysisResult){renderLibrary();return}
         Storage._currentManuscriptId=m.id;
         localStorage.setItem('ml_last_open',JSON.stringify({fileName:m.fileName,manuscriptId:m.id}));
         $('upload-view').classList.add('hidden');
@@ -2849,7 +2623,7 @@ document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{
     }else{
       document.execCommand(cmd,false,null);
     }
-    scheduleReanalyze();syncPreview();
+    scheduleReanalyze();
   });
 });
 

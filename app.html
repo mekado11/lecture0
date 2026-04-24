@@ -230,6 +230,8 @@
             <div id="ai-results" class="hidden" style="padding:1rem">
               <div id="ai-cache-info"></div>
               <div id="ai-deep-critique" class="a-sec"></div>
+              <div id="ai-opening-analysis" class="a-sec"></div>
+              <div id="ai-editing-roadmap" class="a-sec"></div>
               <div id="ai-comp-titles" class="a-sec"></div>
               <div id="ai-query-letter" class="a-sec"></div>
               <div id="ai-beta-readers" class="a-sec"></div>
@@ -281,52 +283,6 @@
           </div>
           <div id="ed-versions" class="ms-page"></div>
           <div id="ed-blurbs" class="ms-page"></div>
-          <div id="ed-preview" class="ms-page">
-            <div class="pv-head">
-              <span class="pv-title">Book Preview</span>
-              <div class="pv-devices">
-                <button class="pv-dev active" data-dev="kindle" title="Kindle">Kindle</button>
-                <button class="pv-dev" data-dev="ipad" title="iPad">iPad</button>
-                <button class="pv-dev" data-dev="paperback" title="Paperback 6x9">Paperback</button>
-              </div>
-            </div>
-            <div class="pv-content" id="pv-content">
-              <div id="pv-emotions" class="pv-emotions"></div>
-              <div class="pv-device-frame" id="pv-device-frame">
-                <div class="pv-screen" id="pv-screen">
-                  <div id="pv-search-panel" class="pv-search-panel hidden">
-                    <div class="pv-search-row">
-                      <input type="text" id="pv-search-input" class="pv-search-input" placeholder="Search text...">
-                      <span id="pv-search-count" class="pv-search-count"></span>
-                      <button id="pv-search-prev" class="pv-search-nav">&uarr;</button>
-                      <button id="pv-search-next" class="pv-search-nav">&darr;</button>
-                      <button id="pv-search-close" class="pv-search-close">&times;</button>
-                    </div>
-                  </div>
-                  <div id="pv-page" class="pv-page"></div>
-                  <div id="pv-navbar" class="pv-navbar">
-                    <div class="pv-nav-top">
-                      <button class="pv-nav-prev" id="pv-prev" title="Previous page">&larr;</button>
-                      <span class="pv-page-info" id="pv-page-info">Page 1 of 1</span>
-                      <button class="pv-nav-next" id="pv-next" title="Next page">&rarr;</button>
-                    </div>
-                    <div class="pv-nav-btns" id="pv-nav-btns">
-                      <button class="pv-nbtn" data-action="workspace" title="Back to workspace"><span class="pv-ni">&#128218;</span><span>Workspace</span></button>
-                      <button class="pv-nbtn" data-action="search" title="Search"><span class="pv-ni">&#128269;</span><span>Search</span></button>
-                      <button class="pv-nbtn" data-action="display" title="Font settings"><span class="pv-ni">Aa</span><span>Display</span></button>
-                      <button class="pv-nbtn" data-action="notes" title="Toggle annotations"><span class="pv-ni">&#128278;</span><span>Notes</span></button>
-                      <button class="pv-nbtn" data-action="theme" title="Theme"><span class="pv-ni">&#9790;</span><span>Theme</span></button>
-                    </div>
-                    <div id="pv-display-panel" class="pv-display-panel hidden">
-                      <label>Font Size</label>
-                      <input type="range" id="pv-fontsize" min="12" max="24" value="16" step="1">
-                      <span id="pv-fontsize-label">16px</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
         </div><!-- /ms-scroll-col -->
         </div><!-- /ms-workspace -->
@@ -339,7 +295,6 @@
             <button class="btab" data-p="writing">Writing &amp; Block</button>
             <button class="btab" data-p="versions">Versions</button>
             <button class="btab" data-p="blurbs">Blurbs</button>
-            <button class="btab" data-p="preview">&#128218; Preview</button>
           </div>
           <div class="bottom-icons">
             <button class="bi-btn" id="bi-prev-tab" title="Previous tab">&#8592;</button>
@@ -475,12 +430,12 @@
     </div>
   </div>
 
-  <script src="analyzer.js"></script>
-  <script src="grammar-enhance.js"></script>
-  <script src="ai-engine.js"></script>
-  <script src="fixer.js"></script>
-  <script src="storage.js"></script>
-  <script src="app.js"></script>
-  <script src="mobile-panels.js"></script>
+  <script src="analyzer.js?v=3"></script>
+  <script src="grammar-enhance.js?v=3"></script>
+  <script src="ai-engine.js?v=3"></script>
+  <script src="fixer.js?v=3"></script>
+  <script src="storage.js?v=3"></script>
+  <script src="app.js?v=3"></script>
+  <script src="mobile-panels.js?v=3"></script>
 </body>
 </html>

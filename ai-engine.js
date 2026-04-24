@@ -56,7 +56,7 @@ const AIEngine = {
   // Model routing: cheap OpenAI for most, Claude for premium
   _routeModel(feature) {
     // Features that benefit from Claude's superior analysis
-    const claudeFeatures = ['deepCritique', 'chapterBreakdown'];
+    const claudeFeatures = ['deepCritique', 'chapterBreakdown', 'openingAnalysis'];
     if (claudeFeatures.includes(feature)) return 'claude';
     // Everything else uses OpenAI (10-50x cheaper)
     return 'openai-fast';
@@ -156,12 +156,41 @@ const AIEngine = {
   },
 
   // ========================
+  // ANALYSIS CONTEXT BUILDER
+  // Produces a compact, structured summary of analyzer findings to ground AI prompts.
+  // Appended to user messages — not system blocks — so prompt caching stays intact.
+  // ========================
+  _buildAnalysisContext(analysis) {
+    if (!analysis) return '';
+    const s = analysis.scores || {};
+    const ic = analysis.issueCounts || {};
+    const dnf = analysis.dnfAnalysis || {};
+    const rp = analysis.readerPerspective || {};
+    const lines = [
+      '\n\n--- AUTOMATED ANALYSIS DATA ---',
+      `Overall score: ${analysis.overall || 'N/A'}/100 | Grade: ${typeof Analyzer !== 'undefined' ? Analyzer.getGrade(analysis.overall || 0) : '?'}`,
+      `Genre: ${analysis.genre?.label || 'Unknown'} | Word count: ${(analysis.totalWords || 0).toLocaleString()}`,
+      `Dimension scores (0-100): Plot ${s.plot||'?'} | Copy ${s.copy||'?'} | Style ${s.style||'?'} | Dialogue ${s.dialogue||'?'} | Show/Tell ${s.showTell||'?'}`,
+    ];
+    const icEntries = Object.entries(ic).filter(([,v]) => v > 0).map(([k,v]) => `${k}:${v}`);
+    if (icEntries.length > 0) lines.push(`Issue counts: ${icEntries.join(' | ')}`);
+    if (dnf.dnf_risk !== undefined) lines.push(`DNF risk: ${dnf.dnf_risk}%`);
+    if (dnf.top_3_reasons?.length) lines.push(`Top reader drop-off reasons: ${dnf.top_3_reasons.join('; ')}`);
+    if (rp.engagementScore !== undefined) lines.push(`Reader engagement: ${rp.engagementScore}/100`);
+    lines.push('--- END ANALYSIS DATA ---');
+    return lines.join('\n');
+  },
+
+  // ========================
   // BATCH: Run all AI features in sequence (reusing cache)
   // ========================
   async runAllFeatures(apiKey, text, analysisResult, onProgress) {
     const results = {};
     const features = [
       { key: 'deepCritique', label: 'Deep narrative critique...', fn: () => this.deepCritique(apiKey, text, analysisResult) },
+      { key: 'openingAnalysis', label: 'Evaluating opening hook...', fn: () => this.openingAnalysis(apiKey, text, analysisResult) },
+      { key: 'weaknessAnalysis', label: 'Diagnosing weak passages...', fn: () => this.analyzeWeaknesses(apiKey, text, analysisResult) },
+      { key: 'editingRoadmap', label: 'Building editing roadmap...', fn: () => this.editingRoadmap(apiKey, text, analysisResult) },
       { key: 'compTitles', label: 'Finding comparable titles...', fn: () => this.compTitles(apiKey, text, analysisResult) },
       { key: 'queryLetter', label: 'Drafting query letter...', fn: () => this.queryLetter(apiKey, text, analysisResult) },
       { key: 'betaReaders', label: 'Simulating beta readers...', fn: () => this.betaReaders(apiKey, text, analysisResult) },
@@ -185,19 +214,33 @@ const AIEngine = {
   // 1. DEEP NARRATIVE CRITIQUE
   // ========================
   async deepCritique(apiKey, text, analysis) {
+    const ctx = this._buildAnalysisContext(analysis);
     return this._callClaude(apiKey,
-      'Analyze this manuscript excerpt as a professional developmental editor.',
-      `Give a deep narrative critique. Return JSON:
+      'You are a professional developmental editor. You have structured analysis data AND the manuscript text. Do NOT list raw counts or repeat issue numbers. Interpret what they mean for the reading experience.',
+      `Give a deep narrative critique grounded in the analysis data below.${ctx}
+
+Return JSON:
 {
-  "overallAssessment": "2-3 sentences on the manuscript's strengths and weaknesses",
-  "strengths": ["strength 1", "strength 2", "strength 3"],
-  "weaknesses": ["weakness 1", "weakness 2", "weakness 3"],
+  "overallAssessment": "paragraph — what development stage this manuscript is at, grounded in the score",
+  "weaknesses": [
+    {"issue": "label", "explanation": "what this costs the reader specifically", "example": "brief quote or location from the text"},
+    {"issue": "label", "explanation": "...", "example": "..."},
+    {"issue": "label", "explanation": "...", "example": "..."}
+  ],
+  "strengths": [
+    {"observation": "specific strength", "evidence": "brief quote or example from the text"},
+    {"observation": "...", "evidence": "..."}
+  ],
   "characterDepth": "assessment of character development",
   "worldBuilding": "assessment of setting/world",
   "narrativeVoice": "assessment of the author's voice",
   "emotionalImpact": "how effectively does it create emotional responses",
-  "suggestions": ["specific actionable suggestion 1", "suggestion 2", "suggestion 3", "suggestion 4", "suggestion 5"],
-  "priorityFix": "the single most important thing the author should fix first"
+  "improvementStrategy": [
+    {"step": 1, "action": "what to fix", "reason": "why this first — what it unlocks"},
+    {"step": 2, "action": "...", "reason": "..."},
+    {"step": 3, "action": "...", "reason": "..."}
+  ],
+  "priorityFix": "the single most impactful change, grounded in what the analysis found"
 }`,
       text, 'deepCritique');
   },
@@ -249,28 +292,31 @@ const AIEngine = {
   // 4. BETA READER SIMULATION
   // ========================
   async betaReaders(apiKey, text, analysis) {
+    const ctx = this._buildAnalysisContext(analysis);
     return this._callClaude(apiKey,
-      'Simulate 4 different beta readers with distinct perspectives reading this manuscript.',
-      `Create 4 simulated beta reader responses. Return JSON:
+      'Simulate 4 different beta readers with distinct perspectives reading this manuscript. Ground their reactions in real analysis findings — readers should articulate the specific issues the analysis uncovered, not generic feedback.',
+      `Create 4 simulated beta reader responses. Use the analysis data below to make their feedback authentic and specific.${ctx}
+
+Return JSON:
 {
   "readers": [
     {
       "name": "Reader name",
       "profile": "e.g. 'Avid thriller reader, 35, reads 50 books/year'",
       "rating": 4,
-      "reaction": "Their overall gut reaction in 2-3 sentences",
+      "reaction": "Their gut reaction in 2-3 sentences — should reflect what the scores and issues reveal",
       "favoritepart": "What they loved most",
-      "confusion": "What confused them or they didn't like",
+      "confusion": "What confused them — tie to actual drop-off reasons or low-scoring dimensions",
       "wouldRecommend": true,
       "emoticon": "one emoji representing their feeling"
     },
-    {... reader 2 - a more critical reader},
-    {... reader 3 - the target audience reader},
-    {... reader 4 - a casual/non-genre reader}
+    {"...": "reader 2 - a more critical reader who notices the mechanical issues"},
+    {"...": "reader 3 - the target audience reader"},
+    {"...": "reader 4 - a casual/non-genre reader"}
   ],
   "consensusRating": 3.5,
-  "commonPraise": "What most readers would agree is strong",
-  "commonCriticism": "What most readers would agree needs work"
+  "commonPraise": "What most readers agree is strong",
+  "commonCriticism": "What most readers agree needs work — reference the analysis findings"
 }`,
       text, 'betaReaders');
   },
@@ -280,19 +326,22 @@ const AIEngine = {
   // ========================
   async marketReadiness(apiKey, text, analysis) {
     const genre = analysis?.genre?.label || 'Fiction';
+    const ctx = this._buildAnalysisContext(analysis);
     return this._callClaude(apiKey,
-      'You are a publishing industry expert who evaluates manuscript market readiness.',
-      `Evaluate this ${genre} manuscript for market readiness. Return JSON:
+      'You are a publishing industry expert who evaluates manuscript market readiness. Use the automated analysis scores as objective evidence — they reflect real mechanical and narrative quality signals.',
+      `Evaluate this ${genre} manuscript for market readiness. The analysis data below provides objective quality signals — factor them into your assessment.${ctx}
+
+Return JSON:
 {
-  "readinessScore": 72,
-  "readinessGrade": "B-",
+  "readinessScore": <number 0-100, informed by the overall score above>,
+  "readinessGrade": "letter grade",
   "publishingPath": "recommended path: traditional, indie, or hybrid",
   "marketFit": "How well this fits current market trends",
-  "strengths": ["market strength 1", "strength 2"],
-  "gaps": ["what's missing for market readiness", "gap 2"],
+  "strengths": ["market strength grounded in a high score or strong area", "strength 2"],
+  "gaps": ["gap tied to a specific low score or issue count", "gap 2"],
   "developmentalStage": "first draft / revised draft / near-ready / polished",
-  "nextSteps": ["step 1", "step 2", "step 3", "step 4"],
-  "estimatedRevisions": "how many more revision rounds needed",
+  "nextSteps": ["concrete step addressing the biggest gap", "step 2", "step 3", "step 4"],
+  "estimatedRevisions": "how many more revision rounds needed based on current scores",
   "trendAlignment": "how this aligns with current genre trends"
 }`,
       text, 'marketReadiness');
@@ -327,9 +376,68 @@ If the text is a single chapter or doesn't have clear chapter breaks, treat majo
   },
 
   // ========================
-  // 7. AI WEAKNESS ANALYZER (for DNF + low-score areas)
+  // 7. EDITING ROADMAP — prioritized fix plan
+  // ========================
+  async editingRoadmap(apiKey, text, analysis) {
+    const ctx = this._buildAnalysisContext(analysis);
+    return this._callClaude(apiKey,
+      'You are a writing coach building an editing plan. Prioritize by reader impact, not frequency. Identify where fixing one thing improves multiple symptoms.',
+      `Build a prioritized editing roadmap for this manuscript.${ctx}
+
+Return JSON:
+{
+  "priorities": [
+    {
+      "rank": 1,
+      "issue": "what to fix",
+      "whyFirst": "what makes this the highest-leverage fix",
+      "readerImpact": "what the reader experiences before vs. after this fix",
+      "effort": "light / moderate / heavy"
+    },
+    {"rank": 2, "issue": "...", "whyFirst": "...", "readerImpact": "...", "effort": "..."},
+    {"rank": 3, "issue": "...", "whyFirst": "...", "readerImpact": "...", "effort": "..."}
+  ],
+  "overallOutlook": "honest one-sentence assessment of revision scope",
+  "quickWin": "one small fix that would show immediate improvement"
+}`,
+      text, 'editingRoadmap');
+  },
+
+  // ========================
+  // 8. OPENING ANALYSIS — first-page hook evaluation
+  // ========================
+  async openingAnalysis(apiKey, text, analysis) {
+    const genre = analysis?.genre?.label || 'Fiction';
+    const opening = text.substring(0, 5000);
+    return this._callClaude(apiKey,
+      'You are a literary agent reading the first page of a submission. You are deciding whether to read on. Evaluate against what hooks work in this genre. Be direct — if it fails, say so.',
+      `Evaluate this ${genre} manuscript opening.
+
+OPENING TEXT (first ~1000 words):
+${opening}
+
+Return JSON:
+{
+  "hookStrength": <1-10>,
+  "verdict": "would / would not read on — one sentence",
+  "whatWorks": ["specific observation with quote", "..."],
+  "whatFails": ["specific observation with quote", "..."],
+  "genreExpectation": "what readers of ${genre} expect from the opening",
+  "rewrites": [
+    {
+      "original": "the weak line or passage",
+      "suggested": "a concrete alternative",
+      "reason": "why this version works better"
+    }
+  ],
+  "openingType": "in medias res / scene-setting / character intro / backstory / other"
+}`,
+      opening, 'openingAnalysis');
+  },
+
+  // ========================
+  // 9. AI WEAKNESS ANALYZER (for DNF + low-score areas)
   // Picks the weakest paragraphs and explains WHY with fix suggestions
-  // Uses cheaper model (OpenAI) — available for paid users only
   // ========================
   async analyzeWeaknesses(apiKey, text, analysis) {
     // Find the weakest paragraphs based on analysis data
@@ -556,17 +664,29 @@ Rules:
     try { return JSON.parse(raw); } catch(e) { return { rewrite: raw.trim() }; }
   },
 
-  async rewriteSentence(sentence, issueType, context, fingerprint) {
-    const fp = Analyzer.fingerprintToPrompt(fingerprint);
+  async rewriteSentence(sentence, issueType, context, fingerprint, allIssues) {
+    const fp = fingerprint || {};
+    const fpPrompt = Analyzer.fingerprintToPrompt(fingerprint);
     const names = {
       passive: 'passive voice', adverb: 'adverb overuse', 'weak-verb': 'weak verb',
-      'show-tell': 'telling instead of showing', wordy: 'wordiness', cliche: 'cliché'
+      'show-tell': 'telling instead of showing', wordy: 'wordiness', cliche: 'cliché',
+      repetition: 'repetition', 'sentence-length': 'overly long sentence', grammar: 'grammar issue'
     };
-    const issueName = names[issueType] || issueType;
-    const sys = 'You are a fiction editor. Fix the writing issue while preserving the author\'s exact voice and meaning. Return ONLY valid JSON: {"rewrite":"..."}. No explanation.'
-      + (fp ? '\n\nAuthor voice profile: ' + fp + '.' : '');
-    const usr = 'Fix ' + issueName + ' in:\n"' + sentence + '"'
-      + (context && context !== sentence ? '\n\nContext (do not rewrite):\n"' + context + '"' : '');
+    const primaryIssue = names[issueType] || issueType;
+    let issueList = primaryIssue;
+    if (allIssues && allIssues.length > 1) {
+      issueList = allIssues.map(i => names[i.type] || i.type).join(', ');
+    }
+    const voiceBlock = fpPrompt
+      ? '\n\nWRITING FINGERPRINT:\n- ' + fp.pov + ' narrator, ' + fp.tense + ' tense'
+        + '\n- Avg sentence length: ' + fp.avgSentenceLen + ' words (' + fp.sentenceVariety + ')'
+        + '\n- Vocabulary: ' + (fp.vocabRichness > 65 ? 'rich' : fp.vocabRichness > 45 ? 'moderate' : 'plain')
+        + (fp.emDashes !== 'rare' ? '\n- Uses em dashes (' + fp.emDashes + ')' : '')
+      : '';
+    const sys = 'You are a line editor. The author must not be able to tell this was AI-edited. Fix ONLY the flagged issues. Do not improve unflagged text. Do not change sentence length pattern, vocabulary register, or tone. Return ONLY valid JSON: {"rewrite":"...","changes":[{"original":"...","revised":"...","reason":"..."}]}.'
+      + voiceBlock;
+    const usr = 'Fix: ' + issueList + '\n\nText:\n"' + sentence + '"'
+      + (context && context !== sentence ? '\n\nSurrounding context (do not rewrite):\n"' + context + '"' : '');
     return this._callClaudeRewrite(sys, usr);
   },
 

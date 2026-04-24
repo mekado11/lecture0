@@ -11,15 +11,14 @@
   .lib-card-actions button { min-height: 44px; }
 
   /* Font floor — nothing below 12px */
-  .lib-card-meta, .lib-card-badge, .lpc-sub, .pv-emo-tag,
-  .pv-page-info, .status-pill, .genre-override, .lpc-collapse,
+  .lib-card-meta, .lib-card-badge, .lpc-sub, .status-pill, .genre-override, .lpc-collapse,
   .ms-ruler-num { font-size: max(0.78rem, 12px); }
 
   /* Tooltip overflow containment */
   .tip { max-width: calc(100vw - 2rem); left: 1rem !important; right: 1rem; }
 
   /* Panel height — was 200px, too cramped */
-  .left-panel, .right-panel, .preview-panel { max-height: 45vh; }
+  .left-panel, .right-panel { max-height: 45vh; }
 
   /* Gauge canvas — prevent overflow in stacked panel */
   #gauge-canvas { max-width: 100%; height: auto; }
