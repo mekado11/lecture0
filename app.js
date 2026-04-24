@@ -196,6 +196,7 @@ window.addEventListener('keydown',e=>{
 function renderAll(){
   const r=analysisResult;
   if(!r||!uploadedFile){return}
+  _ltEnhanceDone=false;_smartScanDone=false;_batchFixDone=false;
   $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
   $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
@@ -277,7 +278,6 @@ async function _enhanceGrammar(r){
         Math.min(15,grammarFiltered.filter(i=>i.severity==='medium').length*1.5)
       )));
       renderRight(r);
-      renderAnnotated(extractedText,r.issues);
       console.log('[GrammarEnhance] +'+added+' issues from LanguageTool (total grammar: '+grammarFiltered.length+')');
     }
   }catch(e){console.warn('[GrammarEnhance] skipped:',e.message)}
@@ -568,7 +568,6 @@ function _onAnalysisComplete(newResult){
     const newCount=newResult.issues.length;
     if(newCount<prevCount)_issuesResolved+=(prevCount-newCount);
     analysisResult=newResult;
-    _batchFixDone=false;_smartScanDone=false;_ltEnhanceDone=false;
     diffHighlights(newResult.issues);
     updateScoresOnly(newResult);
     document.querySelectorAll('.rsc,.rp-detail,.gauge-wrap').forEach(el=>el.classList.remove('scores-pending'));
@@ -1280,11 +1279,15 @@ function syncPreview(){
     if(analysisResult&&extractedText){
       const page=$('ed-annotated');
       if(page)extractedText=page.innerText;
-      renderBookPreview(analysisResult);
-      buildChapterNav();
+      // Only re-paginate if the preview panel is actually visible
+      const pvPanel=$('preview-panel');
+      if(pvPanel&&pvPanel.style.display!=='none'){
+        renderBookPreview(analysisResult);
+        buildChapterNav();
+      }
     }
     autoSave();
-  },500);
+  },1000);
 }
 
 // BOOK PREVIEW — Paginated eBook Reader with chapter-aware pagination & search
@@ -2791,8 +2794,7 @@ function goToLibrary(){
   _undoStack.length=0;
   _redoStack.length=0;
   _updateUndoBtn();
-  _smartScanDone=false;
-  _batchFixDone=false;
+  _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;
   $('editor-view').classList.add('hidden');
   $('upload-view').classList.remove('hidden');
   $('upload-modal')?.classList.add('hidden');
