@@ -26,9 +26,9 @@ module.exports = async (req, res) => {
   const params = new URLSearchParams({
     text: text,
     language: req.body.language || 'en-US',
-    disabledCategories: 'CASING,REDUNDANCY,STYLE',
-    disabledRules: 'WHITESPACE_RULE,EN_QUOTES,DASH_RULE,WORD_CONTAINS_UNDERSCORE',
-    level: 'picky'
+    disabledCategories: 'CASING,REDUNDANCY,STYLE,TYPOGRAPHY',
+    disabledRules: 'WHITESPACE_RULE,EN_QUOTES,DASH_RULE,WORD_CONTAINS_UNDERSCORE,COMMA_PARENTHESIS_WHITESPACE,UNLIKELY_OPENING_PUNCTUATION',
+    level: 'default'
   });
 
   const postData = params.toString();

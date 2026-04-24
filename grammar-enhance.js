@@ -90,9 +90,9 @@ const GrammarEnhance = {
     const params = new URLSearchParams({
       text: text,
       language: 'en-US',
-      disabledCategories: 'CASING,REDUNDANCY,STYLE',
-      disabledRules: 'WHITESPACE_RULE,EN_QUOTES,DASH_RULE,WORD_CONTAINS_UNDERSCORE',
-      level: 'picky'
+      disabledCategories: 'CASING,REDUNDANCY,STYLE,TYPOGRAPHY',
+      disabledRules: 'WHITESPACE_RULE,EN_QUOTES,DASH_RULE,WORD_CONTAINS_UNDERSCORE,COMMA_PARENTHESIS_WHITESPACE,UNLIKELY_OPENING_PUNCTUATION',
+      level: 'default'
     });
 
     const response = await fetch(this.DIRECT_URL, {
@@ -108,6 +108,8 @@ const GrammarEnhance = {
   _convert(matches, fullText) {
     const issues = [];
     const seen = new Set();
+    // Only keep categories with high signal-to-noise ratio
+    const keepCats = new Set(['GRAMMAR','TYPOS','CONFUSED_WORDS','AGREEMENT','COMPOUNDING','MISC','PUNCTUATION']);
 
     for (const m of matches) {
       const offset = m.offset;
@@ -117,10 +119,14 @@ const GrammarEnhance = {
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
 
-      if (this._isInsideQuotes(fullText, offset) && this._isDialogueSafe(m.rule?.id)) continue;
-
       const catId = m.rule?.category?.id || '';
+      if (!keepCats.has(catId)) continue;
+
+      if (this._isInsideQuotes(fullText, offset) && this._isDialogueSafe(m.rule?.id)) continue;
       if (catId === 'TYPOS' && this._isLikelyProperNoun(matchedText, fullText, offset)) continue;
+
+      // Skip single-character or whitespace-only matches
+      if (length <= 1 || !matchedText.trim()) continue;
 
       const replacement = m.replacements?.[0]?.value;
       const severity = this._mapSeverity(catId);
