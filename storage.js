@@ -40,6 +40,7 @@ const Storage = {
       text: text.substring(0, 500000), // 500KB limit per doc
       wordCount: (text.match(/\b\w+\b/g) || []).length,
       genre: analysisResult?.genre?.label || 'Unknown',
+      genrePrimary: analysisResult?.genre?.primary || '',
       overall: analysisResult?.overall || 0,
       scores: analysisResult?.scores || {},
       issueCount: analysisResult?.issues?.length || 0,
@@ -59,6 +60,7 @@ const Storage = {
       overall: analysisResult?.overall || 0,
       scores: analysisResult?.scores || {},
       genre: analysisResult?.genre?.label || 'Unknown',
+      genrePrimary: analysisResult?.genre?.primary || '',
       issueCount: analysisResult?.issues?.length || 0,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };

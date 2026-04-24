@@ -1,6 +1,8 @@
 (function(){
 let uploadedFile=null,extractedText='',analysisResult=null;
 const $=id=>document.getElementById(id);
+const _GENRE_LABELS={scifi:'Science Fiction',fantasy:'Fantasy',romance:'Romance',thriller:'Thriller/Suspense',mystery:'Mystery/Crime',horror:'Horror/Paranormal',historical:'Historical Fiction',dystopian:'Dystopian',ya:'Young Adult',literary:'Literary Fiction',romantasy:'Romantasy',cozyMystery:'Cozy Mystery',adventure:'Adventure',western:'Western',memoir:'Memoir/Autobiography',selfHelp:'Self-Help',biography:'Biography',historyNF:'History',trueCrime:'True Crime',philosophy:'Philosophy/Religion'};
+function _genreLabelToKey(label){return Object.entries(_GENRE_LABELS).find(([,v])=>v===label)?.[0]||'';}
 document.body.classList.add('lib-mode'); // Library is first view — allow scroll
 
 function _authDiagnosticMessage(msg) {
@@ -2287,6 +2289,8 @@ function _wireLibraryEvents(){
         const full=await Storage.getManuscript(lastOpen.manuscriptId).catch(()=>null);
         if(full&&full.text){
           extractedText=full.text;uploadedFile={name:full.fileName,size:0};
+          const savedGenreKey=full.genrePrimary||(full.genre&&full.genre!=='Unknown'?_genreLabelToKey(full.genre):'');
+          if(savedGenreKey){const go=$('genre-override');if(go)go.value=savedGenreKey;}
           try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);alert('Analysis failed. Please try re-uploading.');return}
           Storage._currentManuscriptId=full.id;
           $('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');
@@ -2332,6 +2336,9 @@ async function _openManuscript(idx){
       extractedText=full.text||'';
       analysisResult=null;
       Storage._currentManuscriptId=m.id;
+      // Restore saved genre override so Analyzer.analyze() result gets overridden correctly
+      const savedGenreKey=full.genrePrimary||(full.genre&&full.genre!=='Unknown'?_genreLabelToKey(full.genre):'');
+      if(savedGenreKey){const go=$('genre-override');if(go)go.value=savedGenreKey;}
     }
     uploadedFile={name:m.fileName||'Untitled',size:0};
 
