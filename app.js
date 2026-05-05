@@ -236,10 +236,19 @@ function renderAll(){
   previousScore=r.overall;
 
   // Apply manual genre override if selected (from upload or editor topbar)
-  const genreLabels={scifi:'Science Fiction',fantasy:'Fantasy',romance:'Romance',thriller:'Thriller/Suspense',mystery:'Mystery/Crime',horror:'Horror/Paranormal',historical:'Historical Fiction',dystopian:'Dystopian',ya:'Young Adult',literary:'Literary Fiction',romantasy:'Romantasy',cozyMystery:'Cozy Mystery',adventure:'Adventure',western:'Western',memoir:'Memoir/Autobiography',selfHelp:'Self-Help',biography:'Biography',historyNF:'History',trueCrime:'True Crime',philosophy:'Philosophy/Religion'};
+  const genreLabels=_GENRE_LABELS;
   const genreSelect=$('genre-select');
   const genreOverride=$('genre-override');
   const activeGenre=(genreOverride&&genreOverride.value)?genreOverride.value:(genreSelect&&genreSelect.value)?genreSelect.value:'';
+  // Self-healing: if dropdown says X but cached r.genre says Y, dropdown wins. Re-analyze with the right genre.
+  // Covers stale cached analysisResult after manuscript open / autosave restore where genre drifted.
+  if(activeGenre&&r.genre&&r.genre.primary&&r.genre.primary!==activeGenre){
+    try{
+      analysisResult=Analyzer.analyze(extractedText,activeGenre);
+      return renderAll();
+    }catch(e){console.warn('Genre re-analyze failed:',e.message)}
+  }
+  if(!r.genre)r.genre={primary:activeGenre||'fiction',label:genreLabels[activeGenre]||'Unknown',secondary:null};
   if(activeGenre&&r.genre){
     r.genre.primary=activeGenre;
     r.genre.label=genreLabels[activeGenre]||activeGenre;
@@ -302,9 +311,9 @@ async function _enhanceGrammar(r){
       const grammarFiltered=r.issues.filter(i=>i.type==='grammar');
       const grammarPerK=(grammarFiltered.length/Math.max(r.totalWords,1))*1000;
       r.scores.grammar=Math.min(100,Math.max(0,Math.round(
-        100-Math.min(50,grammarPerK*8)-
-        Math.min(30,grammarFiltered.filter(i=>i.severity==='high').length*4)-
-        Math.min(15,grammarFiltered.filter(i=>i.severity==='medium').length*1.5)
+        100-Math.min(35,grammarPerK*6)-
+        Math.min(20,grammarFiltered.filter(i=>i.severity==='high').length*3)-
+        Math.min(10,grammarFiltered.filter(i=>i.severity==='medium').length*1)
       )));
       r.scores.copy=Analyzer.scoreCopyEditing(r.issues,r.totalWords);
       r.overall=Analyzer.recalcOverall(r);
@@ -2435,6 +2444,17 @@ async function _openManuscript(idx){
     if(m._local){
       extractedText=m._data?.text||m.text||'';
       analysisResult=m._data?.result||null;
+      // Sync dropdown to cached result's genre so renderAll's override doesn't drift.
+      // If dropdown was previously set to a DIFFERENT genre, force re-analysis with the dropdown's value.
+      const cachedGenreKey=analysisResult?.genre?.primary||'';
+      const dropdownKey=$('genre-override')?.value||'';
+      if(dropdownKey&&cachedGenreKey&&dropdownKey!==cachedGenreKey){
+        // Dropdown disagrees with cached result — re-analyze with dropdown's choice (user's intent wins).
+        analysisResult=null;
+      }else if(cachedGenreKey&&!dropdownKey){
+        // Dropdown empty — sync to cached genre so the rest of the UI stays consistent.
+        const go=$('genre-override');if(go)go.value=cachedGenreKey;
+      }
     }else{
       const full=await Storage.getManuscript(m.id);
       if(!full){loadEl.remove();alert('Could not load manuscript from cloud.');return}
@@ -2689,6 +2709,11 @@ Storage.whenReady().then(async user=>{
 // Genre override in editor topbar — re-analyze with new genre
 $('genre-override')?.addEventListener('change',()=>{
   if(!extractedText||!analysisResult)return;
+  // Clear stale AI feature panels — they were generated with the previous genre's context
+  // and would mislead the user (e.g. "this is self-help masquerading as dystopian fiction").
+  ['ai-deep-critique','ai-opening-analysis','ai-editing-roadmap','ai-comp-titles','ai-query-letter','ai-beta-readers','ai-market-readiness','ai-chapter-breakdown','ai-weakness-result'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.innerHTML='';
+  });
   // Pass dropdown value as the sacred override — Analyzer.analyze() bypasses detection AND fallback reclassification.
   analysisResult=Analyzer.analyze(extractedText, $('genre-override').value || undefined);
   renderAll();
