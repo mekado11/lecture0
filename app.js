@@ -281,7 +281,9 @@ async function _enhanceGrammar(r){
         Math.min(30,grammarFiltered.filter(i=>i.severity==='high').length*4)-
         Math.min(15,grammarFiltered.filter(i=>i.severity==='medium').length*1.5)
       )));
-      renderRight(r);
+      r.scores.copy=Analyzer.scoreCopyEditing(r.issues,r.totalWords);
+      r.overall=Analyzer.recalcOverall(r);
+      updateScoresOnly(r);
       console.log('[GrammarEnhance] +'+added+' issues from LanguageTool (total grammar: '+grammarFiltered.length+')');
     }
   }catch(e){console.warn('[GrammarEnhance] skipped:',e.message)}
@@ -708,15 +710,15 @@ function renderRight(r){
   const highSev=type=>(r.issues||[]).filter(i=>i.type===type&&i.severity==='high').length;
   const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
   const scores=r.scores||{};const rp=r.readerPerspective||{};
+  const copyIssueCount=countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word')+countType('repetition')+countType('grammar');
   const cats=[
-    {k:'plot',name:'Plot Structure',score:scores.plot||0,issues:countType('pov'),weight:'10%'},
-    {k:'clarity',name:'Clarity',score:rp.clarityScore||0,issues:countType('passive'),weight:'10%'},
-    {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'8%'},
-    {k:'hook',name:'Hook Strength',score:rp.hookStrength||0,issues:r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0,weight:'7%'},
-    {k:'style',name:'Style & Voice',score:scores.style||0,issues:countType('weak-verb'),weight:'8%'},
-    {k:'dialogue',name:'Dialogue',score:scores.dialogue||0,issues:countType('dialogue'),weight:'7%'},
-    {k:'showTell',name:'Show vs Tell',score:scores.showTell||0,issues:stIssues,weight:'8%'},
-    {k:'copy',name:'Copy Editing',score:scores.copy||0,issues:countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word'),weight:'10%'},
+    {k:'plot',name:'Plot Structure',score:scores.plot||0,issues:countType('pov'),weight:'9%'},
+    {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'7%'},
+    {k:'hook',name:'Hook Strength',score:rp.hookStrength||0,issues:r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0,weight:'9%'},
+    {k:'style',name:'Style & Voice',score:scores.style||0,issues:countType('weak-verb'),weight:'7%'},
+    {k:'dialogue',name:'Dialogue',score:scores.dialogue||0,issues:countType('dialogue'),weight:'6%'},
+    {k:'showTell',name:'Show vs Tell',score:scores.showTell||0,issues:stIssues,weight:'7%'},
+    {k:'copy',name:'Copy Editing',score:scores.copy||0,issues:copyIssueCount,weight:'10%'},
     {k:'grammar',name:'Grammar',score:scores.grammar||0,issues:countType('grammar'),weight:'10%'}
   ];
   const container=$('rp-scores');
@@ -881,7 +883,7 @@ function showDetail(cat){
   const catWhy={clarity:'Passive voice distances the reader. Active voice creates immediacy and clarity.',pacing:'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Generic verbs ("made", "went", "got") miss an opportunity to create vivid, specific imagery.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing catches the mechanical issues — passive voice, adverbs, clichés, wordy phrasing, and word confusion.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:'Readers need forward momentum — clear stakes, rising tension, and consistent point of view.'};
 
   // Canonical issue source per category — both card and detail derive from the same data
-  const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word']);
+  const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
   let issues;
   if(cat==='hook'){
     issues=(r.openingDiagnosis?.problems||[]).map(p=>({type:'hook',text:p.desc||p.title||'',suggestion:p.fix||p.desc||'',severity:p.severity||'medium',index:0,length:0}));
@@ -1013,7 +1015,7 @@ function renderDetailed(r){
   plotRows.push(sr('Issues/1K words',r.issuesPerK||0));
   h+=secWithTip(plotLabel,scores.plot||0,plotRows,'plot');
   h+=secWithTip('Transitions',scores.transitions||0,[(trans.smoothRate||0)+'% smooth',sr('Transition Words',trans.transitionsUsed||0),sr('Smooth',(trans.smoothTransitions||0)+'/'+((trans.totalParagraphs||1)-1))],'transitions');
-  h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Weak Verbs',ic['weak-verb']||0),sr('Show/Tell',ic['show-tell']||0)],'copy');
+  h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0)+(ic.repetition||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Wordy',ic.wordy||0),sr('Repetition',ic.repetition||0),sr('Confused Words',ic['confused-word']||0)],'copy');
   // Line Editing (true stylistic editing, not just readability)
   const le=r.lineEditing||{};
   const lineRows=['Stylistic editing: tone, flow, precision, pacing, POV, extraneous language'];

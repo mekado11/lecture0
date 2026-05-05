@@ -1428,29 +1428,7 @@ const Analyzer = {
       });
     }
 
-    // --- 5. ITS vs IT'S ---
-    const itsRe = /\bit's\s+(own|way|place|name|best|worst|color|colour|shape|size|tail|head|body|eyes|mouth|teeth|legs|arms|paws|fur|skin|surface|contents?|core|edge|purpose|meaning|origin|source|target|focus|base|peak|center|centre|end|start|beginning|finish|top|bottom|side|front|back|heart|soul|nature|essence|beauty|power|strength|weight|value|worth|role|effect|impact|limit|potential|history|future|past)\b/gi;
-    let itsm;
-    while ((itsm = itsRe.exec(text)) !== null) {
-      issues.push({
-        type: 'grammar', text: itsm[0], index: itsm.index, length: itsm[0].length,
-        severity: 'high', confidence: 0.92,
-        message: '"It\'s" means "it is." For possession, use "its" (no apostrophe).',
-        suggestion: 'Replace with: "its ' + itsm[1] + '"'
-      });
-    }
-
-    // --- 6. THEIR/THERE/THEY'RE ---
-    const therePoss = /\b(there)\s+(car|house|home|dog|cat|kids?|children|family|parents?|mother|father|mom|dad|brother|sister|friend|friends|bag|phone|book|books?|stuff|things?|work|job|money|life|lives|team|group|class|school|idea|opinion|problem|fault|way|plan|goal|dream)\b/gi;
-    let tpm;
-    while ((tpm = therePoss.exec(text)) !== null) {
-      issues.push({
-        type: 'grammar', text: tpm[0], index: tpm.index, length: tpm[0].length,
-        severity: 'high', confidence: 0.88,
-        message: '"There" is a place. For possession, use "their."',
-        suggestion: 'Replace with: "their ' + tpm[2] + '"'
-      });
-    }
+    // (Its/it's and their/there are handled below in expanded rules 9-10)
 
     // --- 7. YOUR/YOU'RE ---
     const yourContraction = /\b(your)\s+(going|coming|being|doing|making|getting|running|walking|looking|trying|saying|telling|asking|thinking|feeling|leaving|staying|kidding|joking|wrong|right|welcome|sure|correct|crazy|insane|mad|angry|happy|sad|beautiful|amazing|wonderful|terrible|horrible|fired|hired|invited|finished|done)\b/gi;
@@ -1476,11 +1454,32 @@ const Analyzer = {
       });
     }
 
-    // --- 9. DANGLING COMMA BEFORE "AND" IN TWO-ITEM LIST (Oxford comma misuse) ---
-    // Skip — too many false positives in fiction
+    // --- 9. THEIR vs THERE / THEY'RE ---
+    const theirAre = /\b(their)\s+(is|are|was|were|isn't|aren't|wasn't|weren't)\b/gi;
+    let tam;
+    while ((tam = theirAre.exec(text)) !== null) {
+      issues.push({
+        type: 'grammar', text: tam[0], index: tam.index, length: tam[0].length,
+        severity: 'high', confidence: 0.9,
+        message: '"Their" is possessive. "There" is needed before "' + tam[2] + '".',
+        suggestion: 'Replace with: "there ' + tam[2] + '"'
+      });
+    }
 
-    // --- 10. MISSING APOSTROPHE IN COMMON CONTRACTIONS ---
-    const contractionRe = /\b(dont|wont|cant|didnt|doesnt|isnt|wasnt|arent|werent|wouldnt|couldnt|shouldnt|hasnt|havent|hadnt|aint|mustnt|neednt)\b/g;
+    // --- 10. ITS vs IT'S — expanded coverage ---
+    const itsExpanded = /\bit's\s+(own|way|place|name|color|colour|shape|size|tail|head|body|eyes|purpose|meaning|value|weight|surface|edge|base|end|core|peak|center|contents|nature|origin|source|beauty|power|strength|potential|limits|boundaries|essence|impact|effect|form|function|role|structure|design|style|presence|absence|focus|direction|path|course|tone|voice|message|image|history|future|fate|mark|shadow|reflection|influence|title|version|appearance|opposite|equivalent|replacement|cost|price|worth|depth|width|height|length|beginning|middle|bottom|top|front|back|side|interior|exterior|surface|texture|scent|smell|taste|sound|rhythm|pattern|frequency|range|scope|scale|context|significance|relevance|implications|consequences|limitations|features|properties|qualities|characteristics|components|elements|ingredients|origins|roots|foundation|framework|capacity|ability|tendency|habit|behavior|behaviour|personality|identity|legacy|reputation|appeal|charm|magic|mystery|secret|weakness|flaw|fault|downfall|undoing|demise|destruction|survival|existence|birth|death|arrival|departure|return|presence|domain|territory|realm|kingdom|world|environment|habitat|nest|lair|den|home|shelter|cover|skin|shell|hull|armor|armour|frame|skeleton|spine|backbone|flesh|blood|breath|heartbeat|pulse|soul|spirit|ghost|memory|shadow|echo)\b/gi;
+    let itsm;
+    while ((itsm = itsExpanded.exec(text)) !== null) {
+      issues.push({
+        type: 'grammar', text: itsm[0], index: itsm.index, length: itsm[0].length,
+        severity: 'high', confidence: 0.92,
+        message: '"It\'s" means "it is." For possession, use "its" (no apostrophe).',
+        suggestion: 'Replace with: "its ' + itsm[1] + '"'
+      });
+    }
+
+    // --- 11. MISSING APOSTROPHE IN COMMON CONTRACTIONS ---
+    const contractionRe = /\b(dont|wont|cant|didnt|doesnt|isnt|wasnt|arent|werent|wouldnt|couldnt|shouldnt|hasnt|havent|hadnt|aint|mustnt|neednt|theres|wheres|thats|heres|whos|whats|theyre|youre|weve|theyd|youd|itll|theyll|youll|wholl)\b/gi;
     let crm;
     while ((crm = contractionRe.exec(text)) !== null) {
       const inQ = this._isInsideQuotes(text, crm.index);
@@ -1491,7 +1490,11 @@ const Analyzer = {
         isnt:"isn't",wasnt:"wasn't",arent:"aren't",werent:"weren't",
         wouldnt:"wouldn't",couldnt:"couldn't",shouldnt:"shouldn't",
         hasnt:"hasn't",havent:"haven't",hadnt:"hadn't",aint:"ain't",
-        mustnt:"mustn't",neednt:"needn't"
+        mustnt:"mustn't",neednt:"needn't",
+        theres:"there's",wheres:"where's",thats:"that's",heres:"here's",
+        whos:"who's",whats:"what's",theyre:"they're",
+        youre:"you're",weve:"we've",theyd:"they'd",youd:"you'd",
+        itll:"it'll",theyll:"they'll",youll:"you'll",wholl:"who'll"
       };
       issues.push({
         type: 'grammar', text: word, index: crm.index, length: word.length,
@@ -3089,6 +3092,26 @@ const Analyzer = {
     if (score >= 48) return 'C-';
     if (score >= 40) return 'D';
     return 'F';
+  },
+
+  recalcOverall(r) {
+    const s = r.scores || {};
+    const wq = r.writingQuality || {};
+    return Math.round(
+      (s.plot || 0) * 0.09 +
+      (s.transitions || 0) * 0.07 +
+      (s.copy || 0) * 0.10 +
+      (s.line || 0) * 0.09 +
+      (s.style || 0) * 0.07 +
+      (s.dialogue || 0) * 0.06 +
+      (s.showTell || 0) * 0.07 +
+      (s.grammar || 0) * 0.10 +
+      (wq.clarityScore || 0) * 0.09 +
+      (wq.disciplineScore || 0) * 0.07 +
+      (wq.efficiencyScore || 0) * 0.06 +
+      (wq.engagementScore || 0) * 0.07 +
+      (wq.momentumScore || 0) * 0.06
+    );
   },
 
   extractStyleFingerprint(text) {
