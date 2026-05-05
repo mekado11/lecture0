@@ -17,7 +17,8 @@ const GrammarEnhance = {
   async check(text) {
     if (!text || text.length < 50) return [];
 
-    const cacheKey = text.length + '|' + text.substring(0, 100);
+    let h = 0; for (let i = 0; i < text.length; i++) h = ((h << 5) - h + text.charCodeAt(i)) | 0;
+    const cacheKey = text.length + '|' + Math.abs(h).toString(36);
     const cached = this._cache.get(cacheKey);
     if (cached && Date.now() - cached.ts < 10 * 60 * 1000) return cached.issues;
 

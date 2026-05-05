@@ -613,6 +613,79 @@ Rules:
     return suggestions;
   },
 
+  // ========================
+  // CALIBRATE ISSUES — AI false-positive filter for analyzer findings
+  // Reviews regex-based issues in context, returns keep/dismiss/downgrade verdicts.
+  // Cheap model (openai-fast). Cached per (text, feature). Genre-aware reasoning.
+  // ========================
+  async calibrateIssues(text, issues, genre) {
+    if (!Array.isArray(issues) || issues.length === 0) return [];
+
+    // Only review borderline issue types where regex has highest false-positive rates.
+    // Grammar issues are excluded — LanguageTool already validated them.
+    const reviewTypes = new Set(['passive', 'adverb', 'weak-verb', 'show-tell', 'cliche']);
+    const candidates = issues
+      .map((iss, idx) => ({ iss, idx }))
+      .filter(({ iss }) => {
+        if (!reviewTypes.has(iss.type)) return false;
+        const c = (iss.confidence == null) ? 1 : iss.confidence;
+        return c >= 0.3 && c <= 0.95; // skip ultra-low (already filtered) and ultra-high (clearly real)
+      })
+      // Prioritize: high-severity first, then medium, then low — within budget of 50
+      .sort((a, b) => {
+        const sevRank = { high: 0, medium: 1, low: 2 };
+        return (sevRank[a.iss.severity] || 2) - (sevRank[b.iss.severity] || 2);
+      })
+      .slice(0, 50);
+
+    if (candidates.length === 0) return [];
+
+    // Build compact payload — give AI 80 chars of context per issue
+    const payload = candidates.map(({ iss, idx }) => {
+      const ctxStart = Math.max(0, (iss.index || 0) - 60);
+      const ctxEnd = Math.min(text.length, (iss.index || 0) + (iss.length || iss.text.length) + 60);
+      const context = text.substring(ctxStart, ctxEnd).replace(/\s+/g, ' ').trim();
+      return {
+        id: idx,
+        type: iss.type,
+        text: (iss.text || '').substring(0, 80),
+        context: context.substring(0, 200),
+        severity: iss.severity || 'medium'
+      };
+    });
+
+    const genreLabel = genre?.label || (typeof genre === 'string' ? genre : 'Unknown');
+    const isNF = (typeof Analyzer !== 'undefined') ? Analyzer.isNonfiction(genre) : false;
+    const family = isNF ? 'nonfiction' : 'fiction';
+
+    const sys = 'You are an editorial calibration engine. You review writing issues flagged by an automated regex analyzer and decide which are real problems vs false positives. You understand that rules vary by genre — academic passive voice, rhetorical adverbs in self-help, and intentional repetition for emphasis are all legitimate. Return ONLY a valid JSON array. No explanation, no markdown.';
+
+    const usr = 'Genre: ' + genreLabel + ' (' + family + ')\n\n'
+      + 'For each issue below, return one of three verdicts:\n'
+      + '- "keep": this is a real problem worth flagging\n'
+      + '- "dismiss": false positive — the text is correct or the usage is intentional/appropriate for this genre/context\n'
+      + '- "downgrade": minor issue — reduce severity by one level\n\n'
+      + 'Be especially skeptical of: participial adjectives flagged as passive ("are terrified"), rhetorical adverbs in self-help/memoir, deliberate anaphora flagged as repetition, and "weak verbs" that fit a plain narration register.\n\n'
+      + 'Issues:\n' + JSON.stringify(payload, null, 1) + '\n\n'
+      + 'Return JSON array, one entry per issue:\n'
+      + '[{"id":0,"verdict":"dismiss","reason":"brief reason"},{"id":1,"verdict":"keep","reason":"..."},...]';
+
+    const result = await this._callClaude(null, sys, usr, text, 'calibrateIssues');
+
+    // Parse the response — could be array directly, or wrapped
+    let verdicts = [];
+    if (Array.isArray(result)) verdicts = result;
+    else if (Array.isArray(result.verdicts)) verdicts = result.verdicts;
+    else if (Array.isArray(result.issues)) verdicts = result.issues;
+    else if (result.raw) {
+      try {
+        const m = result.raw.match(/\[[\s\S]*\]/);
+        if (m) verdicts = JSON.parse(m[0]);
+      } catch (e) {}
+    }
+    return verdicts.filter(v => v && typeof v.id === 'number' && ['keep','dismiss','downgrade'].includes(v.verdict));
+  },
+
   getVersionComparison(v1, v2) {
     if (!v1 || !v2) return null;
     const diff = (a, b) => ({ from: a, to: b, delta: b - a, improved: b > a });

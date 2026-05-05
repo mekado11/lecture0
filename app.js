@@ -3,6 +3,15 @@ let uploadedFile=null,extractedText='',analysisResult=null;
 const $=id=>document.getElementById(id);
 const _GENRE_LABELS={scifi:'Science Fiction',fantasy:'Fantasy',romance:'Romance',thriller:'Thriller/Suspense',mystery:'Mystery/Crime',horror:'Horror/Paranormal',historical:'Historical Fiction',dystopian:'Dystopian',ya:'Young Adult',literary:'Literary Fiction',romantasy:'Romantasy',cozyMystery:'Cozy Mystery',adventure:'Adventure',western:'Western',memoir:'Memoir/Autobiography',selfHelp:'Self-Help',biography:'Biography',historyNF:'History',trueCrime:'True Crime',philosophy:'Philosophy/Religion'};
 function _genreLabelToKey(label){return Object.entries(_GENRE_LABELS).find(([,v])=>v===label)?.[0]||'';}
+// Read whichever genre dropdown is currently active. Used to pass the user's pick into Analyzer.analyze
+// so the SCORING (not just the label) reflects their override. Returns undefined when nothing is selected.
+function _currentGenreKey(){
+  const ov=document.getElementById('genre-override');
+  if(ov&&ov.value)return ov.value;
+  const sel=document.getElementById('genre-select');
+  if(sel&&sel.value)return sel.value;
+  return undefined;
+}
 document.body.classList.add('lib-mode'); // Library is first view — allow scroll
 
 function _authDiagnosticMessage(msg) {
@@ -28,17 +37,28 @@ dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-ove
 dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files.length)hf(e.dataTransfer.files[0])});
 fi.addEventListener('change',e=>{if(e.target.files.length)hf(e.target.files[0])});
-$('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('analyze-btn').classList.add('hidden');fi.value=''});
-function hf(f){const x=f.name.split('.').pop().toLowerCase();if(!['docx','pdf','txt'].includes(x)){alert('Upload .docx, .pdf, or .txt');return}if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');$('analyze-btn').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden')}
+$('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('genre-select-wrap')?.classList.add('hidden');$('analyze-btn').classList.add('hidden');if($('genre-select'))$('genre-select').value='';fi.value=''});
+function hf(f){if(!['docx','pdf','txt'].includes(f.name.split('.').pop().toLowerCase())){alert('Upload .docx, .pdf, or .txt');return}if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden');_updateAnalyzeBtnVisibility()}
+// Genre is required before analysis. Show the Analyze button only when both a file and a genre are selected.
+function _updateAnalyzeBtnVisibility(){
+  const sel=$('genre-select');
+  const ready=!!uploadedFile&&!!(sel&&sel.value);
+  if(ready)$('analyze-btn').classList.remove('hidden');
+  else $('analyze-btn').classList.add('hidden');
+}
+$('genre-select')?.addEventListener('change',_updateAnalyzeBtnVisibility);
 async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const content=await(await p.getPage(i)).getTextContent();const items=content.items;let pageLines=[];let curLine='';let prevY=null,prevX=null,prevW=0;for(const item of items){if(!item.str)continue;const ix=item.transform[4],iy=item.transform[5];if(prevY!==null&&Math.abs(iy-prevY)>3){if(curLine.trim())pageLines.push(curLine.trim());curLine='';prevX=null;prevW=0;}if(prevX!==null&&ix-(prevX+prevW)>1)curLine+=' ';curLine+=item.str;prevY=iy;prevX=ix;prevW=item.width||0;}if(curLine.trim())pageLines.push(curLine.trim());t+=pageLines.join('\n')+'\n\n';}return t}}
 $('analyze-btn').addEventListener('click',async()=>{
   if(!uploadedFile)return;
+  // Genre is required — defense in depth (the button shouldn't even be visible without one)
+  const selectedGenre=$('genre-select')?.value;
+  if(!selectedGenre){alert('Please select a genre before analyzing.');return}
   $('analyze-btn').classList.add('hidden');
   $('upload-loading').classList.remove('hidden');
   try{
     $('loader-text').textContent='Extracting...';
     extractedText=await ext(uploadedFile);
-    _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;
+    _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;
     $('loader-text').textContent='Analyzing...';
     if(_analyzerWorker){
       _analyzeVersion++;
@@ -58,7 +78,7 @@ $('analyze-btn').addEventListener('click',async()=>{
       });
     }else{
       await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
-      analysisResult=Analyzer.analyze(extractedText);
+      analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
     }
     if(!analysisResult||analysisResult.error){alert(analysisResult?.error||'Analysis produced no result');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
     // Save immediately to Firestore/localStorage so it appears in library
@@ -81,11 +101,12 @@ $('analyze-btn').addEventListener('click',async()=>{
     // Close modal, reset state, show library
     $('upload-modal')?.classList.add('hidden');
     $('upload-loading').classList.add('hidden');
-    $('analyze-btn').classList.remove('hidden');
     fi.value='';$('file-info')?.classList.add('hidden');$('genre-select-wrap')?.classList.add('hidden');
     uploadedFile=null;extractedText='';analysisResult=null;
+    if($('genre-select'))$('genre-select').value='';
+    _updateAnalyzeBtnVisibility();
     renderLibrary();
-  }catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden')}
+  }catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');_updateAnalyzeBtnVisibility()}
 });
 
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -198,7 +219,7 @@ window.addEventListener('keydown',e=>{
 function renderAll(){
   const r=analysisResult;
   if(!r||!uploadedFile){return}
-  _ltEnhanceDone=false;_smartScanDone=false;_batchFixDone=false;
+  _ltEnhanceDone=false;_smartScanDone=false;_batchFixDone=false;_aiCalibrateDone=false;
   $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
   drawGauge(r.overall||0);
@@ -222,6 +243,7 @@ function renderAll(){
   if(activeGenre&&r.genre){
     r.genre.primary=activeGenre;
     r.genre.label=genreLabels[activeGenre]||activeGenre;
+    r.genre.userOverride=true; // sacred — downstream code must respect this
   }
   // Sync the editor genre dropdown to current genre
   if(genreOverride&&r.genre){
@@ -248,6 +270,9 @@ function renderAll(){
   maybeBatchFix(r);
   // LanguageTool grammar enhancement — runs async after initial render
   _enhanceGrammar(r);
+  // AI Calibration — reviews borderline regex findings, dismisses false positives,
+  // recalculates affected scores. Paid users only. Runs once per manuscript.
+  _aiCalibrate(r);
 }
 
 let _ltEnhanceDone=false;
@@ -281,10 +306,80 @@ async function _enhanceGrammar(r){
         Math.min(30,grammarFiltered.filter(i=>i.severity==='high').length*4)-
         Math.min(15,grammarFiltered.filter(i=>i.severity==='medium').length*1.5)
       )));
-      renderRight(r);
+      r.scores.copy=Analyzer.scoreCopyEditing(r.issues,r.totalWords);
+      r.overall=Analyzer.recalcOverall(r);
+      updateScoresOnly(r);
       console.log('[GrammarEnhance] +'+added+' issues from LanguageTool (total grammar: '+grammarFiltered.length+')');
     }
   }catch(e){console.warn('[GrammarEnhance] skipped:',e.message)}
+}
+
+// AI Calibration — reviews borderline analyzer findings in context, dismisses false positives,
+// then recalculates affected dimension scores. Paid users only (counts against daily AI quota).
+// One openai-fast call per manuscript, cached for the session.
+let _aiCalibrateDone=false;
+async function _aiCalibrate(r){
+  if(_aiCalibrateDone||!r||!extractedText||!_isPaid())return;
+  if(typeof AIEngine==='undefined')return;
+  if(!Array.isArray(r.issues)||r.issues.length===0)return;
+  _aiCalibrateDone=true;
+  try{
+    const verdicts=await AIEngine.calibrateIssues(extractedText,r.issues,r.genre);
+    if(!verdicts||verdicts.length===0)return;
+
+    // Apply verdicts to r.issues. Track changes for telemetry.
+    const dismissedIds=new Set();
+    const downgradedIds=new Set();
+    const sevDown={high:'medium',medium:'low',low:'low'};
+    for(const v of verdicts){
+      if(v.verdict==='dismiss'){dismissedIds.add(v.id)}
+      else if(v.verdict==='downgrade'){downgradedIds.add(v.id)}
+    }
+
+    if(dismissedIds.size===0&&downgradedIds.size===0)return;
+
+    // Apply downgrades in place (preserves indices for the dismissal pass)
+    r.issues.forEach((iss,idx)=>{
+      if(downgradedIds.has(idx)){
+        iss.severity=sevDown[iss.severity]||'low';
+        iss.confidence=(iss.confidence==null?0.85:iss.confidence)*0.5;
+        iss._calibrated='downgrade';
+      }
+    });
+
+    // Drop dismissed issues
+    if(dismissedIds.size>0){
+      r.issues=r.issues.filter((iss,idx)=>!dismissedIds.has(idx));
+    }
+
+    // Recompute issue counts from the filtered list
+    const counts={};
+    r.issues.forEach(iss=>{counts[iss.type]=(counts[iss.type]||0)+1});
+    // Preserve original count fields; only update the types we actually counted
+    Object.keys(r.issueCounts||{}).forEach(k=>{
+      if(counts[k]!==undefined)r.issueCounts[k]=counts[k];
+      else if(['passive','adverb','weak-verb','show-tell','cliche'].includes(k))r.issueCounts[k]=counts[k]||0;
+    });
+
+    // Recompute affected dimension scores
+    r.scores.copy=Analyzer.scoreCopyEditing(r.issues,r.totalWords);
+    // showTell only matters for fiction (nonfiction has it hidden)
+    if(!Analyzer.isNonfiction(r.genre)){
+      const showTellCount=r.issues.filter(i=>i.type==='show-tell').length;
+      const showTellPerK=(showTellCount/Math.max(r.totalWords,1))*1000;
+      r.scores.showTell=Math.max(0,Math.round(100-showTellPerK*2.5));
+    }
+    r.overall=Analyzer.recalcOverall(r);
+
+    updateScoresOnly(r);
+    // Re-render annotated text so dismissed highlights disappear
+    if(typeof renderAnnotated==='function')renderAnnotated(extractedText,r.issues);
+
+    console.log('[AICalibrate] dismissed='+dismissedIds.size+' downgraded='+downgradedIds.size+' remaining='+r.issues.length);
+  }catch(e){
+    _aiCalibrateDone=false; // allow retry on next render
+    console.warn('[AICalibrate] skipped:',e.message);
+  }
 }
 
 // AI-powered smart scan: runs once per manuscript for paid/admin users
@@ -416,13 +511,15 @@ function renderGoalBar(r){
   const bar=$('goal-bar');if(!bar||!r)return;
   const rp=r.readerPerspective||{};
   const scores=r.scores||{};
+  const isNF=Analyzer.isNonfiction(r.genre);
   const goals=[
     {id:'opening',icon:'\uD83D\uDEAB',label:'Improve Opening',score:rp.hookStrength||0,action:()=>showOpeningCoach()},
-    {id:'clarity',icon:'\u2705',label:'Fix Clarity',score:rp.clarityScore||0,action:()=>{showDetail('clarity')}},
-    {id:'dialogue',icon:'\uD83D\uDCAC',label:'Boost Dialogue',score:scores.dialogue||0,action:()=>{showDetail('dialogue')}},
+    // Dialogue goal hidden when score is null (nonfiction with low dialogue ratio)
+    ...(scores.dialogue!=null?[{id:'dialogue',icon:'\uD83D\uDCAC',label:'Boost Dialogue',score:scores.dialogue,action:()=>{showDetail('dialogue')}}]:[]),
     {id:'hook',icon:'\u26A1',label:'Strengthen Hook',score:rp.hookStrength||0,action:()=>showOpeningCoach()},
     {id:'pacing',icon:'\uD83C\uDFC3',label:'Fix Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),action:()=>{showDetail('pacing')}},
-    {id:'showTell',icon:'\uD83D\uDC41',label:'Show Don\'t Tell',score:scores.showTell||0,action:()=>{showDetail('showTell')}}
+    // Show vs Tell goal hidden for nonfiction
+    ...(!isNF?[{id:'showTell',icon:'\uD83D\uDC41',label:'Show Don\'t Tell',score:scores.showTell||0,action:()=>{showDetail('showTell')}}]:[])
   ];
   // Only show goals where score < 70 (things that need work)
   const needsWork=goals.filter(g=>g.score<70).sort((a,b)=>a.score-b.score).slice(0,4);
@@ -597,7 +694,7 @@ function scheduleReanalyze(){
       _analyzerWorker.addEventListener('message',handler);
       _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v});
     }else{
-      _onAnalysisComplete(Analyzer.analyze(extractedText));
+      _onAnalysisComplete(Analyzer.analyze(extractedText,_currentGenreKey()));
     }
   },2000);
 }
@@ -708,15 +805,22 @@ function renderRight(r){
   const highSev=type=>(r.issues||[]).filter(i=>i.type===type&&i.severity==='high').length;
   const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
   const scores=r.scores||{};const rp=r.readerPerspective||{};
+  const copyIssueCount=countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word')+countType('repetition')+countType('grammar');
+  const isNF=Analyzer.isNonfiction(r.genre);
+  // Hook Strength: only show issue count if it's actually penalizing the score (avoids confusing "100 / 2 issues")
+  const hookScore=rp.hookStrength||0;
+  const hookIssueCount=(r.openingDiagnosis?.problems?.length||0);
+  const displayedHookIssues=(hookScore<80)?hookIssueCount:0;
   const cats=[
-    {k:'plot',name:'Plot Structure',score:scores.plot||0,issues:countType('pov'),weight:'10%'},
-    {k:'clarity',name:'Clarity',score:rp.clarityScore||0,issues:countType('passive'),weight:'10%'},
-    {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'8%'},
-    {k:'hook',name:'Hook Strength',score:rp.hookStrength||0,issues:r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0,weight:'7%'},
-    {k:'style',name:'Style & Voice',score:scores.style||0,issues:countType('weak-verb'),weight:'8%'},
-    {k:'dialogue',name:'Dialogue',score:scores.dialogue||0,issues:countType('dialogue'),weight:'7%'},
-    {k:'showTell',name:'Show vs Tell',score:scores.showTell||0,issues:stIssues,weight:'8%'},
-    {k:'copy',name:'Copy Editing',score:scores.copy||0,issues:countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word'),weight:'10%'},
+    {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,issues:countType('pov'),weight:'9%'},
+    {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'7%'},
+    {k:'hook',name:'Hook Strength',score:hookScore,issues:displayedHookIssues,weight:'9%'},
+    {k:'style',name:'Style & Voice',score:scores.style||0,issues:countType('weak-verb'),weight:'7%'},
+    // Dialogue: only show if score is non-null (nonfiction with low dialogue ratio gets N/A and is hidden)
+    ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,issues:countType('dialogue'),weight:'6%'}]:[]),
+    // Show vs Tell: fiction-only concept; hide for nonfiction
+    ...(!isNF?[{k:'showTell',name:'Show vs Tell',score:scores.showTell||0,issues:stIssues,weight:'7%'}]:[]),
+    {k:'copy',name:'Copy Editing',score:scores.copy||0,issues:copyIssueCount,weight:'10%'},
     {k:'grammar',name:'Grammar',score:scores.grammar||0,issues:countType('grammar'),weight:'10%'}
   ];
   const container=$('rp-scores');
@@ -876,12 +980,13 @@ async function doRewrite(card) {
 
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
-  const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
+  const isNF=Analyzer.isNonfiction(r&&r.genre);
+  const titles={plot:isNF?'Argument Structure':'Plot Structure',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
   const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar',pov:'POV Issue',hook:'Opening Problem',tags:'Dialogue Tags',conciseness:'Conciseness',showing:'Show Don\'t Tell',purpose:'Dialogue Purpose',naturalness:'Naturalness'};
-  const catWhy={clarity:'Passive voice distances the reader. Active voice creates immediacy and clarity.',pacing:'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Generic verbs ("made", "went", "got") miss an opportunity to create vivid, specific imagery.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing catches the mechanical issues — passive voice, adverbs, clichés, wordy phrasing, and word confusion.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:'Readers need forward momentum — clear stakes, rising tension, and consistent point of view.'};
+  const catWhy={pacing:'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Generic verbs ("made", "went", "got") miss an opportunity to create vivid, specific imagery.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing catches the mechanical issues — passive voice, adverbs, clichés, wordy phrasing, and word confusion.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:isNF?'Strong nonfiction needs a clear thesis, evidence to support it, logical transitions, and a conclusion that synthesizes.':'Readers need forward momentum — clear stakes, rising tension, and consistent point of view.'};
 
   // Canonical issue source per category — both card and detail derive from the same data
-  const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word']);
+  const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
   let issues;
   if(cat==='hook'){
     issues=(r.openingDiagnosis?.problems||[]).map(p=>({type:'hook',text:p.desc||p.title||'',suggestion:p.fix||p.desc||'',severity:p.severity||'medium',index:0,length:0}));
@@ -892,7 +997,7 @@ function showDetail(cat){
   }else if(cat==='copy'){
     issues=r.issues.filter(i=>copyTypes.has(i.type));
   }else{
-    const directMap={clarity:'passive',pacing:'sentence-length',style:'weak-verb',showTell:'show-tell',grammar:'grammar'};
+    const directMap={pacing:'sentence-length',style:'weak-verb',showTell:'show-tell',grammar:'grammar'};
     const t=directMap[cat];
     issues=t?r.issues.filter(i=>i.type===t):[];
   }
@@ -940,22 +1045,22 @@ function showDetail(cat){
     const searchQ=issueText.substring(0,60).replace(/"/g,'&quot;');
     const hl=page.querySelector('.hl[data-q="'+searchQ+'"]');
     if(hl){hl.scrollIntoView({behavior:'smooth',block:'center'});hl.style.outline='3px solid var(--gold)';hl.style.outlineOffset='3px';setTimeout(()=>{hl.style.outline=''},3000)}
+    else{_showSaveToast('This is a general finding — review the annotated text for examples')}
   })});
   d.querySelectorAll('.rpd-fix-btn').forEach(btn=>{btn.addEventListener('click',()=>{
     const card=btn.closest('.rpd-issue');const issueText=card.dataset.issueText;
     const page=$('ed-annotated');
     const hl=page.querySelector('.hl[data-q="'+issueText.substring(0,60).replace(/"/g,'&quot;')+'"]');
-    if(!hl)return;
     // Switch to annotated view
     document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
     document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
     document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
     $('ed-annotated')?.classList.add('active');
+    if(!hl){_showSaveToast('This is a general finding — review the annotated text for examples');return}
     if(card.dataset.hasFix==='1'){
       replaceAndFix(hl);
       card.style.opacity='.3';card.style.pointerEvents='none';
     }else{
-      // No auto-fix — scroll to it and select for editing
       hl.scrollIntoView({behavior:'smooth',block:'center'});
       setTimeout(()=>{
         const sel=window.getSelection();const range=document.createRange();
@@ -1013,7 +1118,7 @@ function renderDetailed(r){
   plotRows.push(sr('Issues/1K words',r.issuesPerK||0));
   h+=secWithTip(plotLabel,scores.plot||0,plotRows,'plot');
   h+=secWithTip('Transitions',scores.transitions||0,[(trans.smoothRate||0)+'% smooth',sr('Transition Words',trans.transitionsUsed||0),sr('Smooth',(trans.smoothTransitions||0)+'/'+((trans.totalParagraphs||1)-1))],'transitions');
-  h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Weak Verbs',ic['weak-verb']||0),sr('Show/Tell',ic['show-tell']||0)],'copy');
+  h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0)+(ic.repetition||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Wordy',ic.wordy||0),sr('Repetition',ic.repetition||0),sr('Confused Words',ic['confused-word']||0)],'copy');
   // Line Editing (true stylistic editing, not just readability)
   const le=r.lineEditing||{};
   const lineRows=['Stylistic editing: tone, flow, precision, pacing, POV, extraneous language'];
@@ -1361,7 +1466,7 @@ function showOpeningCoach(){
     if(idx>=0){extractedText=newOpening+extractedText.substring(idx+oldFirst.length)}
     else{extractedText=newOpening+'\n\n'+extractedText}
     // Re-analyze
-    analysisResult=Analyzer.analyze(extractedText);
+    analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
     if(!analysisResult.error)renderAll();
     // Switch back to annotated
     coach.classList.remove('active');
@@ -2291,7 +2396,7 @@ function _wireLibraryEvents(){
           extractedText=full.text;uploadedFile={name:full.fileName,size:0};
           const savedGenreKey=full.genrePrimary||(full.genre&&full.genre!=='Unknown'?_genreLabelToKey(full.genre):'');
           if(savedGenreKey){const go=$('genre-override');if(go)go.value=savedGenreKey;}
-          try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);alert('Analysis failed. Please try re-uploading.');return}
+          try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);alert('Analysis failed. Please try re-uploading.');return}
           Storage._currentManuscriptId=full.id;
           $('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');
           document.body.classList.remove('lib-mode');renderAll();
@@ -2352,7 +2457,7 @@ async function _openManuscript(idx){
       loadEl.textContent='Analyzing manuscript...';
       await new Promise(r=>setTimeout(r,50));
       try{
-        analysisResult=Analyzer.analyze(extractedText);
+        analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
       }catch(analyzeErr){
         console.error('Analyzer.analyze failed:',analyzeErr);
         loadEl.remove();
@@ -2519,7 +2624,7 @@ Storage.whenReady().then(async user=>{
       if(full&&full.text){
         extractedText=full.text;
         uploadedFile={name:full.fileName,size:0};
-        try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);analysisResult=null}
+        try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
         if(!analysisResult){renderLibrary();return}
         Storage._currentManuscriptId=full.id;
         $('upload-view').classList.add('hidden');
@@ -2560,7 +2665,7 @@ Storage.whenReady().then(async user=>{
       if(full&&full.text){
         extractedText=full.text;
         uploadedFile={name:full.fileName,size:0};
-        try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);analysisResult=null}
+        try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
         if(!analysisResult){renderLibrary();return}
         Storage._currentManuscriptId=m.id;
         localStorage.setItem('ml_last_open',JSON.stringify({fileName:m.fileName,manuscriptId:m.id}));
@@ -2584,7 +2689,8 @@ Storage.whenReady().then(async user=>{
 // Genre override in editor topbar — re-analyze with new genre
 $('genre-override')?.addEventListener('change',()=>{
   if(!extractedText||!analysisResult)return;
-  analysisResult=Analyzer.analyze(extractedText);
+  // Pass dropdown value as the sacred override — Analyzer.analyze() bypasses detection AND fallback reclassification.
+  analysisResult=Analyzer.analyze(extractedText, $('genre-override').value || undefined);
   renderAll();
 });
 
@@ -2594,7 +2700,7 @@ function goToLibrary(){
   _undoStack.length=0;
   _redoStack.length=0;
   _updateUndoBtn();
-  _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;
+  _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;
   $('editor-view').classList.add('hidden');
   $('upload-view').classList.remove('hidden');
   $('upload-modal')?.classList.add('hidden');
