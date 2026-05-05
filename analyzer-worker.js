@@ -10,7 +10,7 @@ self.onmessage = function(e) {
     const version = e.data.version;
     _currentVersion = version;
     try {
-      const result = Analyzer.analyze(e.data.text);
+      const result = Analyzer.analyze(e.data.text, e.data.genreKey || undefined);
       if (version < _currentVersion) return;
       self.postMessage({ type: 'result', data: result, version: version });
     } catch (err) {

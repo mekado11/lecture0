@@ -170,13 +170,32 @@ const AIEngine = {
       '\n\n--- AUTOMATED ANALYSIS DATA ---',
       `Overall score: ${analysis.overall || 'N/A'}/100 | Grade: ${typeof Analyzer !== 'undefined' ? Analyzer.getGrade(analysis.overall || 0) : '?'}`,
       `Genre: ${analysis.genre?.label || 'Unknown'} | Word count: ${(analysis.totalWords || 0).toLocaleString()}`,
-      `Dimension scores (0-100): Plot ${s.plot||'?'} | Copy ${s.copy||'?'} | Style ${s.style||'?'} | Dialogue ${s.dialogue||'?'} | Show/Tell ${s.showTell||'?'}`,
+      `Dimension scores (0-100): Plot/Structure ${s.plot||'?'} | Copy ${s.copy||'?'} | Style ${s.style||'?'} | Grammar ${s.grammar||'?'} | Dialogue ${s.dialogue!=null?s.dialogue:'N/A'} | Show/Tell ${s.showTell||'?'}`,
     ];
     const icEntries = Object.entries(ic).filter(([,v]) => v > 0).map(([k,v]) => `${k}:${v}`);
     if (icEntries.length > 0) lines.push(`Issue counts: ${icEntries.join(' | ')}`);
-    if (dnf.dnf_risk !== undefined) lines.push(`DNF risk: ${dnf.dnf_risk}%`);
+    if (dnf.dnf_risk !== undefined) lines.push(`DNF risk: ${dnf.dnf_risk}% (${dnf.risk_band || ''})`);
     if (dnf.top_3_reasons?.length) lines.push(`Top reader drop-off reasons: ${dnf.top_3_reasons.join('; ')}`);
+    if (dnf.weakest_area) lines.push(`Weakest dimension: ${dnf.weakest_area} | Best fix: ${dnf.best_fix || ''}`);
     if (rp.engagementScore !== undefined) lines.push(`Reader engagement: ${rp.engagementScore}/100`);
+    // Top flagged issue examples — concrete text the AI can reference in its feedback
+    const issues = analysis.issues || [];
+    if (issues.length > 0) {
+      // Sample across the manuscript: beginning, middle, end
+      const stride = Math.max(1, Math.floor(issues.length / 12));
+      const sampled = issues.filter((_, i) => i % stride === 0).slice(0, 12);
+      const issueLines = sampled.map(iss => {
+        const snippet = (iss.text || '').substring(0, 70).replace(/\n/g, ' ');
+        const fix = iss.suggestion ? (' → ' + iss.suggestion.substring(0, 50)) : '';
+        return `  [${iss.type}] "${snippet}"${fix}`;
+      });
+      lines.push(`Sample flagged passages (${issues.length} total):\n${issueLines.join('\n')}`);
+    }
+    // Weakest paragraphs from DNF section analysis, if available
+    if (dnf.section_scores?.length) {
+      const worst = [...dnf.section_scores].sort((a,b) => a.score - b.score)[0];
+      if (worst) lines.push(`Weakest manuscript section: ${worst.section} (score ${worst.score})`);
+    }
     lines.push('--- END ANALYSIS DATA ---');
     return lines.join('\n');
   },
@@ -215,32 +234,38 @@ const AIEngine = {
   // ========================
   async deepCritique(apiKey, text, analysis) {
     const ctx = this._buildAnalysisContext(analysis);
+    const genre = analysis?.genre?.label || 'Fiction';
+    const isNF = analysis?.genre?.primary && ['memoir','selfHelp','biography','historyNF','trueCrime','philosophy','nonfiction'].includes(analysis.genre.primary);
+    const voiceLabel = isNF ? 'authoritative voice / tone' : 'narrative voice';
+    const structureLabel = isNF ? 'argument structure / thesis clarity' : 'plot structure / story arc';
+    const depthLabel = isNF ? 'idea depth and evidence quality' : 'character development';
+    const worldLabel = isNF ? 'how well it contextualizes its subject / world the ideas inhabit' : 'setting and world-building';
     return this._callClaude(apiKey,
-      'You are a professional developmental editor. You have structured analysis data AND the manuscript text. Do NOT list raw counts or repeat issue numbers. Interpret what they mean for the reading experience.',
-      `Give a deep narrative critique grounded in the analysis data below.${ctx}
+      `You are a professional developmental editor specializing in ${genre}. You have structured analysis data AND flagged passages from the manuscript. Ground your critique in SPECIFIC examples from the flagged passages provided — do not be generic. Name exact phrases, patterns, and locations. Interpret what the scores mean for the reading experience, not just the numbers.`,
+      `Give a deep critique of this ${genre} manuscript, grounded in the analysis data and flagged passages below.${ctx}
 
 Return JSON:
 {
-  "overallAssessment": "paragraph — what development stage this manuscript is at, grounded in the score",
+  "overallAssessment": "2-3 sentences — what development stage this manuscript is at, referencing specific score patterns from the data",
   "weaknesses": [
-    {"issue": "label", "explanation": "what this costs the reader specifically", "example": "brief quote or location from the text"},
-    {"issue": "label", "explanation": "...", "example": "..."},
-    {"issue": "label", "explanation": "...", "example": "..."}
+    {"issue": "specific issue name (not generic)", "explanation": "what this costs the reader — reference a specific flagged phrase or passage", "example": "direct quote or paraphrase from the flagged passages above"},
+    {"issue": "...", "explanation": "...", "example": "..."},
+    {"issue": "...", "explanation": "...", "example": "..."}
   ],
   "strengths": [
-    {"observation": "specific strength", "evidence": "brief quote or example from the text"},
+    {"observation": "specific strength with evidence from the text", "evidence": "direct quote or paraphrase"},
     {"observation": "...", "evidence": "..."}
   ],
-  "characterDepth": "assessment of character development",
-  "worldBuilding": "assessment of setting/world",
-  "narrativeVoice": "assessment of the author's voice",
-  "emotionalImpact": "how effectively does it create emotional responses",
+  "voiceAssessment": "assessment of the author's ${voiceLabel} — cite specific examples",
+  "structureAssessment": "assessment of ${structureLabel}",
+  "depthAssessment": "assessment of ${depthLabel}",
+  "worldAssessment": "assessment of ${worldLabel}",
   "improvementStrategy": [
-    {"step": 1, "action": "what to fix", "reason": "why this first — what it unlocks"},
+    {"step": 1, "action": "concrete first fix — name the specific problem from the flagged data", "reason": "why this first — what it unlocks"},
     {"step": 2, "action": "...", "reason": "..."},
     {"step": 3, "action": "...", "reason": "..."}
   ],
-  "priorityFix": "the single most impactful change, grounded in what the analysis found"
+  "priorityFix": "the single most impactful change, citing the specific pattern the analysis found"
 }`,
       text, 'deepCritique');
   },
@@ -380,25 +405,29 @@ If the text is a single chapter or doesn't have clear chapter breaks, treat majo
   // ========================
   async editingRoadmap(apiKey, text, analysis) {
     const ctx = this._buildAnalysisContext(analysis);
+    const genre = analysis?.genre?.label || 'Fiction';
     return this._callClaude(apiKey,
-      'You are a writing coach building an editing plan. Prioritize by reader impact, not frequency. Identify where fixing one thing improves multiple symptoms.',
-      `Build a prioritized editing roadmap for this manuscript.${ctx}
+      `You are a writing coach building an editing plan for a ${genre} manuscript. Prioritize by reader impact, not frequency. Each priority must be grounded in a specific pattern from the flagged passages or scores above — no generic advice. Name the actual problem you see.`,
+      `Build a prioritized editing roadmap. Use the analysis data AND the flagged passages below to name specific problems — do not write generic editing advice.${ctx}
 
 Return JSON:
 {
   "priorities": [
     {
       "rank": 1,
-      "issue": "what to fix",
-      "whyFirst": "what makes this the highest-leverage fix",
-      "readerImpact": "what the reader experiences before vs. after this fix",
-      "effort": "light / moderate / heavy"
+      "issue": "specific issue name — cite the pattern from the flagged data (e.g. 'passive voice in 80% of action sequences')",
+      "whyFirst": "what makes this the highest-leverage fix — what other problems it masks or causes",
+      "readerImpact": "concrete before/after for the reader experience",
+      "effort": "light / moderate / heavy",
+      "exampleFix": "one specific sentence from the flagged passages and how to rewrite it"
     },
-    {"rank": 2, "issue": "...", "whyFirst": "...", "readerImpact": "...", "effort": "..."},
-    {"rank": 3, "issue": "...", "whyFirst": "...", "readerImpact": "...", "effort": "..."}
+    {"rank": 2, "issue": "...", "whyFirst": "...", "readerImpact": "...", "effort": "...", "exampleFix": "..."},
+    {"rank": 3, "issue": "...", "whyFirst": "...", "readerImpact": "...", "effort": "...", "exampleFix": "..."},
+    {"rank": 4, "issue": "...", "whyFirst": "...", "readerImpact": "...", "effort": "...", "exampleFix": "..."},
+    {"rank": 5, "issue": "...", "whyFirst": "...", "readerImpact": "...", "effort": "...", "exampleFix": "..."}
   ],
-  "overallOutlook": "honest one-sentence assessment of revision scope",
-  "quickWin": "one small fix that would show immediate improvement"
+  "overallOutlook": "honest 1-2 sentence assessment of revision scope, grounded in the overall score",
+  "quickWin": "one small fix (named specifically) that would show immediate improvement in a single pass"
 }`,
       text, 'editingRoadmap');
   },

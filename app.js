@@ -74,13 +74,16 @@ $('analyze-btn').addEventListener('click',async()=>{
           }
         };
         _analyzerWorker.addEventListener('message',handler);
-        _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v});
+        _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v,genreKey:_currentGenreKey()});
       });
     }else{
       await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
       analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
     }
     if(!analysisResult||analysisResult.error){alert(analysisResult?.error||'Analysis produced no result');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
+    // Genre defense: if worker auto-detect disagrees with user's selection, re-analyze with correct genre.
+    // This runs on the main thread so genre override is always honored before saving to Firestore.
+    {const sg=_currentGenreKey();if(sg&&analysisResult.genre?.primary!==sg){try{analysisResult=Analyzer.analyze(extractedText,sg)}catch(e){console.warn('Genre re-analyze failed:',e.message)}}}
     // Save immediately to Firestore/localStorage so it appears in library
     trackSession('analyzing');
     // Direct save (don't wait for debounced autoSave)
@@ -701,7 +704,7 @@ function scheduleReanalyze(){
         }
       };
       _analyzerWorker.addEventListener('message',handler);
-      _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v});
+      _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v,genreKey:_currentGenreKey()});
     }else{
       _onAnalysisComplete(Analyzer.analyze(extractedText,_currentGenreKey()));
     }
