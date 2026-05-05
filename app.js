@@ -37,17 +37,28 @@ dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-ove
 dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files.length)hf(e.dataTransfer.files[0])});
 fi.addEventListener('change',e=>{if(e.target.files.length)hf(e.target.files[0])});
-$('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('analyze-btn').classList.add('hidden');fi.value=''});
-function hf(f){const x=f.name.split('.').pop().toLowerCase();if(!['docx','pdf','txt'].includes(x)){alert('Upload .docx, .pdf, or .txt');return}if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');$('analyze-btn').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden')}
+$('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('genre-select-wrap')?.classList.add('hidden');$('analyze-btn').classList.add('hidden');if($('genre-select'))$('genre-select').value='';fi.value=''});
+function hf(f){if(!['docx','pdf','txt'].includes(f.name.split('.').pop().toLowerCase())){alert('Upload .docx, .pdf, or .txt');return}if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden');_updateAnalyzeBtnVisibility()}
+// Genre is required before analysis. Show the Analyze button only when both a file and a genre are selected.
+function _updateAnalyzeBtnVisibility(){
+  const sel=$('genre-select');
+  const ready=!!uploadedFile&&!!(sel&&sel.value);
+  if(ready)$('analyze-btn').classList.remove('hidden');
+  else $('analyze-btn').classList.add('hidden');
+}
+$('genre-select')?.addEventListener('change',_updateAnalyzeBtnVisibility);
 async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const content=await(await p.getPage(i)).getTextContent();const items=content.items;let pageLines=[];let curLine='';let prevY=null,prevX=null,prevW=0;for(const item of items){if(!item.str)continue;const ix=item.transform[4],iy=item.transform[5];if(prevY!==null&&Math.abs(iy-prevY)>3){if(curLine.trim())pageLines.push(curLine.trim());curLine='';prevX=null;prevW=0;}if(prevX!==null&&ix-(prevX+prevW)>1)curLine+=' ';curLine+=item.str;prevY=iy;prevX=ix;prevW=item.width||0;}if(curLine.trim())pageLines.push(curLine.trim());t+=pageLines.join('\n')+'\n\n';}return t}}
 $('analyze-btn').addEventListener('click',async()=>{
   if(!uploadedFile)return;
+  // Genre is required — defense in depth (the button shouldn't even be visible without one)
+  const selectedGenre=$('genre-select')?.value;
+  if(!selectedGenre){alert('Please select a genre before analyzing.');return}
   $('analyze-btn').classList.add('hidden');
   $('upload-loading').classList.remove('hidden');
   try{
     $('loader-text').textContent='Extracting...';
     extractedText=await ext(uploadedFile);
-    _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;
+    _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;
     $('loader-text').textContent='Analyzing...';
     if(_analyzerWorker){
       _analyzeVersion++;
@@ -90,11 +101,12 @@ $('analyze-btn').addEventListener('click',async()=>{
     // Close modal, reset state, show library
     $('upload-modal')?.classList.add('hidden');
     $('upload-loading').classList.add('hidden');
-    $('analyze-btn').classList.remove('hidden');
     fi.value='';$('file-info')?.classList.add('hidden');$('genre-select-wrap')?.classList.add('hidden');
     uploadedFile=null;extractedText='';analysisResult=null;
+    if($('genre-select'))$('genre-select').value='';
+    _updateAnalyzeBtnVisibility();
     renderLibrary();
-  }catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden')}
+  }catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');_updateAnalyzeBtnVisibility()}
 });
 
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -207,7 +219,7 @@ window.addEventListener('keydown',e=>{
 function renderAll(){
   const r=analysisResult;
   if(!r||!uploadedFile){return}
-  _ltEnhanceDone=false;_smartScanDone=false;_batchFixDone=false;
+  _ltEnhanceDone=false;_smartScanDone=false;_batchFixDone=false;_aiCalibrateDone=false;
   $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
   drawGauge(r.overall||0);
@@ -258,6 +270,9 @@ function renderAll(){
   maybeBatchFix(r);
   // LanguageTool grammar enhancement — runs async after initial render
   _enhanceGrammar(r);
+  // AI Calibration — reviews borderline regex findings, dismisses false positives,
+  // recalculates affected scores. Paid users only. Runs once per manuscript.
+  _aiCalibrate(r);
 }
 
 let _ltEnhanceDone=false;
@@ -297,6 +312,74 @@ async function _enhanceGrammar(r){
       console.log('[GrammarEnhance] +'+added+' issues from LanguageTool (total grammar: '+grammarFiltered.length+')');
     }
   }catch(e){console.warn('[GrammarEnhance] skipped:',e.message)}
+}
+
+// AI Calibration — reviews borderline analyzer findings in context, dismisses false positives,
+// then recalculates affected dimension scores. Paid users only (counts against daily AI quota).
+// One openai-fast call per manuscript, cached for the session.
+let _aiCalibrateDone=false;
+async function _aiCalibrate(r){
+  if(_aiCalibrateDone||!r||!extractedText||!_isPaid())return;
+  if(typeof AIEngine==='undefined')return;
+  if(!Array.isArray(r.issues)||r.issues.length===0)return;
+  _aiCalibrateDone=true;
+  try{
+    const verdicts=await AIEngine.calibrateIssues(extractedText,r.issues,r.genre);
+    if(!verdicts||verdicts.length===0)return;
+
+    // Apply verdicts to r.issues. Track changes for telemetry.
+    const dismissedIds=new Set();
+    const downgradedIds=new Set();
+    const sevDown={high:'medium',medium:'low',low:'low'};
+    for(const v of verdicts){
+      if(v.verdict==='dismiss'){dismissedIds.add(v.id)}
+      else if(v.verdict==='downgrade'){downgradedIds.add(v.id)}
+    }
+
+    if(dismissedIds.size===0&&downgradedIds.size===0)return;
+
+    // Apply downgrades in place (preserves indices for the dismissal pass)
+    r.issues.forEach((iss,idx)=>{
+      if(downgradedIds.has(idx)){
+        iss.severity=sevDown[iss.severity]||'low';
+        iss.confidence=(iss.confidence==null?0.85:iss.confidence)*0.5;
+        iss._calibrated='downgrade';
+      }
+    });
+
+    // Drop dismissed issues
+    if(dismissedIds.size>0){
+      r.issues=r.issues.filter((iss,idx)=>!dismissedIds.has(idx));
+    }
+
+    // Recompute issue counts from the filtered list
+    const counts={};
+    r.issues.forEach(iss=>{counts[iss.type]=(counts[iss.type]||0)+1});
+    // Preserve original count fields; only update the types we actually counted
+    Object.keys(r.issueCounts||{}).forEach(k=>{
+      if(counts[k]!==undefined)r.issueCounts[k]=counts[k];
+      else if(['passive','adverb','weak-verb','show-tell','cliche'].includes(k))r.issueCounts[k]=counts[k]||0;
+    });
+
+    // Recompute affected dimension scores
+    r.scores.copy=Analyzer.scoreCopyEditing(r.issues,r.totalWords);
+    // showTell only matters for fiction (nonfiction has it hidden)
+    if(!Analyzer.isNonfiction(r.genre)){
+      const showTellCount=r.issues.filter(i=>i.type==='show-tell').length;
+      const showTellPerK=(showTellCount/Math.max(r.totalWords,1))*1000;
+      r.scores.showTell=Math.max(0,Math.round(100-showTellPerK*2.5));
+    }
+    r.overall=Analyzer.recalcOverall(r);
+
+    updateScoresOnly(r);
+    // Re-render annotated text so dismissed highlights disappear
+    if(typeof renderAnnotated==='function')renderAnnotated(extractedText,r.issues);
+
+    console.log('[AICalibrate] dismissed='+dismissedIds.size+' downgraded='+downgradedIds.size+' remaining='+r.issues.length);
+  }catch(e){
+    _aiCalibrateDone=false; // allow retry on next render
+    console.warn('[AICalibrate] skipped:',e.message);
+  }
 }
 
 // AI-powered smart scan: runs once per manuscript for paid/admin users
@@ -2617,7 +2700,7 @@ function goToLibrary(){
   _undoStack.length=0;
   _redoStack.length=0;
   _updateUndoBtn();
-  _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;
+  _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;
   $('editor-view').classList.add('hidden');
   $('upload-view').classList.remove('hidden');
   $('upload-modal')?.classList.add('hidden');
