@@ -3,6 +3,15 @@ let uploadedFile=null,extractedText='',analysisResult=null;
 const $=id=>document.getElementById(id);
 const _GENRE_LABELS={scifi:'Science Fiction',fantasy:'Fantasy',romance:'Romance',thriller:'Thriller/Suspense',mystery:'Mystery/Crime',horror:'Horror/Paranormal',historical:'Historical Fiction',dystopian:'Dystopian',ya:'Young Adult',literary:'Literary Fiction',romantasy:'Romantasy',cozyMystery:'Cozy Mystery',adventure:'Adventure',western:'Western',memoir:'Memoir/Autobiography',selfHelp:'Self-Help',biography:'Biography',historyNF:'History',trueCrime:'True Crime',philosophy:'Philosophy/Religion'};
 function _genreLabelToKey(label){return Object.entries(_GENRE_LABELS).find(([,v])=>v===label)?.[0]||'';}
+// Read whichever genre dropdown is currently active. Used to pass the user's pick into Analyzer.analyze
+// so the SCORING (not just the label) reflects their override. Returns undefined when nothing is selected.
+function _currentGenreKey(){
+  const ov=document.getElementById('genre-override');
+  if(ov&&ov.value)return ov.value;
+  const sel=document.getElementById('genre-select');
+  if(sel&&sel.value)return sel.value;
+  return undefined;
+}
 document.body.classList.add('lib-mode'); // Library is first view — allow scroll
 
 function _authDiagnosticMessage(msg) {
@@ -58,7 +67,7 @@ $('analyze-btn').addEventListener('click',async()=>{
       });
     }else{
       await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
-      analysisResult=Analyzer.analyze(extractedText);
+      analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
     }
     if(!analysisResult||analysisResult.error){alert(analysisResult?.error||'Analysis produced no result');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
     // Save immediately to Firestore/localStorage so it appears in library
@@ -222,6 +231,7 @@ function renderAll(){
   if(activeGenre&&r.genre){
     r.genre.primary=activeGenre;
     r.genre.label=genreLabels[activeGenre]||activeGenre;
+    r.genre.userOverride=true; // sacred — downstream code must respect this
   }
   // Sync the editor genre dropdown to current genre
   if(genreOverride&&r.genre){
@@ -418,13 +428,15 @@ function renderGoalBar(r){
   const bar=$('goal-bar');if(!bar||!r)return;
   const rp=r.readerPerspective||{};
   const scores=r.scores||{};
+  const isNF=Analyzer.isNonfiction(r.genre);
   const goals=[
     {id:'opening',icon:'\uD83D\uDEAB',label:'Improve Opening',score:rp.hookStrength||0,action:()=>showOpeningCoach()},
-    {id:'clarity',icon:'\u2705',label:'Fix Clarity',score:rp.clarityScore||0,action:()=>{showDetail('clarity')}},
-    {id:'dialogue',icon:'\uD83D\uDCAC',label:'Boost Dialogue',score:scores.dialogue||0,action:()=>{showDetail('dialogue')}},
+    // Dialogue goal hidden when score is null (nonfiction with low dialogue ratio)
+    ...(scores.dialogue!=null?[{id:'dialogue',icon:'\uD83D\uDCAC',label:'Boost Dialogue',score:scores.dialogue,action:()=>{showDetail('dialogue')}}]:[]),
     {id:'hook',icon:'\u26A1',label:'Strengthen Hook',score:rp.hookStrength||0,action:()=>showOpeningCoach()},
     {id:'pacing',icon:'\uD83C\uDFC3',label:'Fix Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),action:()=>{showDetail('pacing')}},
-    {id:'showTell',icon:'\uD83D\uDC41',label:'Show Don\'t Tell',score:scores.showTell||0,action:()=>{showDetail('showTell')}}
+    // Show vs Tell goal hidden for nonfiction
+    ...(!isNF?[{id:'showTell',icon:'\uD83D\uDC41',label:'Show Don\'t Tell',score:scores.showTell||0,action:()=>{showDetail('showTell')}}]:[])
   ];
   // Only show goals where score < 70 (things that need work)
   const needsWork=goals.filter(g=>g.score<70).sort((a,b)=>a.score-b.score).slice(0,4);
@@ -599,7 +611,7 @@ function scheduleReanalyze(){
       _analyzerWorker.addEventListener('message',handler);
       _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v});
     }else{
-      _onAnalysisComplete(Analyzer.analyze(extractedText));
+      _onAnalysisComplete(Analyzer.analyze(extractedText,_currentGenreKey()));
     }
   },2000);
 }
@@ -711,13 +723,20 @@ function renderRight(r){
   const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
   const scores=r.scores||{};const rp=r.readerPerspective||{};
   const copyIssueCount=countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word')+countType('repetition')+countType('grammar');
+  const isNF=Analyzer.isNonfiction(r.genre);
+  // Hook Strength: only show issue count if it's actually penalizing the score (avoids confusing "100 / 2 issues")
+  const hookScore=rp.hookStrength||0;
+  const hookIssueCount=(r.openingDiagnosis?.problems?.length||0);
+  const displayedHookIssues=(hookScore<80)?hookIssueCount:0;
   const cats=[
-    {k:'plot',name:'Plot Structure',score:scores.plot||0,issues:countType('pov'),weight:'9%'},
+    {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,issues:countType('pov'),weight:'9%'},
     {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'7%'},
-    {k:'hook',name:'Hook Strength',score:rp.hookStrength||0,issues:r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0,weight:'9%'},
+    {k:'hook',name:'Hook Strength',score:hookScore,issues:displayedHookIssues,weight:'9%'},
     {k:'style',name:'Style & Voice',score:scores.style||0,issues:countType('weak-verb'),weight:'7%'},
-    {k:'dialogue',name:'Dialogue',score:scores.dialogue||0,issues:countType('dialogue'),weight:'6%'},
-    {k:'showTell',name:'Show vs Tell',score:scores.showTell||0,issues:stIssues,weight:'7%'},
+    // Dialogue: only show if score is non-null (nonfiction with low dialogue ratio gets N/A and is hidden)
+    ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,issues:countType('dialogue'),weight:'6%'}]:[]),
+    // Show vs Tell: fiction-only concept; hide for nonfiction
+    ...(!isNF?[{k:'showTell',name:'Show vs Tell',score:scores.showTell||0,issues:stIssues,weight:'7%'}]:[]),
     {k:'copy',name:'Copy Editing',score:scores.copy||0,issues:copyIssueCount,weight:'10%'},
     {k:'grammar',name:'Grammar',score:scores.grammar||0,issues:countType('grammar'),weight:'10%'}
   ];
@@ -878,9 +897,10 @@ async function doRewrite(card) {
 
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
-  const titles={plot:'Plot Structure',clarity:'Clarity',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
+  const isNF=Analyzer.isNonfiction(r&&r.genre);
+  const titles={plot:isNF?'Argument Structure':'Plot Structure',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
   const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar',pov:'POV Issue',hook:'Opening Problem',tags:'Dialogue Tags',conciseness:'Conciseness',showing:'Show Don\'t Tell',purpose:'Dialogue Purpose',naturalness:'Naturalness'};
-  const catWhy={clarity:'Passive voice distances the reader. Active voice creates immediacy and clarity.',pacing:'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Generic verbs ("made", "went", "got") miss an opportunity to create vivid, specific imagery.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing catches the mechanical issues — passive voice, adverbs, clichés, wordy phrasing, and word confusion.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:'Readers need forward momentum — clear stakes, rising tension, and consistent point of view.'};
+  const catWhy={pacing:'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Generic verbs ("made", "went", "got") miss an opportunity to create vivid, specific imagery.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing catches the mechanical issues — passive voice, adverbs, clichés, wordy phrasing, and word confusion.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:isNF?'Strong nonfiction needs a clear thesis, evidence to support it, logical transitions, and a conclusion that synthesizes.':'Readers need forward momentum — clear stakes, rising tension, and consistent point of view.'};
 
   // Canonical issue source per category — both card and detail derive from the same data
   const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
@@ -894,7 +914,7 @@ function showDetail(cat){
   }else if(cat==='copy'){
     issues=r.issues.filter(i=>copyTypes.has(i.type));
   }else{
-    const directMap={clarity:'passive',pacing:'sentence-length',style:'weak-verb',showTell:'show-tell',grammar:'grammar'};
+    const directMap={pacing:'sentence-length',style:'weak-verb',showTell:'show-tell',grammar:'grammar'};
     const t=directMap[cat];
     issues=t?r.issues.filter(i=>i.type===t):[];
   }
@@ -1363,7 +1383,7 @@ function showOpeningCoach(){
     if(idx>=0){extractedText=newOpening+extractedText.substring(idx+oldFirst.length)}
     else{extractedText=newOpening+'\n\n'+extractedText}
     // Re-analyze
-    analysisResult=Analyzer.analyze(extractedText);
+    analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
     if(!analysisResult.error)renderAll();
     // Switch back to annotated
     coach.classList.remove('active');
@@ -2293,7 +2313,7 @@ function _wireLibraryEvents(){
           extractedText=full.text;uploadedFile={name:full.fileName,size:0};
           const savedGenreKey=full.genrePrimary||(full.genre&&full.genre!=='Unknown'?_genreLabelToKey(full.genre):'');
           if(savedGenreKey){const go=$('genre-override');if(go)go.value=savedGenreKey;}
-          try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);alert('Analysis failed. Please try re-uploading.');return}
+          try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);alert('Analysis failed. Please try re-uploading.');return}
           Storage._currentManuscriptId=full.id;
           $('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');
           document.body.classList.remove('lib-mode');renderAll();
@@ -2354,7 +2374,7 @@ async function _openManuscript(idx){
       loadEl.textContent='Analyzing manuscript...';
       await new Promise(r=>setTimeout(r,50));
       try{
-        analysisResult=Analyzer.analyze(extractedText);
+        analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
       }catch(analyzeErr){
         console.error('Analyzer.analyze failed:',analyzeErr);
         loadEl.remove();
@@ -2521,7 +2541,7 @@ Storage.whenReady().then(async user=>{
       if(full&&full.text){
         extractedText=full.text;
         uploadedFile={name:full.fileName,size:0};
-        try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);analysisResult=null}
+        try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
         if(!analysisResult){renderLibrary();return}
         Storage._currentManuscriptId=full.id;
         $('upload-view').classList.add('hidden');
@@ -2562,7 +2582,7 @@ Storage.whenReady().then(async user=>{
       if(full&&full.text){
         extractedText=full.text;
         uploadedFile={name:full.fileName,size:0};
-        try{analysisResult=Analyzer.analyze(extractedText)}catch(e){console.error('Analyze failed:',e);analysisResult=null}
+        try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
         if(!analysisResult){renderLibrary();return}
         Storage._currentManuscriptId=m.id;
         localStorage.setItem('ml_last_open',JSON.stringify({fileName:m.fileName,manuscriptId:m.id}));
@@ -2586,7 +2606,8 @@ Storage.whenReady().then(async user=>{
 // Genre override in editor topbar — re-analyze with new genre
 $('genre-override')?.addEventListener('change',()=>{
   if(!extractedText||!analysisResult)return;
-  analysisResult=Analyzer.analyze(extractedText);
+  // Pass dropdown value as the sacred override — Analyzer.analyze() bypasses detection AND fallback reclassification.
+  analysisResult=Analyzer.analyze(extractedText, $('genre-override').value || undefined);
   renderAll();
 });
 

@@ -3,6 +3,31 @@
 const Analyzer = {
 
   // ========================
+  // GENRE FAMILY HELPERS
+  // ========================
+  NONFICTION_GENRES: new Set(['memoir','selfHelp','biography','historyNF','trueCrime','philosophy','nonfiction']),
+
+  isNonfiction(genre) {
+    if (!genre) return false;
+    const key = typeof genre === 'string' ? genre : (genre.primary || '');
+    return this.NONFICTION_GENRES.has(key);
+  },
+
+  _GENRE_LABELS_INTERNAL: {
+    scifi:'Science Fiction',fantasy:'Fantasy',romance:'Romance',thriller:'Thriller/Suspense',
+    mystery:'Mystery/Crime',horror:'Horror/Paranormal',historical:'Historical Fiction',
+    dystopian:'Dystopian',ya:'Young Adult',literary:'Literary Fiction',romantasy:'Romantasy',
+    cozyMystery:'Cozy Mystery',adventure:'Adventure',western:'Western',
+    memoir:'Memoir/Autobiography',selfHelp:'Self-Help',biography:'Biography',
+    historyNF:'History',trueCrime:'True Crime',philosophy:'Philosophy/Religion',
+    nonfiction:'Nonfiction',fiction:'Fiction'
+  },
+
+  _genreLabelFor(key) {
+    return this._GENRE_LABELS_INTERNAL[key] || key;
+  },
+
+  // ========================
   // MANUSCRIPT MODE DETECTION
   // ========================
   detectMode(text) {
@@ -73,8 +98,9 @@ const Analyzer = {
   // ========================
   // ADVERB DETECTION
   // ========================
-  findAdverbs(text) {
+  findAdverbs(text, genre) {
     const issues = [];
+    const nfWeight = this.isNonfiction(genre) ? 0.3 : 1; // soften for nonfiction
     const regex = /\b(\w+ly)\b/gi;
     let match;
     // Comprehensive exceptions: -ly words that are NOT adverbs (adjectives, nouns, verbs)
@@ -123,7 +149,7 @@ const Analyzer = {
 
       issues.push({
         type: 'adverb', text: match[1], index: match.index, length: match[1].length,
-        severity: 'low', confidence,
+        severity: 'low', confidence: confidence * nfWeight,
         message: `Adverb "${match[1]}" — consider a stronger verb that doesn't need modification.`,
         suggestion: specificRewrite || `Remove "${match[1]}" and strengthen the verb it modifies.`
       });
@@ -235,8 +261,9 @@ const Analyzer = {
     'sat':'perched, settled, reclined, lounged','held':'clutched, gripped, grasped, cradled'
   },
 
-  findWeakVerbs(text) {
+  findWeakVerbs(text, genre) {
     const issues = [];
+    const nfWeight = this.isNonfiction(genre) ? 0.5 : 1; // nonfiction narration uses simple verbs legitimately
     const PER_VERB_LIMIT = 5; // cap flags per verb to avoid noise in long manuscripts
     for (const [verb, alternatives] of Object.entries(this.WEAK_VERBS)) {
       const regex = new RegExp(`\\b${verb}\\b`, 'gi');
@@ -246,7 +273,7 @@ const Analyzer = {
         count++;
         issues.push({
           type: 'weak-verb', text: match[0], index: match.index, length: match[0].length,
-          severity: 'low', confidence: 0.9,
+          severity: 'low', confidence: 0.9 * nfWeight,
           message: `Weak verb "${match[0]}" — a more specific verb creates vivid imagery.`,
           suggestion: `Try: ${alternatives}`
         });
@@ -307,8 +334,9 @@ const Analyzer = {
   // ========================
   // PASSIVE VOICE
   // ========================
-  findPassiveVoice(text) {
+  findPassiveVoice(text, genre) {
     const issues = [];
+    const nfWeight = this.isNonfiction(genre) ? 0.4 : 1; // academic/nonfiction passive is often legitimate
     for (const pattern of this.PASSIVE_PATTERNS) {
       let match;
       const regex = new RegExp(pattern.source, pattern.flags);
@@ -349,7 +377,7 @@ const Analyzer = {
 
         issues.push({
           type: 'passive', text: issueText, index: match.index, length: issueLen,
-          severity: 'medium', confidence: 0.85,
+          severity: 'medium', confidence: 0.85 * nfWeight,
           message: `Passive voice: “${match[0]}”`,
           suggestion
         });
@@ -444,7 +472,8 @@ const Analyzer = {
   // ========================
   // SHOW VS TELL DETECTION
   // ========================
-  findShowVsTell(text) {
+  findShowVsTell(text, genre) {
+    if (this.isNonfiction(genre)) return []; // show/tell is a fiction concept; skip for nonfiction
     const issues = [];
     // Emotion-specific show suggestions: physical sensation, action, or behavior
     const showMap = {
@@ -821,8 +850,15 @@ const Analyzer = {
     const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
     let primary = sorted[0][1] > 0 ? sorted[0][0] : 'fiction';
 
-    // If nonfiction wins but fiction signals are strong, default to fiction
-    if (['nonfiction','historyNF','biography'].includes(primary) && fictionBase >= nfBase * 0.6) {
+    // If nonfiction wins but fiction signals are MUCH stronger AND no structural nonfiction markers, default to fiction.
+    // Hardened from 0.6× → 1.5× threshold + structural-marker short-circuit so dialogue/character names alone
+    // don't flip a self-help / memoir / biography back to fiction.
+    const hasStructuralNonfiction = nfBase >= 30
+      || (text.match(/^\d+\.\s/gm) || []).length > 3
+      || (text.match(/\(\d{4}\)/g) || []).length > 2;
+    if (['nonfiction','historyNF','biography','memoir','selfHelp'].includes(primary)
+        && fictionBase >= nfBase * 1.5
+        && !hasStructuralNonfiction) {
       primary = 'fiction';
     }
 
@@ -852,7 +888,8 @@ const Analyzer = {
   // ========================
   // PLOT STRUCTURE ANALYSIS
   // ========================
-  analyzePlot(text, mode) {
+  analyzePlot(text, mode, genre) {
+    if (this.isNonfiction(genre)) return this._analyzeArgumentStructure(text, mode);
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const totalParagraphs = paragraphs.length;
     if (totalParagraphs < 3) {
@@ -925,6 +962,72 @@ const Analyzer = {
   },
 
   // ========================
+  // ARGUMENT STRUCTURE (nonfiction equivalent of plot)
+  // Scores: thesis clarity, evidence density, logical transitions, conclusion synthesis
+  // ========================
+  _analyzeArgumentStructure(text, mode) {
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+    const totalParagraphs = paragraphs.length;
+    if (totalParagraphs < 3) {
+      return { score: 50, arc: 'too-short', details: 'Text too short for argument analysis.', hasThesis: false, hasEvidence: false, hasTransitions: false, hasConclusion: false, paragraphCount: totalParagraphs, quarters: [] };
+    }
+    const lower = text.toLowerCase();
+    const totalWords = (text.match(/\b\w+\b/g) || []).length;
+
+    // Thesis: opening establishes a premise / question / claim
+    const opening = paragraphs.slice(0, 3).join(' ').toLowerCase();
+    const thesisSignals = (opening.match(/\b(this book|this chapter|here is|the truth is|i argue|i believe|the question|the problem|the issue|consider|imagine|suppose|let me|what if|why|how|because)\b/g) || []).length;
+    const hasThesis = thesisSignals >= 2 || opening.includes('?');
+
+    // Evidence density: data, examples, citations, "for example", quoted material
+    const evidenceMatches = (lower.match(/\b(for example|for instance|research|study|studies|data|evidence|according to|statistics|percent|percentage|consider|case in point|specifically|in fact|notably)\b/g) || []).length;
+    const citationMatches = (text.match(/\(\d{4}\)|\[\d+\]|\bpage \d+/gi) || []).length;
+    const evidencePerK = ((evidenceMatches + citationMatches) / Math.max(totalWords, 1)) * 1000;
+    const hasEvidence = evidencePerK >= 1.5;
+
+    // Logical transitions: first/second/finally/therefore/consequently/however/moreover
+    const transitionMatches = (lower.match(/\b(first|second|third|finally|therefore|consequently|however|moreover|furthermore|in addition|on the other hand|in contrast|as a result|nevertheless|thus|hence|accordingly|meanwhile|subsequently)\b/g) || []).length;
+    const transitionPerK = (transitionMatches / Math.max(totalWords, 1)) * 1000;
+    const hasTransitions = transitionPerK >= 2;
+
+    // Conclusion: final paragraphs synthesize / summarize / call to action
+    const closing = paragraphs.slice(-3).join(' ').toLowerCase();
+    const conclusionSignals = (closing.match(/\b(in conclusion|in summary|to summarize|the takeaway|finally|ultimately|the lesson|the point is|remember this|now you|action|next step|begin|start|do this)\b/g) || []).length;
+    const hasConclusion = conclusionSignals >= 1;
+
+    // Quarter-by-quarter argument density (parallel structure to plot quarters)
+    const q = Math.floor(totalParagraphs / 4);
+    const quarters = [0, 1, 2, 3].map(i => {
+      const start = i * q;
+      const end = i === 3 ? totalParagraphs : (i + 1) * q;
+      const slice = paragraphs.slice(start, end).join(' ').toLowerCase();
+      const sliceWords = (slice.match(/\b\w+\b/g) || []).length;
+      const sliceEvidence = (slice.match(/\b(for example|research|study|data|evidence|according to|specifically)\b/g) || []).length;
+      return { density: sliceWords > 0 ? sliceEvidence / sliceWords * 1000 : 0 };
+    });
+
+    let score = 10;
+    if (hasThesis) score += 25;
+    if (hasEvidence) score += 25;
+    if (hasTransitions) score += 20;
+    if (hasConclusion) score += 15;
+    // Bonus for high-quality evidence density
+    if (evidencePerK > 4) score += 5;
+
+    return {
+      score: Math.min(100, Math.max(0, score)),
+      arc: 'nonfiction',
+      hasThesis, hasEvidence, hasTransitions, hasConclusion,
+      evidencePerK: Math.round(evidencePerK * 10) / 10,
+      transitionPerK: Math.round(transitionPerK * 10) / 10,
+      paragraphCount: totalParagraphs,
+      quarters,
+      // Plot-shape compatibility fields (so existing UI doesn't crash):
+      hasRisingAction: hasEvidence, hasClimax: hasConclusion, hasResolution: hasConclusion, hasCliffhanger: false, hasSceneGoal: hasThesis
+    };
+  },
+
+  // ========================
   // TRANSITION ANALYSIS
   // ========================
   analyzeTransitions(text) {
@@ -963,21 +1066,42 @@ const Analyzer = {
   // ========================
   // DIALOGUE ANALYSIS
   // ========================
-  analyzeDialogue(text) {
+  analyzeDialogue(text, genre) {
     const dialogueMatches = text.match(/[""\u201C][^""\u201D]*[""\u201D]/g) || [];
     const dialogueCount = dialogueMatches.length;
     const totalWords = text.split(/\s+/).length;
     const lower = text.toLowerCase();
     const findings = [];
 
-    if (dialogueCount === 0) return {
-      score: 50, count: 0, ratio: 0, tags: {}, saidRatio: 0, avgLength: 0,
-      tagDiscipline: 0, conciseness: 0, showNotTell: 0, purposefulness: 0, naturalness: 0,
-      findings: [{ type: 'dialogue', severity: 'medium', message: 'No dialogue detected. If this is fiction, dialogue is one of the fastest ways to pull readers into a moment. Even literary fiction benefits from dialogue to break up narration and reveal character.' }]
-    };
+    const isNF = this.isNonfiction(genre);
+
+    if (dialogueCount === 0) {
+      if (isNF) {
+        return {
+          score: null, n_a: true, count: 0, ratio: 0, tags: {}, saidRatio: 0, avgLength: 0,
+          tagDiscipline: 0, conciseness: 0, showNotTell: 0, purposefulness: 0, naturalness: 0,
+          findings: [{ type: 'dialogue', severity: 'low', message: 'Nonfiction with no dialogue \u2014 not scored.' }]
+        };
+      }
+      return {
+        score: 50, count: 0, ratio: 0, tags: {}, saidRatio: 0, avgLength: 0,
+        tagDiscipline: 0, conciseness: 0, showNotTell: 0, purposefulness: 0, naturalness: 0,
+        findings: [{ type: 'dialogue', severity: 'medium', message: 'No dialogue detected. If this is fiction, dialogue is one of the fastest ways to pull readers into a moment. Even literary fiction benefits from dialogue to break up narration and reveal character.' }]
+      };
+    }
 
     const dialogueWords = dialogueMatches.reduce((sum, d) => sum + d.split(/\s+/).length, 0);
     const ratio = dialogueWords / totalWords;
+
+    // Nonfiction with low dialogue ratio: not scored (quoted experts, brief exchanges in memoir, etc.)
+    if (isNF && ratio < 0.05) {
+      return {
+        score: null, n_a: true, count: dialogueCount, ratio,
+        tags: {}, saidRatio: 0, avgLength: 0,
+        tagDiscipline: 0, conciseness: 0, showNotTell: 0, purposefulness: 0, naturalness: 0,
+        findings: [{ type: 'dialogue', severity: 'low', message: 'Nonfiction with minimal dialogue (<5%) \u2014 not scored.' }]
+      };
+    }
 
     // === TAG DISCIPLINE ===
     // Good dialogue uses "said"/"asked" (invisible tags) and beats (action) instead of exotic tags
@@ -1537,12 +1661,14 @@ const Analyzer = {
   // DEEP WRITING QUALITY ENGINE
   // Measures: clarity, discipline, efficiency, engagement
   // ========================
-  analyzeWritingQuality(text, issues, sentenceVariety, readability, dialogue, style) {
+  analyzeWritingQuality(text, issues, sentenceVariety, readability, dialogue, style, genre) {
     const words = text.match(/\b\w+\b/g) || [];
     const totalWords = words.length;
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const lower = text.toLowerCase();
+    const isNF = this.isNonfiction(genre);
+    const fillerWeight = isNF ? 0.4 : 1; // self-help uses "simply", "actually" rhetorically
 
     // === CLARITY (is the writing direct and easy to follow?) ===
     let clarityScore = 20;
@@ -1562,7 +1688,8 @@ const Analyzer = {
     if (punchyRatio > 0.15) clarityScore += 15; else if (punchyRatio > 0.08) clarityScore += 8;
 
     let disciplineScore = 15;
-    const fillers = (lower.match(/\b(very|really|quite|rather|somewhat|basically|actually|literally|just|simply|perhaps|maybe|slightly|a bit|sort of|kind of|a little|in fact|of course|to be honest|needless to say)\b/g) || []).length;
+    const fillersRaw = (lower.match(/\b(very|really|quite|rather|somewhat|basically|actually|literally|just|simply|perhaps|maybe|slightly|a bit|sort of|kind of|a little|in fact|of course|to be honest|needless to say)\b/g) || []).length;
+    const fillers = fillersRaw * fillerWeight; // soften for nonfiction
     const fillerRate = fillers / Math.max(totalWords, 1) * 1000;
     const redundants = (lower.match(/\b(each and every|first and foremost|full and complete|true and accurate|null and void|various and sundry|cease and desist|aid and abet|ways and means)\b/g) || []).length;
     const hedges = (lower.match(/\b(seemed to|appeared to|began to|started to|tried to|managed to|proceeded to|happened to|continued to)\b/g) || []).length;
@@ -1601,7 +1728,7 @@ const Analyzer = {
     const hasDialogue = paragraphs.some(p => /[\u201C""]/.test(p));
     if (hasDialogue) engagementScore += 8;
 
-    let dialogueQuality = dialogue.score;
+    let dialogueQuality = (dialogue.score == null) ? 70 : dialogue.score; // neutral default for nonfiction N/A
     if (dialogue.count > 0 && dialogue.saidRatio > 60 && dialogue.saidRatio < 90) dialogueQuality += 5;
     if (dialogue.count > 0 && dialogue.saidRatio < 30) dialogueQuality -= 10;
     dialogueQuality = Math.min(100, Math.max(0, dialogueQuality));
@@ -2551,12 +2678,12 @@ const Analyzer = {
   // ========================
   // DNF PREDICTION ENGINE
   // ========================
-  analyzeDNF(text, manuscriptMode) {
+  analyzeDNF(text, manuscriptMode, genre) {
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const mode = manuscriptMode.mode;
 
-    // Determine evaluation mode
-    const evalMode = this._detectEvalMode(text, mode);
+    // Determine evaluation mode (genre awareness flows in via the eval mode 'nonfiction')
+    const evalMode = this.isNonfiction(genre) ? 'nonfiction' : this._detectEvalMode(text, mode);
 
     // Length-based analysis strategy
     if (totalWords > 8000) {
@@ -2724,6 +2851,9 @@ const Analyzer = {
       ? { hook_strength: 0.30, clarity: 0.20, forward_motion: 0.18, redundancy: 0.14, specificity: 0.12, payoff: 0.06 }
       : evalMode === 'closing'
       ? { hook_strength: 0.10, clarity: 0.18, forward_motion: 0.22, redundancy: 0.14, specificity: 0.12, payoff: 0.24 }
+      : evalMode === 'nonfiction'
+      // Nonfiction: clarity and specificity matter most; hook + payoff de-emphasized (no narrative arc)
+      ? { hook_strength: 0.10, clarity: 0.32, forward_motion: 0.18, redundancy: 0.18, specificity: 0.18, payoff: 0.04 }
       : { hook_strength: 0.20, clarity: 0.20, forward_motion: 0.22, redundancy: 0.15, specificity: 0.13, payoff: 0.10 };
 
     const weighted = Object.entries(wt).reduce((sum, [dim, w]) => sum + (scores[dim] || 5) * w, 0);
@@ -2927,23 +3057,29 @@ const Analyzer = {
   // ========================
   // FULL ANALYSIS
   // ========================
-  analyze(text) {
+  analyze(text, genreOverride) {
     if (!text || text.trim().length < 50) {
       return { error: 'Text too short for meaningful analysis. Please provide at least a few paragraphs.' };
     }
 
-    // Detect manuscript mode first
+    // Detect manuscript mode and genre first — needed for genre-aware scoring.
+    // genreOverride (string key from user dropdown) is sacred — bypasses detection AND fallback reclassification.
     const manuscriptMode = this.detectMode(text);
     const mode = manuscriptMode.mode;
+    const detected = this.detectGenre(text);
+    const genre = (genreOverride && typeof genreOverride === 'string')
+      ? { primary: genreOverride, label: this._genreLabelFor(genreOverride), secondary: null, userOverride: true }
+      : detected;
+    const isNF = this.isNonfiction(genre);
 
-    const passiveIssues = this.findPassiveVoice(text);
-    const adverbIssues = this.findAdverbs(text);
+    const passiveIssues = this.findPassiveVoice(text, genre);
+    const adverbIssues = this.findAdverbs(text, genre);
     const clicheIssues = this.findCliches(text);
-    const weakVerbIssues = this.findWeakVerbs(text);
+    const weakVerbIssues = this.findWeakVerbs(text, genre);
     const wordyIssues = this.findWordyPhrases(text);
     const repetitionIssues = this.findRepetitions(text);
     const longSentenceIssues = this.findLongSentences(text);
-    const showTellIssues = this.findShowVsTell(text);
+    const showTellIssues = this.findShowVsTell(text, genre);
     const confusedWordIssues = this.findConfusedWords(text);
     const grammarIssues = this.findGrammarIssues(text);
 
@@ -2995,16 +3131,15 @@ const Analyzer = {
       return true;
     }).sort((a, b) => a.index - b.index);
 
-    // Pass mode to mode-aware analyzers
-    const plot = this.analyzePlot(text, mode);
+    // Pass mode + genre to mode-aware analyzers
+    const plot = this.analyzePlot(text, mode, genre);
     const transitions = this.analyzeTransitions(text);
-    const dialogue = this.analyzeDialogue(text);
+    const dialogue = this.analyzeDialogue(text, genre);
     const style = this.analyzeStyle(text);
     const sentenceVariety = this.analyzeSentenceVariety(text);
     const readability = this.fleschKincaid(text);
-    const genre = this.detectGenre(text);
     const readerPerspective = this.analyzeReaderPerspective(text, mode, allIssues);
-    const dnfAnalysis = this.analyzeDNF(text, manuscriptMode);
+    const dnfAnalysis = this.analyzeDNF(text, manuscriptMode, genre);
     // Backfill readerPerspective.dnfRisk from new engine for backward compat
     readerPerspective.dnfRisk = dnfAnalysis.dnf_risk;
     const pacing = this.analyzePacing(text);
@@ -3019,7 +3154,10 @@ const Analyzer = {
     const copyScore = this.scoreCopyEditing(allIssues, totalWords);
     const lineEditing = this.analyzeLineEditing(text);
     const lineScore = lineEditing.score;
-    const showTellScore = Math.max(0, 100 - showTellIssues.length * 5);
+    // Show/Tell: normalize per 1000 words so long manuscripts aren't unfairly floored to 0.
+    // For 27 issues / 56K words: perK = 0.48 → score = 99. For 27 / 5K: perK = 5.4 → score = 86.
+    const showTellPerK = (showTellIssues.length / Math.max(totalWords, 1)) * 1000;
+    const showTellScore = Math.max(0, Math.round(100 - showTellPerK * 2.5));
 
     // Grammar score: penalize based on grammar issue density
     const grammarFiltered = allIssues.filter(i => i.type === 'grammar');
@@ -3031,17 +3169,20 @@ const Analyzer = {
     )));
 
     // Deep writing quality engine
-    const writingQuality = this.analyzeWritingQuality(text, allIssues, sentenceVariety, readability, dialogue, style);
+    const writingQuality = this.analyzeWritingQuality(text, allIssues, sentenceVariety, readability, dialogue, style, genre);
 
     // Overall: blend structural + writing quality + engagement + grammar
+    // Nonfiction may have null dialogue score and 0 showTellScore — use neutral 70 so they don't tank the overall
+    const dialogueForOverall = (dialogue.score == null) ? 70 : dialogue.score;
+    const showTellForOverall = isNF ? 70 : showTellScore;
     const overall = Math.round(
       plot.score * 0.09 +
       transitions.score * 0.07 +
       copyScore * 0.10 +
       lineScore * 0.09 +
       style.score * 0.07 +
-      dialogue.score * 0.06 +
-      showTellScore * 0.07 +
+      dialogueForOverall * 0.06 +
+      showTellForOverall * 0.07 +
       grammarScore * 0.10 +
       writingQuality.clarityScore * 0.09 +
       writingQuality.disciplineScore * 0.07 +
@@ -3065,6 +3206,7 @@ const Analyzer = {
       readerPerspective, dnfAnalysis, pacing, characters,
       showTell: { score: showTellScore, issues: showTellIssues },
       issues: allIssues,
+      rawIssues, // unfiltered concatenated detector outputs (telemetry / debugging only)
       issueCounts: {
         passive: passiveIssues.length, adverb: adverbIssues.length,
         cliche: clicheIssues.length, 'weak-verb': weakVerbIssues.length,
@@ -3097,14 +3239,18 @@ const Analyzer = {
   recalcOverall(r) {
     const s = r.scores || {};
     const wq = r.writingQuality || {};
+    const isNF = this.isNonfiction(r.genre);
+    // Null dialogue (nonfiction N/A) and 0 showTell (nonfiction skip) → use neutral 70 so they don't tank overall
+    const dialogueScore = (s.dialogue == null) ? 70 : s.dialogue;
+    const showTellScore = isNF ? 70 : (s.showTell || 0);
     return Math.round(
       (s.plot || 0) * 0.09 +
       (s.transitions || 0) * 0.07 +
       (s.copy || 0) * 0.10 +
       (s.line || 0) * 0.09 +
       (s.style || 0) * 0.07 +
-      (s.dialogue || 0) * 0.06 +
-      (s.showTell || 0) * 0.07 +
+      dialogueScore * 0.06 +
+      showTellScore * 0.07 +
       (s.grammar || 0) * 0.10 +
       (wq.clarityScore || 0) * 0.09 +
       (wq.disciplineScore || 0) * 0.07 +
