@@ -788,12 +788,21 @@ function renderLeft(r){
   if(!r)return;
   const rp=r.readerPerspective||{};
   const ic=r.issueCounts||{};const scores=r.scores||{};
+  const isNF=Analyzer.isNonfiction(r.genre);
+  const dnfRaw=r.dnfAnalysis?r.dnfAnalysis.dnf_risk:rp.dnfRisk;
+  const dnfBand=r.dnfAnalysis?r.dnfAnalysis.risk_band:(dnfRaw>60?'At Risk':dnfRaw>30?'Moderate':'Safe');
+  // Nonfiction: rebrand DNF Risk → Reader Retention (inverted: high retention = good)
+  // Retention = 100 - dnfRisk, so a 80% DNF Risk becomes 20% Retention (Low)
+  const retentionScore=isNF?Math.max(0,100-dnfRaw):null;
+  const retentionBand=isNF?(dnfRaw<=30?'Strong':dnfRaw<=60?'Moderate':'Low'):null;
   const cards=[
     {name:'Engagement Score',score:rp.engagementScore||0,sub:'How hooked will readers be?',action:'+ Improve Opening',bar:true},
     {name:'Hook Strength',score:rp.hookStrength||0,sub:(r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0)+' Issues',action:'+ Improve Opening',bar:false},
     {name:'Clarity',score:rp.clarityScore||0,sub:'Weak transitions',bar:true},
     {name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':(rp.pacingFeel||'').includes('Slow')?'Slow':'Good'},
-    {name:'DNF Risk',score:r.dnfAnalysis?r.dnfAnalysis.dnf_risk:rp.dnfRisk,sub:r.dnfAnalysis?r.dnfAnalysis.risk_band:rp.dnfRisk>60?'At Risk':rp.dnfRisk>30?'Moderate':'Safe',inv:true}
+    isNF
+      ?{name:'Reader Retention',score:retentionScore,sub:retentionBand+' — will readers stay engaged?',bar:true}
+      :{name:'DNF Risk',score:dnfRaw,sub:dnfBand,inv:true}
   ];
   $('lp-cards').innerHTML=cards.map(c=>{
     const col=c.inv?scHex(100-c.score):scHex(c.score);
@@ -812,34 +821,43 @@ function renderLeft(r){
 function renderRight(r){
   if(!r)return;
   const stIssues=r.showTell&&r.showTell.issues?r.showTell.issues.length:(r.issueCounts?r.issueCounts['show-tell']:0)||0;
-  const cpIssues=r.issues?r.issues.length:0;
   // Count high-severity issues per type for honest issue display
-  const highSev=type=>(r.issues||[]).filter(i=>i.type===type&&i.severity==='high').length;
   const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
   const scores=r.scores||{};const rp=r.readerPerspective||{};
-  const copyIssueCount=countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word')+countType('repetition')+countType('grammar');
+  const totalWords=r.totalWords||1;
+  const estPages=Math.max(1,Math.round(totalWords/250));
+  // Per-page density helper: converts raw count to "X/page" — avoids frightening raw numbers like "2069 issues"
+  // Shows nothing when clean, a decimal for rare issues, integer for frequent ones
+  function _density(count){
+    if(!count||count===0)return null;
+    const perPage=count/estPages;
+    if(perPage<0.1)return null; // too sparse to display
+    if(perPage<1)return perPage.toFixed(1)+'/pg';
+    return Math.round(perPage)+'/pg';
+  }
+  const copyRaw=countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word')+countType('repetition');
   const isNF=Analyzer.isNonfiction(r.genre);
   // Hook Strength: only show issue count if it's actually penalizing the score (avoids confusing "100 / 2 issues")
   const hookScore=rp.hookStrength||0;
-  const hookIssueCount=(r.openingDiagnosis?.problems?.length||0);
-  const displayedHookIssues=(hookScore<80)?hookIssueCount:0;
+  const displayedHookIssues=(hookScore<80)?(r.openingDiagnosis?.problems?.length||0):0;
   const cats=[
-    {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,issues:countType('pov'),weight:'9%'},
-    {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'7%'},
-    {k:'hook',name:'Hook Strength',score:hookScore,issues:displayedHookIssues,weight:'9%'},
-    {k:'style',name:'Style & Voice',score:scores.style||0,issues:countType('weak-verb'),weight:'7%'},
+    {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,density:null,issues:countType('pov'),weight:'9%'},
+    {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),density:_density(countType('sentence-length')),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'7%'},
+    {k:'hook',name:'Hook Strength',score:hookScore,density:null,issues:displayedHookIssues,weight:'9%'},
+    {k:'style',name:'Style & Voice',score:scores.style||0,density:_density(countType('weak-verb')),issues:countType('weak-verb'),weight:'7%'},
     // Dialogue: only show if score is non-null (nonfiction with low dialogue ratio gets N/A and is hidden)
-    ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,issues:countType('dialogue'),weight:'6%'}]:[]),
+    ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,density:null,issues:countType('dialogue'),weight:'6%'}]:[]),
     // Show vs Tell: fiction-only concept; hide for nonfiction
-    ...(!isNF?[{k:'showTell',name:'Show vs Tell',score:scores.showTell||0,issues:stIssues,weight:'7%'}]:[]),
-    {k:'copy',name:'Copy Editing',score:scores.copy||0,issues:copyIssueCount,weight:'10%'},
-    {k:'grammar',name:'Grammar',score:scores.grammar||0,issues:countType('grammar'),weight:'10%'}
+    ...(!isNF?[{k:'showTell',name:'Show vs Tell',score:scores.showTell||0,density:_density(stIssues),issues:stIssues,weight:'7%'}]:[]),
+    {k:'copy',name:'Copy Editing',score:scores.copy||0,density:_density(copyRaw),issues:copyRaw,weight:'10%'},
+    {k:'grammar',name:'Grammar',score:scores.grammar||0,density:_density(countType('grammar')),issues:countType('grammar'),weight:'10%'}
   ];
   const container=$('rp-scores');
   container.innerHTML=cats.map(c=>{
     const col=scHex(c.score);const id='rsc-'+Math.random().toString(36).substr(2,5);
-    const issueLabel=c.issues>0?c.issues+' issue'+(c.issues===1?'':'s'):c.score>=80?'Clean':'—';
-    const issueColor=c.issues>10?'var(--red)':c.issues>3?'var(--yellow)':'var(--green)';
+    // Show density when available (replaces raw count); fall back to clean/— for zero-issue categories
+    const issueLabel=c.density?c.density:c.issues>0&&c.issues<=5?c.issues+' issue'+(c.issues===1?'':'s'):c.score>=80?'Clean':'—';
+    const issueColor=c.score<50?'var(--red)':c.score<70?'var(--yellow)':'var(--green)';
     return '<div class="rsc" data-cat="'+c.k+'"><div class="rsc-ring"><canvas id="'+id+'" width="34" height="34"></canvas><span class="rsc-n" style="color:'+col+'">'+c.score+'</span></div><div class="rsc-info"><div class="rsc-name">'+c.name+'<span style="font-size:.55rem;color:var(--dim);margin-left:4px">'+c.weight+'</span></div><div class="rsc-sub" style="color:'+issueColor+'">'+issueLabel+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="rsc-val" style="color:'+col+'">'+c.score+'</span>')+'</div>';
   }).join('');
   // Draw rings
@@ -1946,8 +1964,10 @@ document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{
     d.querySelectorAll('.rpd-ign-btn').forEach(btn=>{btn.addEventListener('click',()=>{const card=btn.closest('.rpd-issue');const page=$('ed-annotated');const q=card.dataset.issueText.substring(0,60).replace(/"/g,'&quot;');const hl=page?.querySelector('.hl[data-q="'+q+'"]');if(hl)hl.classList.add('off');card.remove()})});
   }
   if(mode==='tone shift'){
+    const isNFtone=Analyzer.isNonfiction(r&&r.genre);
     const toneFindings=(r.lineEditing?.findings||[]).filter(f=>f.type==='tone'||f.type==='flow');
-    const scoreLine=(r.lineEditing?.tone?.score!==undefined)?'<div class="rpd-desc" style="font-size:.72rem;color:var(--muted)">Tone score: <b style="color:'+(r.lineEditing.tone.score<50?'var(--red)':r.lineEditing.tone.score<75?'var(--yellow)':'var(--green)')+'">'+r.lineEditing.tone.score+'/100</b> &middot; Flow: <b>'+r.lineEditing.flow.score+'/100</b></div>':'';
+    const flowLabel=isNFtone?'Sentence Rhythm':'Flow';
+    const scoreLine=(r.lineEditing?.tone?.score!==undefined)?'<div class="rpd-desc" style="font-size:.72rem;color:var(--muted)">Tone score: <b style="color:'+(r.lineEditing.tone.score<50?'var(--red)':r.lineEditing.tone.score<75?'var(--yellow)':'var(--green)')+'">'+r.lineEditing.tone.score+'/100</b> &middot; '+flowLabel+': <b>'+r.lineEditing.flow.score+'/100</b></div>':'';
     let html='<div class="rpd-title">Tone & Flow</div>'+scoreLine;
     if(toneFindings.length===0){
       html+='<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No tonal inconsistencies detected. Register and mood stay consistent.</p>';
