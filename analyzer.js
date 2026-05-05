@@ -3045,12 +3045,15 @@ const Analyzer = {
     const copyTypes = new Set(['passive', 'adverb', 'cliche', 'wordy', 'confused-word', 'repetition', 'grammar']);
     const copyIssues = issues.filter(i => copyTypes.has(i.type));
     const issuesPerThousand = (copyIssues.length / Math.max(totalWords, 1)) * 1000;
+    // Impact-weighted scoring: a manuscript with 2000+ issues shouldn't floor to 30.
+    // Each penalty band caps; the floor here is 100 - 30 - 15 - 8 = 47, which keeps
+    // a noisy-but-readable manuscript in the C+ range instead of failing it outright.
     let score = 100;
-    score -= Math.min(40, issuesPerThousand * 3);
+    score -= Math.min(30, issuesPerThousand * 2);
     const highSev = copyIssues.filter(i => i.severity === 'high').length;
     const medSev = copyIssues.filter(i => i.severity === 'medium').length;
-    score -= Math.min(20, highSev * 2);
-    score -= Math.min(10, medSev * 0.5);
+    score -= Math.min(15, highSev * 1.5);
+    score -= Math.min(8, medSev * 0.4);
     return Math.min(100, Math.max(0, Math.round(score)));
   },
 
@@ -3162,10 +3165,12 @@ const Analyzer = {
     // Grammar score: penalize based on grammar issue density
     const grammarFiltered = allIssues.filter(i => i.type === 'grammar');
     const grammarPerK = (grammarFiltered.length / Math.max(totalWords, 1)) * 1000;
+    // Impact-weighted: floor at 100 - 35 - 20 - 10 = 35. Was 5; too punishing for
+    // long manuscripts with normal proofreading-level errors.
     const grammarScore = Math.min(100, Math.max(0, Math.round(
-      100 - Math.min(50, grammarPerK * 8) -
-      Math.min(30, grammarFiltered.filter(i => i.severity === 'high').length * 4) -
-      Math.min(15, grammarFiltered.filter(i => i.severity === 'medium').length * 1.5)
+      100 - Math.min(35, grammarPerK * 6) -
+      Math.min(20, grammarFiltered.filter(i => i.severity === 'high').length * 3) -
+      Math.min(10, grammarFiltered.filter(i => i.severity === 'medium').length * 1)
     )));
 
     // Deep writing quality engine

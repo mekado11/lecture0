@@ -621,22 +621,24 @@ Rules:
   async calibrateIssues(text, issues, genre) {
     if (!Array.isArray(issues) || issues.length === 0) return [];
 
-    // Only review borderline issue types where regex has highest false-positive rates.
-    // Grammar issues are excluded — LanguageTool already validated them.
-    const reviewTypes = new Set(['passive', 'adverb', 'weak-verb', 'show-tell', 'cliche']);
+    // Review issue types where regex has highest false-positive rates.
+    // Grammar excluded — LanguageTool already validated. Wordy/repetition included
+    // because long manuscripts pile up thousands of these and need calibration most.
+    const reviewTypes = new Set(['passive', 'adverb', 'weak-verb', 'show-tell', 'cliche', 'wordy', 'repetition']);
     const candidates = issues
       .map((iss, idx) => ({ iss, idx }))
       .filter(({ iss }) => {
         if (!reviewTypes.has(iss.type)) return false;
         const c = (iss.confidence == null) ? 1 : iss.confidence;
-        return c >= 0.3 && c <= 0.95; // skip ultra-low (already filtered) and ultra-high (clearly real)
+        return c >= 0.3 && c <= 0.95;
       })
-      // Prioritize: high-severity first, then medium, then low — within budget of 50
+      // Prioritize high-severity first; bumped budget from 50 to 150 so big manuscripts
+      // (~2000+ issues) get meaningful coverage instead of leaving 95% untouched.
       .sort((a, b) => {
         const sevRank = { high: 0, medium: 1, low: 2 };
         return (sevRank[a.iss.severity] || 2) - (sevRank[b.iss.severity] || 2);
       })
-      .slice(0, 50);
+      .slice(0, 150);
 
     if (candidates.length === 0) return [];
 
@@ -670,7 +672,10 @@ Rules:
       + 'Return JSON array, one entry per issue:\n'
       + '[{"id":0,"verdict":"dismiss","reason":"brief reason"},{"id":1,"verdict":"keep","reason":"..."},...]';
 
-    const result = await this._callClaude(null, sys, usr, text, 'calibrateIssues');
+    // Cache key includes the genre key so changing the dropdown busts the cache and re-runs calibration
+    // with the new register/style expectations.
+    const genreKey = (typeof genre === 'string' ? genre : (genre?.primary || 'auto'));
+    const result = await this._callClaude(null, sys, usr, text, 'calibrateIssues:' + genreKey);
 
     // Parse the response — could be array directly, or wrapped
     let verdicts = [];
