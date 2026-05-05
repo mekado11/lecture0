@@ -523,6 +523,72 @@ Return JSON:
   },
 
   // ========================
+  // 10. READER SIMULATION
+  // Simulates how a reader of this genre experiences the manuscript at three points.
+  // Uses opening, a mid-point sample, and closing — gives grounded per-section verdict.
+  // ========================
+  async readerSimulation(apiKey, text, analysis) {
+    const genre = analysis?.genre?.label || 'Fiction';
+    const words = text.match(/\b\w+\b/g) || [];
+    const totalWords = words.length;
+
+    // Sample three representative sections
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 30);
+    const thirds = Math.max(1, Math.floor(paragraphs.length / 3));
+    const opening = paragraphs.slice(0, Math.min(8, thirds)).join('\n\n').substring(0, 2000);
+    const middle  = paragraphs.slice(thirds, thirds + Math.min(8, thirds)).join('\n\n').substring(0, 2000);
+    const closing = paragraphs.slice(-Math.min(8, thirds)).join('\n\n').substring(0, 2000);
+
+    const ctx = this._buildAnalysisContext(analysis);
+
+    return this._callClaude(apiKey,
+      `You are an experienced reader of ${genre}. You are reading this manuscript as a real reader would — not as an editor, not as a critic. Report honestly: where you were engaged, where you drifted, what made you want to continue, and what tested your patience. Be direct. Do not be encouraging for its own sake.`,
+      `Read these three sections of a ${genre} manuscript (~${totalWords.toLocaleString()} words total) and simulate the reading experience.${ctx}
+
+--- OPENING ---
+${opening}
+
+--- MIDDLE SECTION ---
+${middle}
+
+--- CLOSING ---
+${closing}
+
+Return JSON:
+{
+  "sections": [
+    {
+      "label": "Opening",
+      "engagement": <1-10>,
+      "verdict": "one honest sentence on the reading experience at this point",
+      "what_works": "the single strongest element",
+      "what_stalls": "the single biggest friction point — be specific, name a pattern or phrase if possible"
+    },
+    {
+      "label": "Middle",
+      "engagement": <1-10>,
+      "verdict": "...",
+      "what_works": "...",
+      "what_stalls": "..."
+    },
+    {
+      "label": "Closing",
+      "engagement": <1-10>,
+      "verdict": "...",
+      "what_works": "...",
+      "what_stalls": "..."
+    }
+  ],
+  "overall_engagement": <1-10>,
+  "reader_verdict": "one honest sentence — would this reader finish the book and why",
+  "what_keeps_readers": "the strongest hook that would make readers persist",
+  "what_loses_readers": "the most likely reason a reader stops — be specific",
+  "recommendation": "one concrete change that would most improve the reading experience"
+}`,
+      text, 'readerSimulation');
+  },
+
+  // ========================
   // VERSION TRACKING
   // ========================
   loadVersionHistory() {
