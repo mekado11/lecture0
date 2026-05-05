@@ -3156,6 +3156,19 @@ const Analyzer = {
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const copyScore = this.scoreCopyEditing(allIssues, totalWords);
     const lineEditing = this.analyzeLineEditing(text);
+    // Nonfiction flow softening: sentence-to-sentence word-overlap is the wrong metric for
+    // instructional/rhetorical prose (short punchy sentences, deliberate topic shifts, anaphora).
+    // Clamp flowScore to minimum 45 and recompute composite score so it can't torpedo the line score.
+    if (isNF && lineEditing.flow && lineEditing.flow.score < 45) {
+      lineEditing.flow.score = 45;
+      lineEditing.findings = lineEditing.findings.filter(f => f.type !== 'flow');
+      // Recompute composite using the same weights as analyzeLineEditing
+      lineEditing.score = Math.round(
+        (lineEditing.tone?.score||0)*0.15 + 45*0.2 +
+        (lineEditing.precision?.score||0)*0.2 + (lineEditing.pacing?.score||0)*0.15 +
+        (lineEditing.pov?.score||0)*0.15 + (lineEditing.extraneous?.score||0)*0.15
+      );
+    }
     const lineScore = lineEditing.score;
     // Show/Tell: normalize per 1000 words so long manuscripts aren't unfairly floored to 0.
     // For 27 issues / 56K words: perK = 0.48 → score = 99. For 27 / 5K: perK = 5.4 → score = 86.

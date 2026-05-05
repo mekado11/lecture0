@@ -58,7 +58,7 @@ $('analyze-btn').addEventListener('click',async()=>{
   try{
     $('loader-text').textContent='Extracting...';
     extractedText=await ext(uploadedFile);
-    _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;
+    _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;_readerSimDone=false;
     $('loader-text').textContent='Analyzing...';
     if(_analyzerWorker){
       _analyzeVersion++;
@@ -222,7 +222,7 @@ window.addEventListener('keydown',e=>{
 function renderAll(){
   const r=analysisResult;
   if(!r||!uploadedFile){return}
-  _ltEnhanceDone=false;_smartScanDone=false;_batchFixDone=false;_aiCalibrateDone=false;
+  _ltEnhanceDone=false;_smartScanDone=false;_batchFixDone=false;_aiCalibrateDone=false;_readerSimDone=false;
   $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
   drawGauge(r.overall||0);
@@ -285,6 +285,8 @@ function renderAll(){
   // AI Calibration — reviews borderline regex findings, dismisses false positives,
   // recalculates affected scores. Paid users only. Runs once per manuscript.
   _aiCalibrate(r);
+  // Reader Simulation — fills the reader view panel async. Paid users only.
+  _runReaderSimulation(r);
 }
 
 let _ltEnhanceDone=false;
@@ -391,6 +393,61 @@ async function _aiCalibrate(r){
   }catch(e){
     _aiCalibrateDone=false; // allow retry on next render
     console.warn('[AICalibrate] skipped:',e.message);
+  }
+}
+
+// Reader Simulation — generates a grounded, section-by-section reading experience report.
+// Runs once per manuscript per session. Paid users only. Results inject into the Reader view.
+let _readerSimDone=false;
+async function _runReaderSimulation(r){
+  if(_readerSimDone||!r||!extractedText||!_isPaid())return;
+  if(typeof AIEngine==='undefined')return;
+  _readerSimDone=true;
+  const el=document.getElementById('reader-sim-result');
+  if(!el)return;
+  try{
+    const sim=await AIEngine.readerSimulation(null,extractedText,r);
+    if(!sim||sim.parseError){el.textContent='Simulation unavailable.';return}
+    const engColor=v=>v>=7?'var(--green)':v>=5?'var(--yellow)':'var(--red)';
+    let h='';
+    // Section bars
+    if(Array.isArray(sim.sections)){
+      h+='<div style="margin-bottom:.8rem">';
+      sim.sections.forEach(s=>{
+        const pct=Math.round((s.engagement||5)/10*100);
+        const col=engColor(s.engagement||5);
+        h+='<div style="margin-bottom:.5rem">';
+        h+='<div style="display:flex;justify-content:space-between;font-size:.72rem;margin-bottom:.2rem"><span style="color:var(--muted)">'+esc(s.label)+'</span><span style="font-weight:700;color:'+col+'">'+(s.engagement||'?')+'/10</span></div>';
+        h+='<div class="rdr-bar"><div class="rdr-fill" style="width:'+pct+'%;background:'+col+'"></div></div>';
+        h+='<div style="font-size:.68rem;color:var(--dim);margin-top:.15rem">'+esc(s.verdict||'')+'</div>';
+        h+='</div>';
+      });
+      h+='</div>';
+    }
+    // Verdict
+    if(sim.reader_verdict){
+      const oc=engColor(sim.overall_engagement||5);
+      h+='<div style="background:var(--surface2);border-radius:var(--rs);padding:.5rem .65rem;margin-bottom:.5rem;border-left:3px solid '+oc+'">';
+      h+='<div style="font-size:.65rem;font-weight:600;color:var(--gold-l);margin-bottom:.15rem">Reader Verdict</div>';
+      h+='<div style="font-size:.75rem;color:var(--text)">'+esc(sim.reader_verdict)+'</div>';
+      h+='</div>';
+    }
+    // What keeps / loses readers
+    if(sim.what_keeps_readers||sim.what_loses_readers){
+      h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem;margin-bottom:.5rem">';
+      if(sim.what_keeps_readers)h+='<div style="padding:.4rem;background:rgba(93,186,125,.08);border:1px solid rgba(93,186,125,.2);border-radius:var(--rs)"><div style="font-size:.6rem;color:var(--green);font-weight:600;margin-bottom:.15rem">KEEPS READERS</div><div style="font-size:.7rem;color:var(--text)">'+esc(sim.what_keeps_readers)+'</div></div>';
+      if(sim.what_loses_readers)h+='<div style="padding:.4rem;background:rgba(196,92,74,.08);border:1px solid rgba(196,92,74,.2);border-radius:var(--rs)"><div style="font-size:.6rem;color:var(--red);font-weight:600;margin-bottom:.15rem">LOSES READERS</div><div style="font-size:.7rem;color:var(--text)">'+esc(sim.what_loses_readers)+'</div></div>';
+      h+='</div>';
+    }
+    // Recommendation
+    if(sim.recommendation){
+      h+='<div style="font-size:.72rem;color:var(--muted);padding:.4rem;border-top:1px solid var(--border);margin-top:.2rem"><span style="color:var(--gold-l);font-weight:600">Fix: </span>'+esc(sim.recommendation)+'</div>';
+    }
+    el.innerHTML=h||'<span style="color:var(--muted)">No simulation data.</span>';
+  }catch(e){
+    _readerSimDone=false;
+    el.textContent='Simulation unavailable.';
+    console.warn('[ReaderSim] skipped:',e.message);
   }
 }
 
@@ -788,12 +845,18 @@ function renderLeft(r){
   if(!r)return;
   const rp=r.readerPerspective||{};
   const ic=r.issueCounts||{};const scores=r.scores||{};
+  // Readability from Flesch-Kincaid — a real, peer-reviewed metric grounded in actual reading research
+  const fk=r.readability||{ease:0,grade:0};
+  const fkEase=Math.max(0,Math.min(100,Math.round(fk.ease||0)));
+  const fkGrade=fk.grade||0;
+  const fkLabel=fkEase>=80?'Easy Read':fkEase>=60?'Standard':fkEase>=40?'Demanding':'Dense';
+  const fkSub='Grade '+Math.round(fkGrade)+' · '+fkLabel;
   const cards=[
     {name:'Engagement Score',score:rp.engagementScore||0,sub:'How hooked will readers be?',action:'+ Improve Opening',bar:true},
     {name:'Hook Strength',score:rp.hookStrength||0,sub:(r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0)+' Issues',action:'+ Improve Opening',bar:false},
     {name:'Clarity',score:rp.clarityScore||0,sub:'Weak transitions',bar:true},
     {name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':(rp.pacingFeel||'').includes('Slow')?'Slow':'Good'},
-    {name:'DNF Risk',score:r.dnfAnalysis?r.dnfAnalysis.dnf_risk:rp.dnfRisk,sub:r.dnfAnalysis?r.dnfAnalysis.risk_band:rp.dnfRisk>60?'At Risk':rp.dnfRisk>30?'Moderate':'Safe',inv:true}
+    {name:'Readability',score:fkEase,sub:fkSub,bar:true}
   ];
   $('lp-cards').innerHTML=cards.map(c=>{
     const col=c.inv?scHex(100-c.score):scHex(c.score);
@@ -812,34 +875,43 @@ function renderLeft(r){
 function renderRight(r){
   if(!r)return;
   const stIssues=r.showTell&&r.showTell.issues?r.showTell.issues.length:(r.issueCounts?r.issueCounts['show-tell']:0)||0;
-  const cpIssues=r.issues?r.issues.length:0;
   // Count high-severity issues per type for honest issue display
-  const highSev=type=>(r.issues||[]).filter(i=>i.type===type&&i.severity==='high').length;
   const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
   const scores=r.scores||{};const rp=r.readerPerspective||{};
-  const copyIssueCount=countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word')+countType('repetition')+countType('grammar');
+  const totalWords=r.totalWords||1;
+  const estPages=Math.max(1,Math.round(totalWords/250));
+  // Per-page density helper: converts raw count to "X/page" — avoids frightening raw numbers like "2069 issues"
+  // Shows nothing when clean, a decimal for rare issues, integer for frequent ones
+  function _density(count){
+    if(!count||count===0)return null;
+    const perPage=count/estPages;
+    if(perPage<0.1)return null; // too sparse to display
+    if(perPage<1)return perPage.toFixed(1)+'/pg';
+    return Math.round(perPage)+'/pg';
+  }
+  const copyRaw=countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word')+countType('repetition');
   const isNF=Analyzer.isNonfiction(r.genre);
   // Hook Strength: only show issue count if it's actually penalizing the score (avoids confusing "100 / 2 issues")
   const hookScore=rp.hookStrength||0;
-  const hookIssueCount=(r.openingDiagnosis?.problems?.length||0);
-  const displayedHookIssues=(hookScore<80)?hookIssueCount:0;
+  const displayedHookIssues=(hookScore<80)?(r.openingDiagnosis?.problems?.length||0):0;
   const cats=[
-    {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,issues:countType('pov'),weight:'9%'},
-    {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'7%'},
-    {k:'hook',name:'Hook Strength',score:hookScore,issues:displayedHookIssues,weight:'9%'},
-    {k:'style',name:'Style & Voice',score:scores.style||0,issues:countType('weak-verb'),weight:'7%'},
+    {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,density:null,issues:countType('pov'),weight:'9%'},
+    {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),density:_density(countType('sentence-length')),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'7%'},
+    {k:'hook',name:'Hook Strength',score:hookScore,density:null,issues:displayedHookIssues,weight:'9%'},
+    {k:'style',name:'Style & Voice',score:scores.style||0,density:_density(countType('weak-verb')),issues:countType('weak-verb'),weight:'7%'},
     // Dialogue: only show if score is non-null (nonfiction with low dialogue ratio gets N/A and is hidden)
-    ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,issues:countType('dialogue'),weight:'6%'}]:[]),
+    ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,density:null,issues:countType('dialogue'),weight:'6%'}]:[]),
     // Show vs Tell: fiction-only concept; hide for nonfiction
-    ...(!isNF?[{k:'showTell',name:'Show vs Tell',score:scores.showTell||0,issues:stIssues,weight:'7%'}]:[]),
-    {k:'copy',name:'Copy Editing',score:scores.copy||0,issues:copyIssueCount,weight:'10%'},
-    {k:'grammar',name:'Grammar',score:scores.grammar||0,issues:countType('grammar'),weight:'10%'}
+    ...(!isNF?[{k:'showTell',name:'Show vs Tell',score:scores.showTell||0,density:_density(stIssues),issues:stIssues,weight:'7%'}]:[]),
+    {k:'copy',name:'Copy Editing',score:scores.copy||0,density:_density(copyRaw),issues:copyRaw,weight:'10%'},
+    {k:'grammar',name:'Grammar',score:scores.grammar||0,density:_density(countType('grammar')),issues:countType('grammar'),weight:'10%'}
   ];
   const container=$('rp-scores');
   container.innerHTML=cats.map(c=>{
     const col=scHex(c.score);const id='rsc-'+Math.random().toString(36).substr(2,5);
-    const issueLabel=c.issues>0?c.issues+' issue'+(c.issues===1?'':'s'):c.score>=80?'Clean':'—';
-    const issueColor=c.issues>10?'var(--red)':c.issues>3?'var(--yellow)':'var(--green)';
+    // Show density when available (replaces raw count); fall back to clean/— for zero-issue categories
+    const issueLabel=c.density?c.density:c.issues>0&&c.issues<=5?c.issues+' issue'+(c.issues===1?'':'s'):c.score>=80?'Clean':'—';
+    const issueColor=c.score<50?'var(--red)':c.score<70?'var(--yellow)':'var(--green)';
     return '<div class="rsc" data-cat="'+c.k+'"><div class="rsc-ring"><canvas id="'+id+'" width="34" height="34"></canvas><span class="rsc-n" style="color:'+col+'">'+c.score+'</span></div><div class="rsc-info"><div class="rsc-name">'+c.name+'<span style="font-size:.55rem;color:var(--dim);margin-left:4px">'+c.weight+'</span></div><div class="rsc-sub" style="color:'+issueColor+'">'+issueLabel+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="rsc-val" style="color:'+col+'">'+c.score+'</span>')+'</div>';
   }).join('');
   // Draw rings
@@ -1285,48 +1357,28 @@ function renderReader(r){
   h+='<div class="rdr-card"><h4>Pacing</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.pacingFeel||'N/A')+'</p></div>';
   h+='<div class="rdr-card"><h4>Verdict</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.overallVerdict||'N/A')+'</p></div>';
   h+='</div>';
-  // DNF Prediction Engine (full panel)
-  if(r.dnfAnalysis){
-    const dnf=r.dnfAnalysis;
-    const drc=dnf.risk_band==='Low'?'var(--green)':dnf.risk_band==='Medium'?'var(--yellow)':'var(--red)';
-    h+='<div class="a-sec"><h3>'+esc(dnf.score_label)+' <span style="color:'+drc+'">'+dnf.dnf_risk+'%</span></h3>';
-    h+='<div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.6rem"><div style="font-size:2rem;font-weight:800;color:'+drc+'">'+dnf.dnf_risk+'</div><div><div style="font-size:.82rem;font-weight:600;color:'+drc+'">'+dnf.risk_band+' Risk</div><div style="font-size:.68rem;color:var(--muted)">'+esc(dnf.eval_mode)+' mode</div></div></div>';
-    h+='<div class="rdr-bar" style="margin-bottom:.8rem"><div class="rdr-fill" style="width:'+dnf.dnf_risk+'%;background:'+drc+'"></div></div>';
-    // 6 dimension scores
-    const dimLabels={hook_strength:'Hook Strength',clarity:'Clarity',forward_motion:'Forward Motion',specificity:'Specificity',redundancy:'Redundancy',payoff:'Payoff'};
-    h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem .8rem;margin-bottom:.8rem">';
-    Object.entries(dnf.scores).forEach(([k,v])=>{
-      const dc=v>=7?'var(--green)':v>=5?'var(--yellow)':'var(--red)';
-      h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:.3rem .4rem;background:var(--surface2);border-radius:var(--rs);font-size:.75rem"><span style="color:var(--muted)">'+(dimLabels[k]||k)+'</span><span style="font-weight:700;color:'+dc+'">'+v+'/10</span></div>';
-    });
+  // Readability panel — Flesch-Kincaid, a real peer-reviewed metric
+  if(r.readability){
+    const fk=r.readability;
+    const ease=Math.max(0,Math.min(100,Math.round(fk.ease||0)));
+    const grade=Math.round(fk.grade||0);
+    const easeColor=ease>=70?'var(--green)':ease>=45?'var(--yellow)':'var(--red)';
+    const easeLabel=ease>=80?'Easy Read':ease>=70?'Fairly Easy':ease>=60?'Standard':ease>=50?'Fairly Dense':ease>=30?'Dense':'Very Dense';
+    const gradeCtx=grade<=6?'Middle school':grade<=8?'High school':grade<=12?'High school (advanced)':grade<=14?'College level':'Graduate level';
+    h+='<div class="a-sec"><h3>Readability <span style="color:'+easeColor+'">'+ease+'/100</span></h3>';
+    h+='<div style="font-size:.72rem;color:var(--muted);margin-bottom:.5rem">Flesch Reading Ease · '+easeLabel+' · '+gradeCtx+'</div>';
+    h+='<div class="rdr-bar" style="margin-bottom:.8rem"><div class="rdr-fill" style="width:'+ease+'%;background:'+easeColor+'"></div></div>';
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem;margin-bottom:.6rem">';
+    h+='<div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);text-align:center"><div style="font-size:1.4rem;font-weight:800;color:'+easeColor+'">'+ease+'</div><div style="font-size:.65rem;color:var(--dim)">Reading Ease</div></div>';
+    h+='<div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);text-align:center"><div style="font-size:1.4rem;font-weight:800;color:var(--text)">'+grade+'</div><div style="font-size:.65rem;color:var(--dim)">Grade Level</div></div>';
     h+='</div>';
-    // Top 3 reasons
-    if(dnf.top_3_reasons&&dnf.top_3_reasons.length>0){
-      h+='<div style="margin-bottom:.6rem"><div style="font-size:.72rem;font-weight:600;color:var(--gold-l);margin-bottom:.3rem">Why readers may stop:</div>';
-      dnf.top_3_reasons.forEach((r,i)=>{h+='<div style="font-size:.75rem;color:var(--muted);padding:.2rem 0;padding-left:.6rem;border-left:2px solid '+drc+'">'+(i+1)+'. '+esc(r)+'</div>'});
-      h+='</div>';
-    }
-    // Best fix
-    if(dnf.best_fix){h+='<div style="background:var(--surface2);border-radius:var(--rs);padding:.5rem .65rem;margin-bottom:.6rem;border-left:3px solid var(--green)"><div style="font-size:.68rem;font-weight:600;color:var(--green);margin-bottom:.15rem">Best Fix</div><div style="font-size:.75rem;color:var(--text)">'+esc(dnf.best_fix)+'</div></div>'}
-    // Section scores (if chunked)
-    if(dnf.section_scores&&dnf.section_scores.length>1){
-      h+='<div style="margin-bottom:.5rem"><div style="font-size:.72rem;font-weight:600;color:var(--gold-l);margin-bottom:.3rem">Section Breakdown:</div>';
-      dnf.section_scores.forEach(s=>{
-        const sc2=s.score>=70?'var(--green)':s.score>=40?'var(--yellow)':'var(--red)';
-        const isStrong=s.section===dnf.strongest_section;const isWeak=s.section===dnf.weakest_section;
-        h+='<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.25rem"><span style="font-size:.72rem;color:var(--muted);width:40px">'+s.section+'</span><div class="rdr-bar" style="flex:1"><div class="rdr-fill" style="width:'+s.score+'%;background:'+sc2+'"></div></div><span style="font-size:.72rem;font-weight:700;color:'+sc2+';width:28px">'+s.score+'</span>';
-        if(isStrong)h+='<span style="font-size:.55rem;background:var(--green);color:#fff;padding:.1rem .3rem;border-radius:3px">BEST</span>';
-        if(isWeak)h+='<span style="font-size:.55rem;background:var(--red);color:#fff;padding:.1rem .3rem;border-radius:3px">WEAK</span>';
-        h+='</div>';
-      });
-      h+='</div>';
-    }
-    // AI Diagnosis button (paid users only)
-    h+='<div style="margin-top:.6rem;padding-top:.5rem;border-top:1px solid var(--border)"><button class="btn-gold ai-diagnose-btn" style="width:100%;font-size:.78rem;padding:.5rem">&#9889; Diagnose Weak Passages with AI</button><div id="ai-weakness-result" style="margin-top:.5rem"></div></div>';
-    // Context warning
-    if(dnf.context_warning){h+='<div style="font-size:.65rem;color:var(--dim);font-style:italic;padding-top:.3rem;border-top:1px solid var(--border)">'+esc(dnf.context_warning)+'</div>'}
+    h+='<div style="font-size:.72rem;color:var(--muted)">Higher ease = more readers can follow without friction. Most bestsellers score 60–80.</div>';
     h+='</div>';
   }
+  // Reader Simulation — async, fills in after main render
+  h+='<div class="a-sec" id="reader-sim-section"><h3>Reader Simulation</h3>';
+  h+='<div id="reader-sim-result" style="font-size:.78rem;color:var(--muted)">Running simulation…</div>';
+  h+='</div>';
   // Writing Quality Engine breakdown
   if(r.writingQuality){
     const wq=r.writingQuality;
@@ -1946,8 +1998,10 @@ document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{
     d.querySelectorAll('.rpd-ign-btn').forEach(btn=>{btn.addEventListener('click',()=>{const card=btn.closest('.rpd-issue');const page=$('ed-annotated');const q=card.dataset.issueText.substring(0,60).replace(/"/g,'&quot;');const hl=page?.querySelector('.hl[data-q="'+q+'"]');if(hl)hl.classList.add('off');card.remove()})});
   }
   if(mode==='tone shift'){
+    const isNFtone=Analyzer.isNonfiction(r&&r.genre);
     const toneFindings=(r.lineEditing?.findings||[]).filter(f=>f.type==='tone'||f.type==='flow');
-    const scoreLine=(r.lineEditing?.tone?.score!==undefined)?'<div class="rpd-desc" style="font-size:.72rem;color:var(--muted)">Tone score: <b style="color:'+(r.lineEditing.tone.score<50?'var(--red)':r.lineEditing.tone.score<75?'var(--yellow)':'var(--green)')+'">'+r.lineEditing.tone.score+'/100</b> &middot; Flow: <b>'+r.lineEditing.flow.score+'/100</b></div>':'';
+    const flowLabel=isNFtone?'Sentence Rhythm':'Flow';
+    const scoreLine=(r.lineEditing?.tone?.score!==undefined)?'<div class="rpd-desc" style="font-size:.72rem;color:var(--muted)">Tone score: <b style="color:'+(r.lineEditing.tone.score<50?'var(--red)':r.lineEditing.tone.score<75?'var(--yellow)':'var(--green)')+'">'+r.lineEditing.tone.score+'/100</b> &middot; '+flowLabel+': <b>'+r.lineEditing.flow.score+'/100</b></div>':'';
     let html='<div class="rpd-title">Tone & Flow</div>'+scoreLine;
     if(toneFindings.length===0){
       html+='<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No tonal inconsistencies detected. Register and mood stay consistent.</p>';
@@ -2728,7 +2782,7 @@ function goToLibrary(){
   _undoStack.length=0;
   _redoStack.length=0;
   _updateUndoBtn();
-  _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;
+  _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;_readerSimDone=false;
   $('editor-view').classList.add('hidden');
   $('upload-view').classList.remove('hidden');
   $('upload-modal')?.classList.add('hidden');
