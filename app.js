@@ -1457,32 +1457,65 @@ function renderReader(r){
 function rc(t,s,c,desc){return '<div class="rdr-card"><h4>'+t+'</h4><div class="rdr-big" style="color:'+c+'">'+s+'/100</div><div class="rdr-bar"><div class="rdr-fill" style="width:'+s+'%;background:'+c+'"></div></div><div class="rdr-lbl">'+desc+'</div></div>'}
 
 // OPENING COACH
-function showOpeningCoach(){
-  if(!analysisResult)return;
-  const od=analysisResult.openingDiagnosis;
-  // Switch to a new panel view in the center
+function showOpeningCoach(sectionIndex){
+  if(!analysisResult||!extractedText)return;
+
+  // Detect sections from the manuscript so the writer can pick their real opening
+  const sections=Analyzer.detectSections(extractedText);
+  // sectionIndex is the index into `sections` array (or -1 for "start of file")
+  // Default: if no section index passed, use -1 (start of file) if no sections found,
+  // or 0 (first detected section) if sections exist — as a suggestion only
+  if(sectionIndex===undefined)sectionIndex=sections.length>0?0:-1;
+
+  // Determine the text for this section: from the section heading to the next one (or end)
+  function getSectionText(idx){
+    if(idx<0||sections.length===0){
+      // Entire text from beginning
+      return extractedText;
+    }
+    const start=sections[idx].index;
+    const end=sections[idx+1]?sections[idx+1].index:extractedText.length;
+    return extractedText.substring(start,end);
+  }
+
+  const sectionText=getSectionText(sectionIndex);
+  const od=Analyzer.diagnoseOpening(sectionText,analysisResult.genre);
+
+  // Switch to coach panel view
   document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));
-
-  // Create or reuse coach content
   let coach=$('ed-coach');
   if(!coach){coach=document.createElement('div');coach.id='ed-coach';coach.className='ms-page dark-page active';$('manuscript-scroll').appendChild(coach)}
   else{coach.classList.add('active');coach.classList.add('dark-page')}
 
   let h='<div style="max-width:700px;margin:0 auto">';
 
-  // Header
-  h+='<div class="a-sec" style="border-left:3px solid var(--red);margin-bottom:1rem"><h3>Opening Diagnosis <span style="color:'+sc(od.score)+'">'+od.score+'/100</span></h3>';
-  h+='<p style="font-size:.78rem;color:var(--muted);margin-bottom:.6rem">Your opening is the most important part of your manuscript. Here\'s what we found:</p>';
+  // Section picker — writer tells us where their book begins. No guessing.
+  h+='<div class="a-sec" style="margin-bottom:1rem">';
+  h+='<h3 style="margin-bottom:.4rem">Where does your book begin for the reader?</h3>';
+  h+='<p style="font-size:.72rem;color:var(--muted);margin-bottom:.6rem">Select the section that is actually the first thing a reader sees. The diagnosis below will update.</p>';
+  h+='<select id="coach-section-picker" style="width:100%;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--rs);padding:.45rem .6rem;font-size:.82rem;font-family:Inter,sans-serif">';
+  h+='<option value="-1"'+(sectionIndex===-1?' selected':'')+'>Beginning of file (no chapter detected)</option>';
+  sections.forEach((s,i)=>{
+    h+='<option value="'+i+'"'+(i===sectionIndex?' selected':'')+'>'+esc(s.label)+'</option>';
+  });
+  h+='</select>';
+  if(sections.length===0){
+    h+='<div style="font-size:.68rem;color:var(--dim);margin-top:.3rem">No chapter or section headings detected. If your manuscript has chapters, make sure they start on their own line (e.g. "Chapter 1").</div>';
+  }
+  h+='</div>';
 
-  // Show the actual first sentence
+  // Diagnosis header
+  h+='<div class="a-sec" style="border-left:3px solid '+sc(od.score)+';margin-bottom:1rem" id="coach-diagnosis">';
+  h+='<h3>Opening Diagnosis <span style="color:'+sc(od.score)+'">'+od.score+'/100</span></h3>';
+  h+='<p style="font-size:.78rem;color:var(--muted);margin-bottom:.6rem">Your opening is the most important part of your manuscript. Here\'s what we found:</p>';
   h+='<div style="background:var(--parchment);color:var(--ink);padding:.8rem 1rem;border-radius:var(--rs);font-family:Lora,serif;font-size:.95rem;line-height:1.6;margin-bottom:.75rem">';
-  h+='<div style="font-size:.65rem;color:#666;margin-bottom:.3rem;font-family:Inter,sans-serif;text-transform:uppercase;letter-spacing:.5px">Your First Sentence:</div>';
+  h+='<div style="font-size:.65rem;color:#666;margin-bottom:.3rem;font-family:Inter,sans-serif;text-transform:uppercase;letter-spacing:.5px">First Sentence of Selected Section:</div>';
   h+=esc(od.firstSentence);
   h+='</div>';
   h+='</div>';
 
-  // Problems found
+  // Problems
   if(od.problems.length>0){
     h+='<div class="a-sec" style="border-left:3px solid var(--yellow)"><h3>Problems Detected ('+od.problems.length+')</h3>';
     od.problems.forEach(p=>{
@@ -1511,32 +1544,35 @@ function showOpeningCoach(){
   });
   h+='</div>';
 
-  // Show first paragraph for editing
-  h+='<div class="a-sec"><h3>Your Current Opening</h3>';
-  h+='<p style="font-size:.72rem;color:var(--muted);margin-bottom:.5rem">Edit directly below, then click "Re-analyze" to see your improved score:</p>';
+  // Editable opening
+  h+='<div class="a-sec"><h3>Edit Your Opening</h3>';
+  h+='<p style="font-size:.72rem;color:var(--muted);margin-bottom:.5rem">Edit the opening paragraph below, then apply to update the manuscript:</p>';
   h+='<div id="coach-editor" contenteditable="true" style="background:var(--parchment);color:var(--ink);padding:1rem 1.2rem;border-radius:var(--rs);font-family:Lora,serif;font-size:.95rem;line-height:1.8;min-height:120px;outline:1px solid var(--gold-d);outline-offset:2px">'+esc(od.firstParagraph)+'</div>';
-  h+='<div style="display:flex;gap:.4rem;margin-top:.6rem"><button class="btn-gold" id="coach-apply" style="width:auto;padding:.45rem 1.2rem;font-size:.8rem">Apply Changes & Re-analyze</button><button class="btn-dark" id="coach-back" style="font-size:.8rem">Back to Manuscript</button></div>';
+  h+='<div style="display:flex;gap:.4rem;margin-top:.6rem"><button class="btn-gold" id="coach-apply" style="width:auto;padding:.45rem 1.2rem;font-size:.8rem">Apply & Re-analyze</button><button class="btn-dark" id="coach-back" style="font-size:.8rem">Back to Manuscript</button></div>';
   h+='</div>';
 
-  h+='</div>'; // close max-width wrapper
+  h+='</div>';
   coach.innerHTML=h;
 
-  // Button handlers
+  // Section picker change → re-render coach for the selected section
+  $('coach-section-picker')?.addEventListener('change',e=>{
+    showOpeningCoach(parseInt(e.target.value,10));
+  });
+
+  // Apply changes
   $('coach-apply')?.addEventListener('click',()=>{
     const newOpening=$('coach-editor').textContent;
     const oldFirst=od.firstParagraph;
-    // Replace the first paragraph in the extracted text
     const idx=extractedText.indexOf(oldFirst);
     if(idx>=0){extractedText=newOpening+extractedText.substring(idx+oldFirst.length)}
     else{extractedText=newOpening+'\n\n'+extractedText}
-    // Re-analyze
     analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
     if(!analysisResult.error)renderAll();
-    // Switch back to annotated
     coach.classList.remove('active');
     document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
     $('ed-annotated')?.classList.add('active');
   });
+
   $('coach-back')?.addEventListener('click',()=>{
     coach.classList.remove('active');
     document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
