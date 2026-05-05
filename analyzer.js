@@ -2031,6 +2031,22 @@ const Analyzer = {
   // ========================
   // OPENING DIAGNOSIS ENGINE
   // Analyzes the first ~500 words for specific weakness patterns
+  // Scans for section headings so the writer can identify where their book actually begins.
+  // Returns an array of { label, index } sorted by position. No magic inference — just headings.
+  detectSections(text) {
+    const pattern = /^[ \t]*(chapter\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|[ivxlc]+)|part\s+(?:\d+|one|two|three|four|[ivxlc]+)|prologue|epilogue|introduction|preface|foreword|afterword|conclusion|interlude|section\s+\d+|act\s+(?:\d+|one|two|three)|scene\s+\d+|note from the author|author'?s?\s+note|about the author|acknowledgments?)[ \t]*$/gim;
+    const seen = new Set();
+    const results = [];
+    let m;
+    while ((m = pattern.exec(text)) !== null) {
+      const raw = m[0].trim();
+      const label = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+      const key = label.toLowerCase();
+      if (!seen.has(key)) { seen.add(key); results.push({ label: label.substring(0, 60), index: m.index }); }
+    }
+    return results;
+  },
+
   // and provides genre-aware improvement strategies
   // ========================
   diagnoseOpening(text, genre) {
