@@ -852,11 +852,13 @@ function renderLeft(r){
   const fkGrade=fk.grade||0;
   const fkLabel=fkEase>=80?'Easy Read':fkEase>=60?'Standard':fkEase>=40?'Demanding':'Dense';
   const fkSub='Grade '+Math.round(fkGrade)+' · '+fkLabel;
+  const isSHLeft=r.genre?.primary==='selfHelp';
+  const shL=r.selfHelpScores||{};
   const cards=[
-    {name:'Engagement Score',score:rp.engagementScore||0,sub:'How hooked will readers be?',action:'+ Improve Opening',bar:true},
-    {name:'Hook Strength',score:rp.hookStrength||0,sub:(r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0)+' Issues',action:'+ Improve Opening',bar:false},
-    {name:'Clarity',score:rp.clarityScore||0,sub:'Weak transitions',bar:true},
-    {name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':(rp.pacingFeel||'').includes('Slow')?'Slow':'Good'},
+    {name:isSHLeft?'Reader Buy-In':'Engagement Score',score:isSHLeft?Math.round(((shL.readerIdentification||0)+(shL.emotionalMomentum||0))/2):rp.engagementScore||0,sub:isSHLeft?'Reader ID + Momentum':'How hooked will readers be?',action:'+ Improve Opening',bar:true},
+    {name:isSHLeft?'Promise Strength':'Hook Strength',score:isSHLeft?Math.round(shL.readerIdentification||0):rp.hookStrength||0,sub:(r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0)+' Issues',action:'+ Improve Opening',bar:false},
+    {name:isSHLeft?'Clarity & Polish':'Clarity',score:isSHLeft?Math.round(shL.clarityReadability||0):rp.clarityScore||0,sub:isSHLeft?'Readability + flow':'Weak transitions',bar:true},
+    {name:isSHLeft?'Reader Momentum':'Pacing',score:isSHLeft?Math.round(shL.emotionalMomentum||0):Math.round(((scores.plot||0)+(scores.transitions||0))/2),sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':(rp.pacingFeel||'').includes('Slow')?'Slow':'Good'},
     {name:'Readability',score:fkEase,sub:fkSub,bar:true}
   ];
   $('lp-cards').innerHTML=cards.map(c=>{
@@ -892,21 +894,38 @@ function renderRight(r){
   }
   const copyRaw=countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word')+countType('repetition');
   const isNF=Analyzer.isNonfiction(r.genre);
+  const isSH=r.genre?.primary==='selfHelp';
+  const sh=r.selfHelpScores||{};
   // Hook Strength: only show issue count if it's actually penalizing the score (avoids confusing "100 / 2 issues")
   const hookScore=rp.hookStrength||0;
   const displayedHookIssues=(hookScore<80)?(r.openingDiagnosis?.problems?.length||0):0;
-  const cats=[
-    {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,density:null,issues:countType('pov'),weight:'9%'},
-    {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),density:_density(countType('sentence-length')),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'7%'},
-    {k:'hook',name:'Hook Strength',score:hookScore,density:null,issues:displayedHookIssues,weight:'9%'},
-    {k:'style',name:'Style & Voice',score:scores.style||0,density:_density(countType('weak-verb')),issues:countType('weak-verb'),weight:'7%'},
-    // Dialogue: only show if score is non-null (nonfiction with low dialogue ratio gets N/A and is hidden)
-    ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,density:null,issues:countType('dialogue'),weight:'6%'}]:[]),
-    // Show vs Tell: fiction-only concept; hide for nonfiction
-    ...(!isNF?[{k:'showTell',name:'Show vs Tell',score:scores.showTell||0,density:_density(stIssues),issues:stIssues,weight:'7%'}]:[]),
-    {k:'copy',name:'Copy Editing',score:scores.copy||0,density:_density(copyRaw),issues:copyRaw,weight:'10%'},
-    {k:'grammar',name:'Grammar',score:scores.grammar||0,density:_density(countType('grammar')),issues:countType('grammar'),weight:'10%'}
-  ];
+  let cats;
+  if(isSH&&r.selfHelpScores){
+    // Self-help: 8-dimension framework — problem → insight → belief → action
+    cats=[
+      {k:'sh_clarity',   name:'Clarity & Polish',      score:Math.round(sh.clarityReadability||0),   density:_density(copyRaw),                    issues:copyRaw,              weight:'15%'},
+      {k:'sh_reader',    name:'Promise Strength',       score:Math.round(sh.readerIdentification||0), density:null,                                 issues:0,                   weight:'15%'},
+      {k:'sh_practical', name:'Practical Application', score:Math.round(sh.practicalApplication||0), density:null,                                 issues:0,                   weight:'15%'},
+      {k:'sh_structure', name:'Argument Progression',  score:Math.round(sh.structureProgression||0), density:null,                                 issues:countType('pov'),    weight:'15%'},
+      {k:'sh_insight',   name:'Insight Quality',        score:Math.round(sh.insightQuality||0),       density:null,                                 issues:0,                   weight:'15%'},
+      {k:'sh_voice',     name:'Authority & Voice',      score:Math.round(sh.voiceAuthority||0),       density:_density(countType('weak-verb')),      issues:countType('weak-verb'),weight:'10%'},
+      {k:'sh_momentum',  name:'Reader Momentum',        score:Math.round(sh.emotionalMomentum||0),    density:null,                                 issues:0,                   weight:'10%'},
+      {k:'sh_evidence',  name:'Evidence & Support',     score:Math.round(sh.evidenceSupport||0),      density:null,                                 issues:0,                   weight:'5%'},
+    ];
+  }else{
+    cats=[
+      {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,density:null,issues:countType('pov'),weight:'9%'},
+      {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),density:_density(countType('sentence-length')),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'7%'},
+      {k:'hook',name:'Hook Strength',score:hookScore,density:null,issues:displayedHookIssues,weight:'9%'},
+      {k:'style',name:'Style & Voice',score:scores.style||0,density:_density(countType('weak-verb')),issues:countType('weak-verb'),weight:'7%'},
+      // Dialogue: only show if score is non-null (nonfiction with low dialogue ratio gets N/A and is hidden)
+      ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,density:null,issues:countType('dialogue'),weight:'6%'}]:[]),
+      // Show vs Tell: fiction-only concept; hide for nonfiction
+      ...(!isNF?[{k:'showTell',name:'Show vs Tell',score:scores.showTell||0,density:_density(stIssues),issues:stIssues,weight:'7%'}]:[]),
+      {k:'copy',name:'Copy Editing',score:scores.copy||0,density:_density(copyRaw),issues:copyRaw,weight:'10%'},
+      {k:'grammar',name:'Grammar',score:scores.grammar||0,density:_density(countType('grammar')),issues:countType('grammar'),weight:'10%'}
+    ];
+  }
   const container=$('rp-scores');
   container.innerHTML=cats.map(c=>{
     const col=scHex(c.score);const id='rsc-'+Math.random().toString(36).substr(2,5);
@@ -1066,6 +1085,44 @@ async function doRewrite(card) {
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
   const isNF=Analyzer.isNonfiction(r&&r.genre);
+  const isSH=r&&r.genre?.primary==='selfHelp';
+
+  // Self-help categories get a descriptive panel (no issue list except where there's a real issue mapping)
+  if(isSH&&cat.startsWith('sh_')){
+    const sh=r.selfHelpScores||{};
+    const shTitles={sh_clarity:'Clarity & Polish',sh_reader:'Promise Strength',sh_practical:'Practical Application',sh_structure:'Argument Progression',sh_insight:'Insight Quality',sh_voice:'Authority & Voice',sh_momentum:'Reader Momentum',sh_evidence:'Evidence & Support'};
+    const shWhy={
+      sh_clarity:'Readers abandon self-help that feels dense or hard to follow. Short sentences, short paragraphs, and clear transitions are the baseline.',
+      sh_reader:'Readers need to see themselves in the text. High "you/your" density, direct problem identification, and empathy markers signal that this book is for them.',
+      sh_practical:'Self-help earns its title when readers finish a chapter knowing exactly what to do. Exercises, numbered steps, and imperative calls to action convert insight into behavior.',
+      sh_structure:'A self-help chapter needs a clear promise up front, evidence or story in the middle, and a synthesis or call-to-action at the end.',
+      sh_insight:'The best self-help offers non-obvious ideas — reframes, counterintuitive claims, or research-backed surprises that make readers think "I never thought of it that way."',
+      sh_voice:'Readers choose self-help authors they trust. Confident assertions, first-person authority, and low hedge-word density signal expertise. Avoid "maybe" and "sort of."',
+      sh_momentum:'Self-help must carry emotional energy. Transformation language, motivational phrases, and forward-moving word choices keep readers energized to continue and act.',
+      sh_evidence:'Claims without backing are just opinions. Data, research citations, specific statistics, and personal case studies give readers confidence that the advice actually works.'
+    };
+    const shScores={sh_clarity:sh.clarityReadability,sh_reader:sh.readerIdentification,sh_practical:sh.practicalApplication,sh_structure:sh.structureProgression,sh_insight:sh.insightQuality,sh_voice:sh.voiceAuthority,sh_momentum:sh.emotionalMomentum,sh_evidence:sh.evidenceSupport};
+    const score=Math.round(shScores[cat]||0);
+    const col=score>=80?'var(--green)':score>=60?'var(--yellow)':'var(--red)';
+    // For copy/voice/structure categories, also surface relevant issues
+    const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
+    let issueRows='';
+    if(cat==='sh_clarity'){
+      const ci=(r.issues||[]).filter(i=>copyTypes.has(i.type)).slice(0,5);
+      if(ci.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Top copy issues</div>'+ci.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(i.text.substring(0,50))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div></div>').join('');
+    }else if(cat==='sh_voice'){
+      const wi=(r.issues||[]).filter(i=>i.type==='weak-verb').slice(0,5);
+      if(wi.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Weak verbs weaken authority</div>'+wi.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(i.text.substring(0,50))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div></div>').join('');
+    }else if(cat==='sh_structure'){
+      const pi=(r.lineEditing?.findings||[]).filter(f=>f.type==='pov').slice(0,5);
+      if(pi.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Structure signals</div>'+pi.map(f=>'<div class="rpd-issue"><div class="rpd-desc">'+esc(f.message)+'</div></div>').join('');
+    }
+    d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+shTitles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">score: <b style="color:'+col+'">'+score+'/100</b></span></div>'+
+      '<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+shWhy[cat]+'</div>'+
+      issueRows;
+    return;
+  }
+
   const titles={plot:isNF?'Argument Structure':'Plot Structure',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
   const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar',pov:'POV Issue',hook:'Opening Problem',tags:'Dialogue Tags',conciseness:'Conciseness',showing:'Show Don\'t Tell',purpose:'Dialogue Purpose',naturalness:'Naturalness'};
   const catWhy={pacing:'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Generic verbs ("made", "went", "got") miss an opportunity to create vivid, specific imagery.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing catches the mechanical issues — passive voice, adverbs, clichés, wordy phrasing, and word confusion.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:isNF?'Strong nonfiction needs a clear thesis, evidence to support it, logical transitions, and a conclusion that synthesizes.':'Readers need forward momentum — clear stakes, rising tension, and consistent point of view.'};
