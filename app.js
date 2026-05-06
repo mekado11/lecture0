@@ -1475,7 +1475,8 @@ function showOpeningCoach(sectionIndex){
     }
     const start=sections[idx].index;
     const end=sections[idx+1]?sections[idx+1].index:extractedText.length;
-    return extractedText.substring(start,end);
+    // Limit to first ~3000 chars of the section — the opening diagnosis only needs the first few paragraphs
+    return extractedText.substring(start,Math.min(start+3000,end));
   }
 
   const sectionText=getSectionText(sectionIndex);

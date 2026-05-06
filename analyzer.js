@@ -1354,10 +1354,11 @@ const Analyzer = {
   // ========================
   // READER'S PERSPECTIVE
   // ========================
-  analyzeReaderPerspective(text, mode, allIssues = []) {
+  analyzeReaderPerspective(text, mode, allIssues = [], genre) {
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const totalWords = text.split(/\s+/).length;
     const lower = text.toLowerCase();
+    const isNF = this.isNonfiction(genre);
 
     // Hook strength - analyze first paragraph + factor in issue density
     const firstPara = paragraphs[0] || '';
@@ -1367,6 +1368,11 @@ const Analyzer = {
     if (firstPara.split(/\s+/).length < 50) hookStrength += 5;
     const tensionInOpening = (firstPara.toLowerCase().match(/\b(danger|fear|mystery|secret|death|blood|shadow|dark|strange|suddenly|never|always)\b/g) || []).length;
     if (tensionInOpening > 0) hookStrength += tensionInOpening * 5;
+    // Nonfiction: rhetorical hooks (direct address, questions, bold claims)
+    if (isNF) {
+      const nfHooks = (firstPara.match(/\b(you|your|we|our|must|need|imagine|consider|think|ask yourself)\b/gi) || []).length;
+      hookStrength += Math.min(15, nfHooks * 3);
+    }
     // Penalize for high issue density — a manuscript with many issues has a weaker hook
     const issuesPerK_hook = allIssues.length / Math.max(totalWords / 1000, 1);
     if (issuesPerK_hook > 20) hookStrength -= 25;
@@ -1380,8 +1386,10 @@ const Analyzer = {
     if (openingAdverbs > 3) hookStrength -= 5;
     hookStrength = Math.max(0, Math.min(100, hookStrength));
 
-    // Emotional word density
-    const emotionWords = (lower.match(/\b(love|hate|fear|anger|joy|sadness|grief|terror|hope|despair|rage|jealousy|shame|guilt|pride|longing|anxiety|excitement|dread|relief|sorrow|anguish|fury|bliss|agony|ecstasy|panic|horror)\b/g) || []).length;
+    // Emotional word density — expanded for nonfiction (empowerment, struggle, social justice)
+    const fictionEmotions = (lower.match(/\b(love|hate|fear|anger|joy|sadness|grief|terror|hope|despair|rage|jealousy|shame|guilt|pride|longing|anxiety|excitement|dread|relief|sorrow|anguish|fury|bliss|agony|ecstasy|panic|horror)\b/g) || []).length;
+    const nfEmotions = isNF ? (lower.match(/\b(struggle|resilience|overcome|empower|transform|courage|strength|dignity|injustice|inequality|vulnerability|determination|sacrifice|perseverance|frustration|exhaustion|survival|freedom|oppression|betrayal|truth|failure|success|suffer|pain|healing|growth|burden|weight)\b/g) || []).length : 0;
+    const emotionWords = fictionEmotions + nfEmotions;
     const emotionalConnection = Math.min(100, Math.round(emotionWords / totalWords * 1000 * 10));
 
     // Page-turner quotient - check for hooks at paragraph breaks
@@ -1391,6 +1399,10 @@ const Analyzer = {
       const ls = lastSentence.toLowerCase();
       if (ls.includes('?') || ls.includes('but') || ls.includes('however') || ls.includes('suddenly') ||
           ls.includes('then') || ls.includes('until') || /\b(never|always|everything|nothing)\b/.test(ls)) {
+        hookCount++;
+      }
+      // Nonfiction: rhetorical hooks and argument connectors
+      if (isNF && (/\b(here'?s?\s+(why|how|what)|the\s+(truth|reality|problem|answer)|consider\s+this|think\s+about|let\s+me|what\s+if|you\s+need|you\s+must)\b/i.test(ls))) {
         hookCount++;
       }
     }
@@ -1406,16 +1418,27 @@ const Analyzer = {
     else if (avgParaLen > 100) pacingFeel = 'Moderate - some sections feel heavy';
     else if (avgParaLen < 30) pacingFeel = 'Rushed - consider developing scenes more';
 
-    // Clarity score
-    let clarityScore = 20;
-    // Check for unclear pronoun references
-    const pronounDensity = (lower.match(/\b(he|she|they|it|him|her|them)\b/g) || []).length / totalWords;
-    if (pronounDensity > 0.06) clarityScore -= 15;
-    // Too many characters introduced early
-    const firstQuarterNames = {};
-    const firstQuarter = paragraphs.slice(0, Math.ceil(paragraphs.length / 4)).join(' ');
-    (firstQuarter.match(/\b[A-Z][a-z]{2,}\b/g) || []).forEach(n => { firstQuarterNames[n] = true; });
-    if (Object.keys(firstQuarterNames).length > 6) clarityScore -= 10;
+    // Clarity score — measures how easy the text is to follow
+    let clarityScore = 25;
+    // Sentence length: readable average = 10-20 words
+    const _clSentLens = text.split(/[.!?]+/).filter(s => s.trim()).map(s => s.trim().split(/\s+/).length);
+    const _clAvgSent = _clSentLens.reduce((a, b) => a + b, 0) / Math.max(_clSentLens.length, 1);
+    if (_clAvgSent >= 10 && _clAvgSent <= 20) clarityScore += 15;
+    else if (_clAvgSent < 10) clarityScore += 10;
+    else if (_clAvgSent > 30) clarityScore -= 10;
+    // Transition words help readers follow the argument
+    const _clTrans = (lower.match(/\b(however|therefore|furthermore|because|although|since|instead|also|first|second|finally|next|then|consequently|moreover|specifically|for example|in contrast|as a result|on the other hand)\b/g) || []).length;
+    const _clTransPerK = _clTrans / Math.max(totalWords / 1000, 1);
+    if (_clTransPerK > 5) clarityScore += 20;
+    else if (_clTransPerK > 2) clarityScore += 12;
+    else if (_clTransPerK > 1) clarityScore += 5;
+    // Short paragraphs (easier to digest)
+    const _clShortParas = paragraphs.filter(p => p.split(/\s+/).length < 60).length;
+    if (_clShortParas / Math.max(paragraphs.length, 1) > 0.7) clarityScore += 15;
+    else if (_clShortParas / Math.max(paragraphs.length, 1) > 0.4) clarityScore += 8;
+    // Penalize only genuinely ambiguous pronoun density (not "this"/"that" which are connective)
+    const _clAmbigPro = (lower.match(/\b(he|she|they|it)\b/g) || []).length;
+    if (_clAmbigPro / Math.max(totalWords, 1) > 0.06) clarityScore -= 10;
     clarityScore = Math.max(0, Math.min(100, clarityScore));
 
     // Immersion breakers
@@ -1680,7 +1703,11 @@ const Analyzer = {
     const punchySentences = sentences.filter(s => s.trim().split(/\s+/).length <= 6).length;
     const punchyRatio = punchySentences / Math.max(sentences.length, 1);
     if (modifierStacks === 0) clarityScore += 15; else clarityScore -= modifierStacks * 6;
-    if (pronounRatio < 0.06) clarityScore += 15; else if (pronounRatio < 0.08) clarityScore += 8; else clarityScore -= (pronounRatio - 0.08) * 400;
+    // Pronoun penalty: "this" and "that" are connective in nonfiction, not unclear references.
+    // For nonfiction, only penalize he/she/they/it ambiguity. For fiction, keep full list.
+    const _wqProThreshold = isNF ? 0.10 : 0.08;
+    const _wqProPenalty = isNF ? 200 : 400;
+    if (pronounRatio < 0.06) clarityScore += 15; else if (pronounRatio < _wqProThreshold) clarityScore += 8; else clarityScore -= (pronounRatio - _wqProThreshold) * _wqProPenalty;
     const weakOpeningRate = weakOpenings / Math.max(sentences.length, 1);
     if (weakOpeningRate < 0.02) clarityScore += 15; else clarityScore -= weakOpenings * 4;
     const overCommaRate = overComma / Math.max(sentences.length, 1);
@@ -3157,7 +3184,7 @@ const Analyzer = {
     const style = this.analyzeStyle(text);
     const sentenceVariety = this.analyzeSentenceVariety(text);
     const readability = this.fleschKincaid(text);
-    const readerPerspective = this.analyzeReaderPerspective(text, mode, allIssues);
+    const readerPerspective = this.analyzeReaderPerspective(text, mode, allIssues, genre);
     const dnfAnalysis = this.analyzeDNF(text, manuscriptMode, genre);
     // Backfill readerPerspective.dnfRisk from new engine for backward compat
     readerPerspective.dnfRisk = dnfAnalysis.dnf_risk;
