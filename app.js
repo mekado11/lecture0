@@ -2138,6 +2138,13 @@ async function runAI(key){
     }
     analysisResult._aiResults=ai;
     renderAI(ai);
+    // Blend AI-derived signals back into Document Health scores.
+    // The regex analyzer measures mechanical patterns; the AI reads semantic quality.
+    // Together they produce scores that reflect both.
+    if(AIEngine._applyAIDerivedScores(analysisResult,ai)){
+      analysisResult.overall=Analyzer.recalcOverall(analysisResult);
+      updateScoresOnly(analysisResult);
+    }
     st.classList.add('hidden');
     $('ai-results').classList.remove('hidden');
     document.querySelector('.ai-intro')?.classList.add('hidden');
