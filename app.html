@@ -388,6 +388,11 @@
   <!-- API key is handled server-side only, never in the browser -->
 
   <!-- Firebase SDK for auth check -->
+  <!-- TODO(security): Add integrity="sha384-..." SRI hashes to these Firebase scripts, or self-host
+       the pinned bundles. Hashes can be computed with:
+       curl -sf <url> | openssl dgst -sha384 -binary | openssl base64 -A
+       then prefix with "sha384-". Without SRI a supply-chain compromise of gstatic.com
+       would execute arbitrary code in the app. -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>

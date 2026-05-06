@@ -1,5 +1,15 @@
 // ManuscriptLens - Analysis Engine v2
 
+// Fiction overall-score weights — single source of truth used by both analyze() and recalcOverall().
+// Changing a weight here automatically keeps both in sync.
+const _FICTION_WEIGHTS = {
+  plot: 0.09, transitions: 0.07, copy: 0.10, line: 0.09, style: 0.07,
+  dialogue: 0.06, showTell: 0.07, grammar: 0.10,
+  clarity: 0.09, discipline: 0.07, efficiency: 0.06, engagement: 0.07, momentum: 0.06
+};
+// Quick sanity check: weights must sum to 1.00
+// (Object.values(_FICTION_WEIGHTS).reduce((a,b)=>a+b,0) === 1.00 ✓)
+
 const Analyzer = {
 
   // ========================
@@ -3372,20 +3382,21 @@ const Analyzer = {
     // Nonfiction may have null dialogue score and 0 showTellScore — use neutral 70 so they don't tank the overall
     const dialogueForOverall = (dialogue.score == null) ? 70 : dialogue.score;
     const showTellForOverall = isNF ? 70 : showTellScore;
+    const W = _FICTION_WEIGHTS;
     const fictionOverall = Math.round(
-      plot.score * 0.09 +
-      transitions.score * 0.07 +
-      copyScore * 0.10 +
-      lineScore * 0.09 +
-      style.score * 0.07 +
-      dialogueForOverall * 0.06 +
-      showTellForOverall * 0.07 +
-      grammarScore * 0.10 +
-      writingQuality.clarityScore * 0.09 +
-      writingQuality.disciplineScore * 0.07 +
-      writingQuality.efficiencyScore * 0.06 +
-      writingQuality.engagementScore * 0.07 +
-      writingQuality.momentumScore * 0.06
+      plot.score * W.plot +
+      transitions.score * W.transitions +
+      copyScore * W.copy +
+      lineScore * W.line +
+      style.score * W.style +
+      dialogueForOverall * W.dialogue +
+      showTellForOverall * W.showTell +
+      grammarScore * W.grammar +
+      writingQuality.clarityScore * W.clarity +
+      writingQuality.disciplineScore * W.discipline +
+      writingQuality.efficiencyScore * W.efficiency +
+      writingQuality.engagementScore * W.engagement +
+      writingQuality.momentumScore * W.momentum
     );
     const overall = selfHelpScores ? selfHelpScores.overall : fictionOverall;
 
@@ -3456,20 +3467,21 @@ const Analyzer = {
     // Null dialogue (nonfiction N/A) and 0 showTell (nonfiction skip) → use neutral 70 so they don't tank overall
     const dialogueScore = (s.dialogue == null) ? 70 : s.dialogue;
     const showTellScore = isNF ? 70 : (s.showTell || 0);
+    const W = _FICTION_WEIGHTS;
     return Math.round(
-      (s.plot || 0) * 0.09 +
-      (s.transitions || 0) * 0.07 +
-      (s.copy || 0) * 0.10 +
-      (s.line || 0) * 0.09 +
-      (s.style || 0) * 0.07 +
-      dialogueScore * 0.06 +
-      showTellScore * 0.07 +
-      (s.grammar || 0) * 0.10 +
-      (wq.clarityScore || 0) * 0.09 +
-      (wq.disciplineScore || 0) * 0.07 +
-      (wq.efficiencyScore || 0) * 0.06 +
-      (wq.engagementScore || 0) * 0.07 +
-      (wq.momentumScore || 0) * 0.06
+      (s.plot || 0) * W.plot +
+      (s.transitions || 0) * W.transitions +
+      (s.copy || 0) * W.copy +
+      (s.line || 0) * W.line +
+      (s.style || 0) * W.style +
+      dialogueScore * W.dialogue +
+      showTellScore * W.showTell +
+      (s.grammar || 0) * W.grammar +
+      (wq.clarityScore || 0) * W.clarity +
+      (wq.disciplineScore || 0) * W.discipline +
+      (wq.efficiencyScore || 0) * W.efficiency +
+      (wq.engagementScore || 0) * W.engagement +
+      (wq.momentumScore || 0) * W.momentum
     );
   },
 

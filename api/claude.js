@@ -24,17 +24,34 @@ async function getUserTier(userId, email) {
   if (email && ADMIN_EMAILS.has(email.toLowerCase())) return 'dev';
 
   const cached = tierCache.get(userId);
-  if (cached && Date.now() - cached.ts < TIER_CACHE_TTL) return cached.tier;
 
   const fb = getAdmin();
   if (fb) {
     try {
-      const doc = await fb.firestore().collection('users').doc(userId).get();
-      const tier = doc.exists ? (doc.data().tier || 'free') : 'free';
-      tierCache.set(userId, { tier, ts: Date.now() });
-      return tier;
-    } catch (e) { /* Firestore unavailable — fall through */ }
+      // Always read if no cache, or cache has expired.
+      // Also re-read if the Firestore tierUpdatedAt is newer than our cached snapshot —
+      // this ensures a downgrade (subscription cancelled) takes effect immediately rather
+      // than persisting for up to TIER_CACHE_TTL across all running instances.
+      let needsRead = !cached || Date.now() - cached.ts >= TIER_CACHE_TTL;
+      if (!needsRead && cached) {
+        // Lightweight check: read only tierUpdatedAt to detect out-of-band tier changes
+        const meta = await fb.firestore().collection('users').doc(userId).get();
+        if (meta.exists) {
+          const updatedAt = meta.data().tierUpdatedAt;
+          const updatedMs = updatedAt ? updatedAt.toMillis() : 0;
+          if (updatedMs > cached.ts) needsRead = true;
+        }
+      }
+      if (needsRead) {
+        const doc = await fb.firestore().collection('users').doc(userId).get();
+        const tier = doc.exists ? (doc.data().tier || 'free') : 'free';
+        tierCache.set(userId, { tier, ts: Date.now() });
+        return tier;
+      }
+      return cached.tier;
+    } catch (e) { /* Firestore unavailable — fall through to cached or free */ }
   }
+  if (cached) return cached.tier;
   return 'free';
 }
 
