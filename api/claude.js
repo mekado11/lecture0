@@ -2,7 +2,7 @@
 // Routes: OpenAI (fast/cheap) for most tasks, Claude (premium) for deep analysis
 // Rate limited per user per day
 const https = require('https');
-const { verifyToken, getAdmin, getInitMode } = require('./_auth');
+const { verifyToken, getAdmin } = require('./_auth');
 const { checkAndIncrement, getCount } = require('./_ratelimit');
 
 const LIMITS = { dev: 9999, beta: 50, premium: 75, starter: 25, free: 0 };
@@ -34,13 +34,17 @@ async function getUserTier(userId, email) {
       // than persisting for up to TIER_CACHE_TTL across all running instances.
       let needsRead = !cached || Date.now() - cached.ts >= TIER_CACHE_TTL;
       if (!needsRead && cached) {
-        // Lightweight check: read only tierUpdatedAt to detect out-of-band tier changes
-        const meta = await fb.firestore().collection('users').doc(userId).get();
-        if (meta.exists) {
-          const updatedAt = meta.data().tierUpdatedAt;
+        const doc = await fb.firestore().collection('users').doc(userId).get();
+        if (doc.exists) {
+          const updatedAt = doc.data().tierUpdatedAt;
           const updatedMs = updatedAt ? updatedAt.toMillis() : 0;
-          if (updatedMs > cached.ts) needsRead = true;
+          if (updatedMs > cached.ts) {
+            const tier = doc.data().tier || 'free';
+            tierCache.set(userId, { tier, ts: Date.now() });
+            return tier;
+          }
         }
+        return cached.tier;
       }
       if (needsRead) {
         const doc = await fb.firestore().collection('users').doc(userId).get();
