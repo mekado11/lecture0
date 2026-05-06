@@ -100,7 +100,7 @@ $('analyze-btn').addEventListener('click',async()=>{
         }
       }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Save error:',e.message)}
     }
-    try{localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}))}catch(e){console.warn('Autosave to localStorage failed (quota):',e.message)}
+    try{const{rawIssues:_raw,...safeResult}=analysisResult||{};localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:safeResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}))}catch(e){if(e.name==='QuotaExceededError')_showSaveToast('Local storage full — cloud save only');console.warn('Autosave to localStorage failed (quota):',e.message)}
     // Close modal, reset state, show library
     $('upload-modal')?.classList.add('hidden');
     $('upload-loading').classList.add('hidden');
@@ -113,7 +113,7 @@ $('analyze-btn').addEventListener('click',async()=>{
 });
 
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-function escA(s){return(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function escA(s){return(s||'').replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function safeLocalJSON(key,fallback){try{return JSON.parse(localStorage.getItem(key)||JSON.stringify(fallback))}catch(e){return fallback}}
 function pn(t,i){return(t.substring(0,i).match(/\n\s*\n/g)||[]).length+1}
 function sc(v){return v>=70?'var(--green)':v>=45?'var(--yellow)':'var(--red)'}
@@ -245,11 +245,15 @@ function renderAll(){
   const activeGenre=(genreOverride&&genreOverride.value)?genreOverride.value:(genreSelect&&genreSelect.value)?genreSelect.value:'';
   // Self-healing: if dropdown says X but cached r.genre says Y, dropdown wins. Re-analyze with the right genre.
   // Covers stale cached analysisResult after manuscript open / autosave restore where genre drifted.
-  if(activeGenre&&r.genre&&r.genre.primary&&r.genre.primary!==activeGenre){
+  // Guard prevents infinite recursion when Analyzer consistently returns a different primary (edge case text).
+  if(!renderAll._genreOverrideInProgress&&activeGenre&&r.genre&&r.genre.primary&&r.genre.primary!==activeGenre){
+    renderAll._genreOverrideInProgress=true;
     try{
       analysisResult=Analyzer.analyze(extractedText,activeGenre);
-      return renderAll();
+      renderAll();
     }catch(e){console.warn('Genre re-analyze failed:',e.message)}
+    finally{renderAll._genreOverrideInProgress=false;}
+    return;
   }
   if(!r.genre)r.genre={primary:activeGenre||'fiction',label:genreLabels[activeGenre]||'Unknown',secondary:null};
   if(activeGenre&&r.genre){
@@ -570,11 +574,9 @@ function autoSave(){
       _cloudSaveWarned=true;
       _showSaveToast('Not signed in — saving locally only');
     }
-    try{localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:analysisResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}))}catch(e){console.warn('Autosave to localStorage failed (quota):',e.message)}
+    try{const{rawIssues:_raw,...safeResult}=analysisResult||{};localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:safeResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}))}catch(e){if(e.name==='QuotaExceededError')_showSaveToast('Local storage full — cloud save only');console.warn('Autosave to localStorage failed (quota):',e.message)}
   },5000);
 }
-// Load autosave on startup (legacy — now integrated into library)
-function loadAutoSave(){ return false; }
 
 // GOAL PILLS BAR
 function renderGoalBar(r){
@@ -1754,20 +1756,6 @@ $('fmt-spacing')?.addEventListener('change',e=>{
 });
 
 // Toolbar format buttons (bold, italic, underline, etc.)
-document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{
-  btn.addEventListener('click',()=>{
-    const cmd=btn.dataset.cmd;
-    if(!cmd)return;
-    if(cmd.startsWith('formatBlock:')){
-      document.execCommand('formatBlock',false,'<'+cmd.split(':')[1]+'>');
-    }else{
-      document.execCommand(cmd,false,null);
-    }
-    // Refocus the editor
-    $('ed-annotated')?.focus();
-  });
-});
-
 // ============================================================
 // WRITING RULER — tick marks
 // ============================================================
@@ -2006,7 +1994,7 @@ function renderAnnotatedAsPages(text,issues){
       // Types with reliable auto-fix: wordy (has "Replace with"), weak-verb/repetition (has "Try:"), adverb (remove), passive (restructure), cliche (has map)
       const canAutoFix=hasAI||hasTry||t==='adverb'||t==='wordy'||t==='cliche';
       const fixLabel=canAutoFix?'Replace &amp; Fix':'Edit Here';
-      tip.innerHTML='<div class="tip-cat">'+(labels[t]||t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+sug+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+fixLabel+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
+      tip.innerHTML='<div class="tip-cat">'+esc(labels[t]||t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+esc(sug)+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+esc(fixLabel)+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
       tip.classList.add('on');
       const rect=hl.getBoundingClientRect();
       tip.style.top=(rect.bottom+8)+'px';
@@ -2770,7 +2758,6 @@ async function maybeShowWizard(){
   $('wizard-skip')?.addEventListener('click',()=>{$('wizard-overlay')?.classList.add('hidden');localStorage.setItem('wizard_done','1')});
 }
 // STARTUP — wait for auth, then route to editor or library
-loadAutoSave();
 Storage.whenReady().then(async user=>{
   if(!user){renderLibrary();return}
 

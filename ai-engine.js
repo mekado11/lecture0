@@ -197,7 +197,9 @@ const AIEngine = {
       if (worst) lines.push(`Weakest manuscript section: ${worst.section} (score ${worst.score})`);
     }
     lines.push('--- END ANALYSIS DATA ---');
-    return lines.join('\n');
+    const full = lines.join('\n');
+    // Cap context to ~4000 chars so it doesn't consume a disproportionate share of the token budget
+    return full.length > 4000 ? full.substring(0, 4000) + '\n...[context truncated]' : full;
   },
 
   // ========================

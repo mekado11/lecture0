@@ -119,7 +119,7 @@ const Analyzer = {
       'matronly','motherly','neighborly','northerly','paunchy','pearly','pebble',
       'pimply','portly','prickly','priestly','queenly','rascally','rumply','scaly',
       'sisterly','slovenly','southerly','sparkly','spindly','sprightly','squiggly',
-      'stately','straggly','ungainly','unlikelyy','unmanly','unsightly','wiggly',
+      'stately','straggly','ungainly','unlikely','unmanly','unsightly','wiggly',
       'wrinkly',
       // Nouns ending in -ly
       'family','supply','rally','belly','bully','fly','july','apply','reply',
@@ -697,7 +697,8 @@ const Analyzer = {
     const starters = sentences.map(s => s.trim().split(/\s+/)[0]?.toLowerCase());
     const starterCounts = {};
     starters.forEach(s => { if (s) starterCounts[s] = (starterCounts[s] || 0) + 1; });
-    const maxStarterRepeat = Math.max(...Object.values(starterCounts));
+    const starterValues = Object.values(starterCounts);
+    const maxStarterRepeat = starterValues.length > 0 ? Math.max(...starterValues) : 0;
     const starterVariety = Object.keys(starterCounts).length / starters.length;
     const declarative = (text.match(/[^.!?]*\./g) || []).length;
     const interrogative = (text.match(/[^.!?]*\?/g) || []).length;
@@ -1792,15 +1793,6 @@ const Analyzer = {
       });
     }
 
-    // --- 11. SENTENCE FRAGMENTS (very short "sentences" with no verb) ---
-    const fragRe = /(?:^|\n|[.!?]\s+)([A-Z][a-z]{0,12}\.)\s/g;
-    let frm;
-    while ((frm = fragRe.exec(text)) !== null) {
-      const frag = frm[1];
-      if (/^(Mr|Mrs|Ms|Dr|St|Jr|Sr|Prof|Gen|Gov|Rep|Sen|Sgt|Cpl|Pvt|Lt|Capt|Maj|Col|Rev|Hon)\./i.test(frag)) continue;
-      if (frag.length <= 3) continue;
-    }
-
     // --- 12. TENSE CONSISTENCY — REMOVED ---
     // The -ed regex matched adjectives (excited, limited, adapted) as past-tense
     // verbs, producing hundreds of false positives in nonfiction where authors
@@ -2293,7 +2285,7 @@ const Analyzer = {
     }
 
     // === GENRE-AWARE STRATEGIES ===
-    const g = genre.primary;
+    const g = genre?.primary;
 
     // Universal strategies
     strategies.push({ title: 'Start Mid-Scene', desc: 'Drop the reader into a moment already in progress. No setup, no explanation. The reader catches up naturally.', example: 'Instead of: "John had been a detective for twenty years..." Try: "The body was still warm when John arrived."' });
