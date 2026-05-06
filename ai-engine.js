@@ -160,6 +160,143 @@ const AIEngine = {
   // Produces a compact, structured summary of analyzer findings to ground AI prompts.
   // Appended to user messages — not system blocks — so prompt caching stays intact.
   // ========================
+  // ========================
+  // AI → SCORE BLENDING
+  // After runAllFeatures completes, extract numeric signals from each AI result and
+  // blend them into the corresponding dimension scores. The regex analyzer measures
+  // mechanical signals; the AI measures semantic quality. Both inform the final score.
+  //
+  // Blend formula: new = round(existing * (1 - weight) + aiSignal * weight)
+  // Weights are intentionally conservative (0.25–0.45) — the analyzer is objective
+  // and deterministic; the AI is interpretive. We give AI more weight on dimensions
+  // the regex analyzer can't measure well (engagement, momentum, voice).
+  // ========================
+  _applyAIDerivedScores(r, ai) {
+    if (!r || !ai) return false;
+    const isNF = typeof Analyzer !== 'undefined' && Analyzer.isNonfiction(r.genre);
+    const isSH = r.genre?.primary === 'selfHelp';
+    let changed = false;
+
+    function blend(existing, aiSignal, weight) {
+      if (aiSignal == null || isNaN(aiSignal)) return existing;
+      const clamped = Math.max(0, Math.min(100, aiSignal));
+      return Math.round(existing * (1 - weight) + clamped * weight);
+    }
+    function fromTen(v) { return v != null ? Math.round((v / 10) * 100) : null; }
+    function fromFive(v) { return v != null ? Math.round(((v - 1) / 4) * 100) : null; }
+    function gradeToScore(g) { return {A:95,B:80,C:65,D:50,F:30}[String(g).toUpperCase()] ?? null; }
+
+    const dc = ai.deepCritique;
+    const oa = ai.openingAnalysis;
+    const br = ai.betaReaders;
+    const rs = ai.readerSimulation;
+    const cb = ai.chapterBreakdown;
+    const mr = ai.marketReadiness;
+
+    // ── HOOK STRENGTH ──────────────────────────────────────────────────────────
+    // openingAnalysis.hookStrength (1-10) is the AI's direct read of the first page.
+    // Reader simulation opening section gives a second signal.
+    if (oa && !oa.error) {
+      const hookAI = fromTen(oa.hookStrength);
+      if (hookAI != null && r.readerPerspective) {
+        r.readerPerspective.hookStrength = blend(r.readerPerspective.hookStrength || 0, hookAI, 0.45);
+        changed = true;
+      }
+    }
+    const openSec = rs?.sections?.find(s => /open/i.test(s.label)) || rs?.sections?.[0];
+    if (openSec?.engagement != null && r.readerPerspective) {
+      r.readerPerspective.hookStrength = blend(r.readerPerspective.hookStrength || 0, fromTen(openSec.engagement), 0.20);
+      changed = true;
+    }
+
+    // ── READER ENGAGEMENT ─────────────────────────────────────────────────────
+    // Beta readers give a crowd-sourced engagement signal; reader simulation gives
+    // an overall impression. Both feed readerPerspective.engagementScore.
+    if (br && !br.error && br.consensusRating != null) {
+      const engAI = fromFive(br.consensusRating);
+      if (engAI != null && r.readerPerspective) {
+        r.readerPerspective.engagementScore = blend(r.readerPerspective.engagementScore || 0, engAI, 0.40);
+        changed = true;
+      }
+    }
+    if (rs && !rs.error && rs.overall_engagement != null) {
+      const simEng = fromTen(rs.overall_engagement);
+      if (simEng != null) {
+        if (r.readerPerspective) {
+          r.readerPerspective.engagementScore = blend(r.readerPerspective.engagementScore || 0, simEng, 0.25);
+          changed = true;
+        }
+        // Reader simulation overall engagement also informs pacing (transitions proxy)
+        if (r.scores) {
+          r.scores.transitions = blend(r.scores.transitions || 0, simEng, 0.30);
+          changed = true;
+        }
+      }
+    }
+
+    // ── PACING / PLOT ─────────────────────────────────────────────────────────
+    // Chapter pacing grades map A→95, B→80, C→65, D→50, F→30. Average them.
+    if (cb && !cb.error && Array.isArray(cb.chapters) && cb.chapters.length > 0) {
+      const grades = cb.chapters.map(ch => gradeToScore(ch.pacingGrade)).filter(g => g != null);
+      if (grades.length > 0) {
+        const avgGrade = Math.round(grades.reduce((a, b) => a + b, 0) / grades.length);
+        if (r.scores) {
+          r.scores.plot = blend(r.scores.plot || 0, avgGrade, 0.30);
+          changed = true;
+        }
+      }
+    }
+
+    // ── DEEP CRITIQUE DIMENSION SCORES ────────────────────────────────────────
+    if (dc && !dc.error && dc.dimensionScores) {
+      const ds = dc.dimensionScores;
+      if (isSH && r.selfHelpScores) {
+        const sh = r.selfHelpScores;
+        if (ds.insightQuality != null)       { sh.insightQuality       = blend(sh.insightQuality       || 0, ds.insightQuality, 0.40);       changed = true; }
+        if (ds.voiceAuthority != null)        { sh.voiceAuthority        = blend(sh.voiceAuthority        || 0, ds.voiceAuthority, 0.40);        changed = true; }
+        if (ds.evidenceSupport != null)       { sh.evidenceSupport       = blend(sh.evidenceSupport       || 0, ds.evidenceSupport, 0.40);       changed = true; }
+        if (ds.practicalApplication != null)  { sh.practicalApplication  = blend(sh.practicalApplication  || 0, ds.practicalApplication, 0.40);  changed = true; }
+        if (ds.readerMomentum != null)        { sh.emotionalMomentum     = blend(sh.emotionalMomentum     || 0, ds.readerMomentum, 0.35);        changed = true; }
+      } else if (isNF && r.scores) {
+        if (ds.argumentStructure != null) { r.scores.plot  = blend(r.scores.plot  || 0, ds.argumentStructure, 0.35); changed = true; }
+        if (ds.voiceAuthority != null)    { r.scores.style = blend(r.scores.style || 0, ds.voiceAuthority,    0.35); changed = true; }
+      } else if (r.scores) {
+        if (ds.plot != null)     { r.scores.plot      = blend(r.scores.plot      || 0, ds.plot,     0.35); changed = true; }
+        if (ds.style != null)    { r.scores.style     = blend(r.scores.style     || 0, ds.style,    0.35); changed = true; }
+        if (ds.pacing != null)   { r.scores.transitions = blend(r.scores.transitions || 0, ds.pacing, 0.30); changed = true; }
+        if (ds.showTell != null && !isNF) { r.scores.showTell = blend(r.scores.showTell || 0, ds.showTell, 0.35); changed = true; }
+        if (ds.dialogue != null && r.scores.dialogue != null) { r.scores.dialogue = blend(r.scores.dialogue, ds.dialogue, 0.35); changed = true; }
+      }
+    }
+
+    // ── SELF-HELP: extra signals ──────────────────────────────────────────────
+    if (isSH && r.selfHelpScores) {
+      const sh = r.selfHelpScores;
+      // Beta readers → emotional momentum + reader identification
+      if (br && !br.error && br.consensusRating != null) {
+        const engAI = fromFive(br.consensusRating);
+        if (engAI != null) {
+          sh.emotionalMomentum    = blend(sh.emotionalMomentum    || 0, engAI, 0.40); changed = true;
+          sh.readerIdentification = blend(sh.readerIdentification || 0, engAI, 0.30); changed = true;
+        }
+      }
+      // Opening hook → readerIdentification
+      if (oa && !oa.error && oa.hookStrength != null) {
+        sh.readerIdentification = blend(sh.readerIdentification || 0, fromTen(oa.hookStrength), 0.35); changed = true;
+      }
+      // Market readiness → evidence support (authority proxy)
+      if (mr && !mr.error && mr.readinessScore != null) {
+        sh.evidenceSupport = blend(sh.evidenceSupport || 0, mr.readinessScore, 0.25); changed = true;
+      }
+      // Reader simulation → emotional momentum
+      if (rs && !rs.error && rs.overall_engagement != null) {
+        sh.emotionalMomentum = blend(sh.emotionalMomentum || 0, fromTen(rs.overall_engagement), 0.25); changed = true;
+      }
+    }
+
+    return changed;
+  },
+
   _buildAnalysisContext(analysis) {
     if (!analysis) return '';
     const s = analysis.scores || {};
@@ -216,7 +353,8 @@ const AIEngine = {
       { key: 'queryLetter', label: 'Drafting query letter...', fn: () => this.queryLetter(apiKey, text, analysisResult) },
       { key: 'betaReaders', label: 'Simulating beta readers...', fn: () => this.betaReaders(apiKey, text, analysisResult) },
       { key: 'marketReadiness', label: 'Assessing market readiness...', fn: () => this.marketReadiness(apiKey, text, analysisResult) },
-      { key: 'chapterBreakdown', label: 'Breaking down chapters...', fn: () => this.chapterBreakdown(apiKey, text, analysisResult) }
+      { key: 'chapterBreakdown', label: 'Breaking down chapters...', fn: () => this.chapterBreakdown(apiKey, text, analysisResult) },
+      { key: 'readerSimulation', label: 'Simulating reading experience...', fn: () => this.readerSimulation(apiKey, text, analysisResult) }
     ];
 
     for (let i = 0; i < features.length; i++) {
@@ -238,10 +376,32 @@ const AIEngine = {
     const ctx = this._buildAnalysisContext(analysis);
     const genre = analysis?.genre?.label || 'Fiction';
     const isNF = analysis?.genre?.primary && ['memoir','selfHelp','biography','historyNF','trueCrime','philosophy','nonfiction'].includes(analysis.genre.primary);
+    const isSH = analysis?.genre?.primary === 'selfHelp';
     const voiceLabel = isNF ? 'authoritative voice / tone' : 'narrative voice';
     const structureLabel = isNF ? 'argument structure / thesis clarity' : 'plot structure / story arc';
     const depthLabel = isNF ? 'idea depth and evidence quality' : 'character development';
     const worldLabel = isNF ? 'how well it contextualizes its subject / world the ideas inhabit' : 'setting and world-building';
+    const dimensionScoresPrompt = isSH ? `
+  "dimensionScores": {
+    "insightQuality": <0-100 — how original, substantive, and well-evidenced the ideas are>,
+    "voiceAuthority": <0-100 — how credible and distinctive the author's voice is>,
+    "evidenceSupport": <0-100 — quality of examples, stories, data used to support claims>,
+    "practicalApplication": <0-100 — how actionable and concrete the advice is>,
+    "readerMomentum": <0-100 — how well the book sustains reader engagement chapter to chapter>
+  },` : isNF ? `
+  "dimensionScores": {
+    "argumentStructure": <0-100 — logical flow and clarity of the central argument>,
+    "voiceAuthority": <0-100 — credibility and distinctiveness of author voice>,
+    "ideaDepth": <0-100 — originality and substance of the ideas>,
+    "evidenceSupport": <0-100 — quality of examples, research, and sources>
+  },` : `
+  "dimensionScores": {
+    "plot": <0-100 — story structure, cause-and-effect, stakes clarity — your independent assessment>,
+    "dialogue": <0-100 — authenticity, subtext, character differentiation — null if minimal dialogue>,
+    "style": <0-100 — prose style, voice distinctiveness, sentence-level craft>,
+    "showTell": <0-100 — how effectively the author shows rather than tells emotion and action>,
+    "pacing": <0-100 — narrative momentum, scene transitions, tension management>
+  },`;
     return this._callClaude(apiKey,
       `You are a professional developmental editor specializing in ${genre}. You have structured analysis data AND flagged passages from the manuscript. Ground your critique in SPECIFIC examples from the flagged passages provided — do not be generic. Name exact phrases, patterns, and locations. Interpret what the scores mean for the reading experience, not just the numbers.`,
       `Give a deep critique of this ${genre} manuscript, grounded in the analysis data and flagged passages below.${ctx}
@@ -267,7 +427,7 @@ Return JSON:
     {"step": 2, "action": "...", "reason": "..."},
     {"step": 3, "action": "...", "reason": "..."}
   ],
-  "priorityFix": "the single most impactful change, citing the specific pattern the analysis found"
+  "priorityFix": "the single most impactful change, citing the specific pattern the analysis found",${dimensionScoresPrompt}
 }`,
       text, 'deepCritique');
   },
