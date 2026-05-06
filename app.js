@@ -480,14 +480,15 @@ async function maybeRunSmartScan(r){
       }
     });
 
-    // Re-render right panel only — do NOT call renderAnnotated here
-    // because it replaces the entire editor DOM, destroying cursor/selection/undo
-    renderRight(r);
+    // Re-render both panels so Document Health reflects AI-enhanced suggestions
+    r.scores.copy=Analyzer.scoreCopyEditing(r.issues,r.totalWords);
+    r.overall=Analyzer.recalcOverall(r);
+    updateScoresOnly(r);
 
     // Show a subtle toast
     const toast=document.createElement('div');
     toast.style.cssText='position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:#1e3320;border:1px solid #5dba7d;border-radius:8px;padding:.5rem 1rem;color:#5dba7d;font-size:.78rem;z-index:1001;font-family:Inter,sans-serif';
-    toast.textContent='AI scan complete — suggestions enhanced';
+    toast.textContent='AI scan complete — scores updated';
     document.body.appendChild(toast);
     setTimeout(()=>toast.remove(),4000);
   }catch(e){console.warn('SmartScan failed:',e.message)}
@@ -2651,6 +2652,9 @@ function _showContextMenu(anchor,idx){
 $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="save-btn">&#128190; Save</button>');
 $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="upgrade-btn" style="color:var(--gold-l);border-color:var(--gold-d)">&#9733; Premium</button>');
 $('save-btn')?.addEventListener('click',saveAnalysis);
+// Help button — re-triggers the wizard so users can review the workflow anytime
+$('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="help-btn" title="How to use AuthorScrolls">? Help</button>');
+$('help-btn')?.addEventListener('click',()=>{localStorage.removeItem('wizard_done');maybeShowWizard()});
 $('upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
 $('pricing-modal-close')?.addEventListener('click',()=>$('pricing-modal')?.classList.add('hidden'));
 // Stripe checkout — tier buttons
@@ -2674,10 +2678,9 @@ if(!localStorage.getItem('cookie_consent')){$('cookie-banner')?.classList.remove
 $('cookie-accept')?.addEventListener('click',()=>{localStorage.setItem('cookie_consent','all');$('cookie-banner')?.classList.add('hidden')});
 $('cookie-essential')?.addEventListener('click',()=>{localStorage.setItem('cookie_consent','essential');$('cookie-banner')?.classList.add('hidden')});
 
-// First-time wizard — only show for brand-new users with no manuscripts
+// First-time wizard — guides new users through the complete workflow
 async function maybeShowWizard(){
   if(localStorage.getItem('wizard_done'))return;
-  // Check if user has existing manuscripts — if so, skip wizard
   let hasManuscripts=false;
   if(Storage.userId){
     try{const ms=await Storage.getManuscripts();hasManuscripts=ms.length>0}catch(e){}
@@ -2689,10 +2692,13 @@ async function maybeShowWizard(){
   }
   if(hasManuscripts){localStorage.setItem('wizard_done','1');return}
   const steps=[
-    {title:'Welcome to AuthorScrolls!',icon:'&#127807;',text:'Upload your manuscript and get instant analysis — plot structure, clarity, pacing, dialogue quality, and more.'},
-    {title:'How It Works',icon:'&#128209;',text:'1. Upload a .docx, .pdf, or .txt file<br>2. Get scored across 10+ writing metrics<br>3. Click highlighted issues to fix them<br>4. Preview your book on Kindle, iPad, or Paperback'},
-    {title:'AI-Powered Features',icon:'&#9889;',text:'Upgrade to unlock deep narrative critique, comparable titles, query letter drafting, beta reader simulation, and market readiness scoring.'},
-    {title:'Ready to Start?',icon:'&#9997;',text:'Drop your manuscript and let AuthorScrolls guide you to better writing. Your work is saved securely to the cloud.'}
+    {title:'Welcome to AuthorScrolls',icon:'&#128214;',text:'A professional manuscript analysis tool that scores your writing across 10+ dimensions and helps you revise with precision.'},
+    {title:'Step 1: Upload & Select Genre',icon:'&#128196;',text:'Upload your .docx, .pdf, or .txt file, then <strong>select your genre</strong>. Genre determines which scoring rules apply — nonfiction is scored differently than fiction. This matters for accurate results.'},
+    {title:'Step 2: Review Your Scores',icon:'&#128202;',text:'<strong>Document Health</strong> (left panel) shows engagement, clarity, pacing, and readability.<br><strong>Smart Feedback</strong> (right panel) shows copy editing, grammar, style, and structure scores — click any category to see specific issues.'},
+    {title:'Step 3: Fix Issues',icon:'&#9998;',text:'Click any highlighted issue in the editor to see the suggestion. Use <strong>Apply Fix</strong> for auto-corrections or <strong>Fix</strong> for AI-powered rewrites. Your scores update live as you edit.'},
+    {title:'Step 4: Run AI Analysis',icon:'&#9889;',text:'For deeper insights, run <strong>AI features</strong> (paid plans): Deep Critique, Editing Roadmap, Reader Simulation, Beta Reader Simulation, and more. These scan your entire manuscript and cache the results.'},
+    {title:'Step 5: Save & Iterate',icon:'&#128190;',text:'Your manuscript <strong>saves automatically to the cloud</strong> when signed in. Click Save (&#128190;) anytime. Re-upload revised versions to track your improvement over time.'},
+    {title:'Ready to Start?',icon:'&#9997;',text:'Upload your manuscript and select a genre to begin. Every score you see is computed from your actual text — nothing is hardcoded. A score of 60+ means your manuscript is in good shape.'}
   ];
   let wizStep=0;
   function showWizStep(){
