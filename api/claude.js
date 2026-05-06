@@ -2,7 +2,7 @@
 // Routes: OpenAI (fast/cheap) for most tasks, Claude (premium) for deep analysis
 // Rate limited per user per day
 const https = require('https');
-const { verifyToken, getAdmin, getInitMode } = require('./_auth');
+const { verifyToken, getAdmin } = require('./_auth');
 const { checkAndIncrement, getCount } = require('./_ratelimit');
 
 const LIMITS = { dev: 9999, beta: 50, premium: 75, starter: 25, free: 0 };
@@ -24,17 +24,38 @@ async function getUserTier(userId, email) {
   if (email && ADMIN_EMAILS.has(email.toLowerCase())) return 'dev';
 
   const cached = tierCache.get(userId);
-  if (cached && Date.now() - cached.ts < TIER_CACHE_TTL) return cached.tier;
 
   const fb = getAdmin();
   if (fb) {
     try {
-      const doc = await fb.firestore().collection('users').doc(userId).get();
-      const tier = doc.exists ? (doc.data().tier || 'free') : 'free';
-      tierCache.set(userId, { tier, ts: Date.now() });
-      return tier;
-    } catch (e) { /* Firestore unavailable — fall through */ }
+      // Always read if no cache, or cache has expired.
+      // Also re-read if the Firestore tierUpdatedAt is newer than our cached snapshot —
+      // this ensures a downgrade (subscription cancelled) takes effect immediately rather
+      // than persisting for up to TIER_CACHE_TTL across all running instances.
+      let needsRead = !cached || Date.now() - cached.ts >= TIER_CACHE_TTL;
+      if (!needsRead && cached) {
+        const doc = await fb.firestore().collection('users').doc(userId).get();
+        if (doc.exists) {
+          const updatedAt = doc.data().tierUpdatedAt;
+          const updatedMs = updatedAt ? updatedAt.toMillis() : 0;
+          if (updatedMs > cached.ts) {
+            const tier = doc.data().tier || 'free';
+            tierCache.set(userId, { tier, ts: Date.now() });
+            return tier;
+          }
+        }
+        return cached.tier;
+      }
+      if (needsRead) {
+        const doc = await fb.firestore().collection('users').doc(userId).get();
+        const tier = doc.exists ? (doc.data().tier || 'free') : 'free';
+        tierCache.set(userId, { tier, ts: Date.now() });
+        return tier;
+      }
+      return cached.tier;
+    } catch (e) { /* Firestore unavailable — fall through to cached or free */ }
   }
+  if (cached) return cached.tier;
   return 'free';
 }
 
@@ -50,30 +71,16 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, X-Model, Authorization');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
-  // GET = health check — visit /api/claude in browser to see server config status
+  // GET = health check (C-1 fix: no config details exposed publicly)
   if (req.method === 'GET') {
     const fb = getAdmin();
-    const mode = getInitMode();
-    const hasClaudeKey = !!process.env.CLAUDE_API_KEY;
-    const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
     res.status(200).json({
-      status: fb ? 'ok' : 'misconfigured',
-      firebase_admin: fb ? 'initialized' : 'NOT initialized — auth will fail for all requests',
-      init_mode: mode,
-      env_vars: {
-        FIREBASE_SERVICE_ACCOUNT: !!process.env.FIREBASE_SERVICE_ACCOUNT,
-        FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID || false,
-        CLAUDE_API_KEY: hasClaudeKey,
-        OPENAI_API_KEY: hasOpenAIKey
-      },
-      fix: !fb ? 'Set FIREBASE_PROJECT_ID=writers-manuscript in Vercel Environment Variables, then redeploy' : null
+      status: fb ? 'ok' : 'misconfigured'
     });
     return;
   }
 
   if (req.method !== 'POST') { res.status(405).json({ error: { message: 'Method not allowed' } }); return; }
-
-  if (req.body.test === true && process.env.NODE_ENV !== 'production') { res.json({ ok: true }); return; }
 
   // Verify Firebase ID token — always fail closed; no fallback to client-supplied identity
   const auth = await verifyToken(req);

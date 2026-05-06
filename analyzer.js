@@ -1,5 +1,15 @@
 // ManuscriptLens - Analysis Engine v2
 
+// Fiction overall-score weights — single source of truth used by both analyze() and recalcOverall().
+// Changing a weight here automatically keeps both in sync.
+const _FICTION_WEIGHTS = {
+  plot: 0.09, transitions: 0.07, copy: 0.10, line: 0.09, style: 0.07,
+  dialogue: 0.06, showTell: 0.07, grammar: 0.10,
+  clarity: 0.09, discipline: 0.07, efficiency: 0.06, engagement: 0.07, momentum: 0.06
+};
+// Quick sanity check: weights must sum to 1.00
+// (Object.values(_FICTION_WEIGHTS).reduce((a,b)=>a+b,0) === 1.00 ✓)
+
 const Analyzer = {
 
   // ========================
@@ -119,7 +129,7 @@ const Analyzer = {
       'matronly','motherly','neighborly','northerly','paunchy','pearly','pebble',
       'pimply','portly','prickly','priestly','queenly','rascally','rumply','scaly',
       'sisterly','slovenly','southerly','sparkly','spindly','sprightly','squiggly',
-      'stately','straggly','ungainly','unlikelyy','unmanly','unsightly','wiggly',
+      'stately','straggly','ungainly','unlikely','unmanly','unsightly','wiggly',
       'wrinkly',
       // Nouns ending in -ly
       'family','supply','rally','belly','bully','fly','july','apply','reply',
@@ -697,7 +707,8 @@ const Analyzer = {
     const starters = sentences.map(s => s.trim().split(/\s+/)[0]?.toLowerCase());
     const starterCounts = {};
     starters.forEach(s => { if (s) starterCounts[s] = (starterCounts[s] || 0) + 1; });
-    const maxStarterRepeat = Math.max(...Object.values(starterCounts));
+    const starterValues = Object.values(starterCounts);
+    const maxStarterRepeat = starterValues.length > 0 ? Math.max(...starterValues) : 0;
     const starterVariety = Object.keys(starterCounts).length / starters.length;
     const declarative = (text.match(/[^.!?]*\./g) || []).length;
     const interrogative = (text.match(/[^.!?]*\?/g) || []).length;
@@ -1024,6 +1035,147 @@ const Analyzer = {
       quarters,
       // Plot-shape compatibility fields (so existing UI doesn't crash):
       hasRisingAction: hasEvidence, hasClimax: hasConclusion, hasResolution: hasConclusion, hasCliffhanger: false, hasSceneGoal: hasThesis
+    };
+  },
+
+  // ========================
+  // SELF-HELP SCORING ENGINE
+  // Scores: problem → insight → belief → action journey
+  // ========================
+  _analyzeSelfHelp(text, mode) {
+    const lower = text.toLowerCase();
+    const totalWords = (text.match(/\b\w+\b/g) || []).length;
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+
+    // 1. Clarity & Readability (15%) — ease of reading, sentence and paragraph length
+    const fk = this.fleschKincaid(text);
+    let clarityReadability = 20;
+    if (fk.ease >= 70) clarityReadability += 30;
+    else if (fk.ease >= 60) clarityReadability += 20;
+    else if (fk.ease >= 50) clarityReadability += 12;
+    else if (fk.ease >= 40) clarityReadability += 5;
+    else clarityReadability -= 5;
+    const sentLens = sentences.map(s => s.trim().split(/\s+/).length);
+    const avgSentLen = sentLens.reduce((a, b) => a + b, 0) / Math.max(sentLens.length, 1);
+    if (avgSentLen >= 10 && avgSentLen <= 18) clarityReadability += 15;
+    else if (avgSentLen < 10) clarityReadability += 8;
+    else if (avgSentLen > 28) clarityReadability -= 10;
+    const shortParaRatio = paragraphs.filter(p => p.split(/\s+/).length < 80).length / Math.max(paragraphs.length, 1);
+    if (shortParaRatio > 0.65) clarityReadability += 15;
+    else if (shortParaRatio > 0.4) clarityReadability += 8;
+    const transCount = (lower.match(/\b(however|therefore|furthermore|because|although|first|second|third|finally|next|also|specifically|for example|in contrast|as a result)\b/g) || []).length;
+    const transPerK = transCount / Math.max(totalWords / 1000, 1);
+    if (transPerK > 5) clarityReadability += 15;
+    else if (transPerK > 2) clarityReadability += 8;
+    clarityReadability = Math.max(0, Math.min(100, clarityReadability));
+
+    // 2. Reader Identification (15%) — does the text speak directly to the reader's situation?
+    const youCount = (lower.match(/\b(you|your|you're|you've|you'll|you'd|yourself)\b/g) || []).length;
+    const youPerK = youCount / Math.max(totalWords / 1000, 1);
+    const weCount = (lower.match(/\b(we|our|we're|we've|ourselves)\b/g) || []).length;
+    const wePerK = weCount / Math.max(totalWords / 1000, 1);
+    const problemLang = (lower.match(/\b(struggle|stuck|difficult|challenge|frustrated|overwhelmed|confus|problem|obstacle|barrier|fail|afraid|fear|anxious|worry|stress|burnout|pain|suffer)\b/g) || []).length;
+    const empathyMarkers = (lower.match(/\b(many\s+(of\s+us|people)|you'?ve?\s+probably|you\s+may|it'?s?\s+(okay|ok|normal)|you'?re?\s+not\s+alone|most\s+(people|of\s+us))\b/g) || []).length;
+    let readerIdentification = 10;
+    if (youPerK >= 20) readerIdentification += 35;
+    else if (youPerK >= 12) readerIdentification += 25;
+    else if (youPerK >= 6) readerIdentification += 15;
+    else if (youPerK >= 2) readerIdentification += 8;
+    if (wePerK >= 5) readerIdentification += 15;
+    else if (wePerK >= 2) readerIdentification += 8;
+    const probPerK = problemLang / Math.max(totalWords / 1000, 1);
+    if (probPerK >= 8) readerIdentification += 20;
+    else if (probPerK >= 4) readerIdentification += 12;
+    else if (probPerK >= 2) readerIdentification += 6;
+    readerIdentification += Math.min(15, empathyMarkers * 4);
+    readerIdentification = Math.max(0, Math.min(100, readerIdentification));
+
+    // 3. Practical Application (15%) — does the text give readers actionable steps?
+    const imperativeCount = (lower.match(/^[ \t]*(start|begin|try|do|write|create|build|think|ask|consider|practice|identify|notice|reflect|choose|focus|imagine|take|make|find|set|list|define|describe|explore|check|review|plan|commit|schedule|track)\b/gm) || []).length;
+    const exerciseMarkers = (lower.match(/\b(exercise|action\s+(item|step|plan)|try\s+this|do\s+this|practice|write\s+(down|it\s+out)|homework|challenge\s+yourself|your\s+task|activity)\b/g) || []).length;
+    const stepPatterns = (text.match(/^\s*\d+[\.\)]\s+\w/gm) || []).length;
+    const howToPatterns = (lower.match(/\b(how\s+to|step\s+\d+|step-by-step|here'?s?\s+how|in\s+(three|four|five|two)\s+steps?)\b/g) || []).length;
+    const implPatterns = (lower.match(/\b(implement|apply\s+this|use\s+this|put\s+(this|it)\s+(into|to)\s+(practice|use)|in\s+practice|actionable|tactic|technique|method|approach|strategy|framework|blueprint|system)\b/g) || []).length;
+    let practicalApplication = 15;
+    practicalApplication += Math.min(25, imperativeCount * 2);
+    practicalApplication += Math.min(25, exerciseMarkers * 5);
+    practicalApplication += Math.min(20, stepPatterns * 2);
+    practicalApplication += Math.min(15, howToPatterns * 3);
+    practicalApplication += Math.min(15, implPatterns * 2);
+    practicalApplication = Math.max(0, Math.min(100, practicalApplication));
+
+    // 4. Structure / Progression (15%) — thesis → evidence → transitions → conclusion
+    const argStructure = this._analyzeArgumentStructure(text, mode);
+    const structureProgression = argStructure.score;
+
+    // 5. Insight Quality (15%) — non-obvious, memorable ideas backed by specific claims
+    const insightMarkers = (lower.match(/\b(the\s+truth\s+is|here'?s?\s+(why|what|the\s+thing)|the\s+real\s+(reason|problem|issue|truth)|what\s+most\s+people|counterintuitive|paradox|the\s+key\s+(insight|idea|principle|lesson)|aha|breakthrough|mindset\s+shift|reframe|rethink)\b/g) || []).length;
+    const researchClaims = (lower.match(/\b(research\s+(shows?|suggests?|finds?)|studies?\s+(shows?|suggests?|finds?)|data\s+(shows?|suggests?)|evidence\s+(shows?|suggests?)|science\s+(says?|shows?|confirms?)|experts?\s+(say|find|agree))\b/g) || []).length;
+    const specificStats = (text.match(/\b\d+[\.,]?\d*\s*(percent|%|people|times|years|days|weeks|months|hours|studies|participants)\b/gi) || []).length;
+    const novelFraming = (lower.match(/\b(think\s+of\s+it\s+(as|like)|reframe|instead\s+of|contrary\s+to|most\s+people\s+(think|believe|assume)|the\s+opposite|what\s+if\s+I\s+told\s+you)\b/g) || []).length;
+    let insightQuality = 20;
+    insightQuality += Math.min(30, insightMarkers * 5);
+    insightQuality += Math.min(20, researchClaims * 5);
+    insightQuality += Math.min(15, specificStats * 2);
+    insightQuality += Math.min(15, novelFraming * 3);
+    insightQuality = Math.max(0, Math.min(100, insightQuality));
+
+    // 6. Voice & Authority (10%) — author sounds credible and confident
+    const authorityMarkers = (lower.match(/\b(i'?ve\s+(found|learned|discovered|seen|worked|helped|spent|observed)|in\s+my\s+experience|over\s+the\s+(years|past)|what\s+i'?ve?\s+(found|learned|discovered))\b/g) || []).length;
+    const hedgeWords = (lower.match(/\b(maybe|perhaps|possibly|might\s+be|could\s+be|seems?\s+like|sort\s+of|kind\s+of)\b/g) || []).length;
+    const hedgePerK = hedgeWords / Math.max(totalWords / 1000, 1);
+    const confidentAssertions = (lower.match(/\b(the\s+(key|secret|answer|solution|truth|fact|reality|point)\s+is|this\s+(is|will|does|works)|you\s+(will|can|should|must|need\s+to)|the\s+(most\s+important|biggest|main|core|fundamental))\b/g) || []).length;
+    let voiceAuthority = 30;
+    voiceAuthority += Math.min(30, authorityMarkers * 5);
+    if (hedgePerK > 10) voiceAuthority -= 20;
+    else if (hedgePerK > 5) voiceAuthority -= 10;
+    else if (hedgePerK > 2) voiceAuthority -= 5;
+    voiceAuthority += Math.min(25, confidentAssertions * 2);
+    voiceAuthority = Math.max(0, Math.min(100, voiceAuthority));
+
+    // 7. Emotional Momentum (10%) — energizes reader toward change
+    const transformWords = (lower.match(/\b(transform|achieve|succeed|thrive|flourish|grow|breakthrough|improve|progress|change|overcome|conquer|master|elevate|uplift|inspire|motivate|empower|unlock|discover|build|develop|strengthen|expand)\b/g) || []).length;
+    const motivationalPhrases = (lower.match(/\b(you\s+can|you\s+will|it'?s?\s+possible|imagine\s+(if|when|yourself|being|having)|when\s+you\s+(finally|start|begin|decide|commit)|you\s+(already|deserve))\b/g) || []).length;
+    const energyDensity = transformWords / Math.max(totalWords / 1000, 1);
+    let emotionalMomentum = 20;
+    if (energyDensity >= 15) emotionalMomentum += 40;
+    else if (energyDensity >= 8) emotionalMomentum += 28;
+    else if (energyDensity >= 4) emotionalMomentum += 18;
+    else if (energyDensity >= 2) emotionalMomentum += 10;
+    emotionalMomentum += Math.min(25, motivationalPhrases * 3);
+    emotionalMomentum = Math.max(0, Math.min(100, emotionalMomentum));
+
+    // 8. Evidence & Support (5%) — data, research, stories that back up claims
+    const evidenceMarkers = (lower.match(/\b(for\s+example|for\s+instance|research|study|studies|data|evidence|according\s+to|statistics|percent|percentage|case\s+in\s+point|specifically|in\s+fact|demonstrates|illustrates)\b/g) || []).length;
+    const citationMarkers = (text.match(/\(\d{4}\)|\[\d+\]|\bpage\s+\d+/gi) || []).length;
+    const storyMarkers = (lower.match(/\b(when\s+I|let\s+me\s+tell\s+you|here'?s?\s+a\s+(story|case|example)|I\s+remember|a\s+(client|student|friend|colleague|reader|person)\s+(once|told|asked|came))\b/g) || []).length;
+    const evidencePerK = evidenceMarkers / Math.max(totalWords / 1000, 1);
+    let evidenceSupport = 20;
+    if (evidencePerK >= 8) evidenceSupport += 50;
+    else if (evidencePerK >= 4) evidenceSupport += 35;
+    else if (evidencePerK >= 2) evidenceSupport += 20;
+    else if (evidencePerK >= 1) evidenceSupport += 10;
+    evidenceSupport += Math.min(15, citationMarkers * 5);
+    evidenceSupport += Math.min(10, storyMarkers * 2);
+    evidenceSupport = Math.max(0, Math.min(100, evidenceSupport));
+
+    const overall = Math.round(
+      clarityReadability   * 0.15 +
+      readerIdentification * 0.15 +
+      practicalApplication * 0.15 +
+      structureProgression * 0.15 +
+      insightQuality       * 0.15 +
+      voiceAuthority       * 0.10 +
+      emotionalMomentum    * 0.10 +
+      evidenceSupport      * 0.05
+    );
+
+    return {
+      overall,
+      clarityReadability, readerIdentification, practicalApplication,
+      structureProgression, insightQuality, voiceAuthority,
+      emotionalMomentum, evidenceSupport
     };
   },
 
@@ -1651,15 +1803,6 @@ const Analyzer = {
       });
     }
 
-    // --- 11. SENTENCE FRAGMENTS (very short "sentences" with no verb) ---
-    const fragRe = /(?:^|\n|[.!?]\s+)([A-Z][a-z]{0,12}\.)\s/g;
-    let frm;
-    while ((frm = fragRe.exec(text)) !== null) {
-      const frag = frm[1];
-      if (/^(Mr|Mrs|Ms|Dr|St|Jr|Sr|Prof|Gen|Gov|Rep|Sen|Sgt|Cpl|Pvt|Lt|Capt|Maj|Col|Rev|Hon)\./i.test(frag)) continue;
-      if (frag.length <= 3) continue;
-    }
-
     // --- 12. TENSE CONSISTENCY — REMOVED ---
     // The -ed regex matched adjectives (excited, limited, adapted) as past-tense
     // verbs, producing hundreds of false positives in nonfiction where authors
@@ -2152,7 +2295,7 @@ const Analyzer = {
     }
 
     // === GENRE-AWARE STRATEGIES ===
-    const g = genre.primary;
+    const g = genre?.primary;
 
     // Universal strategies
     strategies.push({ title: 'Start Mid-Scene', desc: 'Drop the reader into a moment already in progress. No setup, no explanation. The reader catches up naturally.', example: 'Instead of: "John had been a detective for twenty years..." Try: "The body was still warm when John arrived."' });
@@ -3232,31 +3375,37 @@ const Analyzer = {
     // Deep writing quality engine
     const writingQuality = this.analyzeWritingQuality(text, allIssues, sentenceVariety, readability, dialogue, style, genre);
 
+    // Self-help: specialized 8-dimension scoring model (replaces fiction blend)
+    const selfHelpScores = (genre.primary === 'selfHelp') ? this._analyzeSelfHelp(text, mode) : null;
+
     // Overall: blend structural + writing quality + engagement + grammar
     // Nonfiction may have null dialogue score and 0 showTellScore — use neutral 70 so they don't tank the overall
     const dialogueForOverall = (dialogue.score == null) ? 70 : dialogue.score;
     const showTellForOverall = isNF ? 70 : showTellScore;
-    const overall = Math.round(
-      plot.score * 0.09 +
-      transitions.score * 0.07 +
-      copyScore * 0.10 +
-      lineScore * 0.09 +
-      style.score * 0.07 +
-      dialogueForOverall * 0.06 +
-      showTellForOverall * 0.07 +
-      grammarScore * 0.10 +
-      writingQuality.clarityScore * 0.09 +
-      writingQuality.disciplineScore * 0.07 +
-      writingQuality.efficiencyScore * 0.06 +
-      writingQuality.engagementScore * 0.07 +
-      writingQuality.momentumScore * 0.06
+    const W = _FICTION_WEIGHTS;
+    const fictionOverall = Math.round(
+      plot.score * W.plot +
+      transitions.score * W.transitions +
+      copyScore * W.copy +
+      lineScore * W.line +
+      style.score * W.style +
+      dialogueForOverall * W.dialogue +
+      showTellForOverall * W.showTell +
+      grammarScore * W.grammar +
+      writingQuality.clarityScore * W.clarity +
+      writingQuality.disciplineScore * W.discipline +
+      writingQuality.efficiencyScore * W.efficiency +
+      writingQuality.engagementScore * W.engagement +
+      writingQuality.momentumScore * W.momentum
     );
+    const overall = selfHelpScores ? selfHelpScores.overall : fictionOverall;
 
     // Issue density normalized per 1000 words
     const issuesPerK = Math.round(allIssues.length / Math.max(totalWords, 1) * 1000 * 10) / 10;
 
     return {
       overall, genre, totalWords, manuscriptMode, issuesPerK,
+      selfHelpScores,
       scores: {
         plot: plot.score, transitions: transitions.score, copy: copyScore,
         line: lineScore, style: style.score, dialogue: dialogue.score,
@@ -3298,26 +3447,41 @@ const Analyzer = {
   },
 
   recalcOverall(r) {
+    // Self-help uses its own weighted model
+    if (r.selfHelpScores) {
+      const sh = r.selfHelpScores;
+      return Math.round(
+        (sh.clarityReadability   || 0) * 0.15 +
+        (sh.readerIdentification || 0) * 0.15 +
+        (sh.practicalApplication || 0) * 0.15 +
+        (sh.structureProgression || 0) * 0.15 +
+        (sh.insightQuality       || 0) * 0.15 +
+        (sh.voiceAuthority       || 0) * 0.10 +
+        (sh.emotionalMomentum    || 0) * 0.10 +
+        (sh.evidenceSupport      || 0) * 0.05
+      );
+    }
     const s = r.scores || {};
     const wq = r.writingQuality || {};
     const isNF = this.isNonfiction(r.genre);
     // Null dialogue (nonfiction N/A) and 0 showTell (nonfiction skip) → use neutral 70 so they don't tank overall
     const dialogueScore = (s.dialogue == null) ? 70 : s.dialogue;
     const showTellScore = isNF ? 70 : (s.showTell || 0);
+    const W = _FICTION_WEIGHTS;
     return Math.round(
-      (s.plot || 0) * 0.09 +
-      (s.transitions || 0) * 0.07 +
-      (s.copy || 0) * 0.10 +
-      (s.line || 0) * 0.09 +
-      (s.style || 0) * 0.07 +
-      dialogueScore * 0.06 +
-      showTellScore * 0.07 +
-      (s.grammar || 0) * 0.10 +
-      (wq.clarityScore || 0) * 0.09 +
-      (wq.disciplineScore || 0) * 0.07 +
-      (wq.efficiencyScore || 0) * 0.06 +
-      (wq.engagementScore || 0) * 0.07 +
-      (wq.momentumScore || 0) * 0.06
+      (s.plot || 0) * W.plot +
+      (s.transitions || 0) * W.transitions +
+      (s.copy || 0) * W.copy +
+      (s.line || 0) * W.line +
+      (s.style || 0) * W.style +
+      dialogueScore * W.dialogue +
+      showTellScore * W.showTell +
+      (s.grammar || 0) * W.grammar +
+      (wq.clarityScore || 0) * W.clarity +
+      (wq.disciplineScore || 0) * W.discipline +
+      (wq.efficiencyScore || 0) * W.efficiency +
+      (wq.engagementScore || 0) * W.engagement +
+      (wq.momentumScore || 0) * W.momentum
     );
   },
 
