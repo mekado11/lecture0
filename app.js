@@ -17,7 +17,7 @@ document.body.classList.add('lib-mode'); // Library is first view — allow scro
 function _authDiagnosticMessage(msg) {
   const parts = msg.replace('SERVER_AUTH_ERROR:', '').split(':');
   const reason = parts[0];
-  if (reason === 'admin_not_configured') return 'Server config error: Firebase not initialized. The site admin needs to set FIREBASE_PROJECT_ID in Vercel environment variables.';
+  if (reason === 'admin_not_configured') return 'The server is temporarily unable to verify sign-ins. Please try again in a few minutes.';
   if (reason === 'no_token') return 'Your browser did not send an auth token. Try reloading the page.';
   if (reason === 'token_invalid') return 'Your login token was rejected by the server. Try signing out and back in.';
   return 'Authentication failed (' + reason + '). Try reloading the page.';
@@ -58,7 +58,7 @@ $('analyze-btn').addEventListener('click',async()=>{
   try{
     $('loader-text').textContent='Extracting...';
     extractedText=await ext(uploadedFile);
-    _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;_readerSimDone=false;
+    _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;_readerSimDone=false;_readerSimHTML=null;
     $('loader-text').textContent='Analyzing...';
     if(_analyzerWorker){
       _analyzeVersion++;
@@ -101,14 +101,22 @@ $('analyze-btn').addEventListener('click',async()=>{
       }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Save error:',e.message)}
     }
     try{const{rawIssues:_raw,...safeResult}=analysisResult||{};localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:safeResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}))}catch(e){if(e.name==='QuotaExceededError')_showSaveToast('Local storage full — cloud save only');console.warn('Autosave to localStorage failed (quota):',e.message)}
-    // Close modal, reset state, show library
+    // Close modal and go straight to the editor with the fresh analysis.
+    // (Previously this reset state and dumped the user back in the library, forcing them to
+    // find the card, click it, and sit through a second full analysis of the same text.)
     $('upload-modal')?.classList.add('hidden');
     $('upload-loading').classList.add('hidden');
+    // Sync the editor's genre dropdown to the upload modal's pick before clearing the modal
+    const pickedGenre=$('genre-select')?.value||analysisResult.genre?.primary||'';
+    if(pickedGenre&&$('genre-override'))$('genre-override').value=pickedGenre;
     fi.value='';$('file-info')?.classList.add('hidden');$('genre-select-wrap')?.classList.add('hidden');
-    uploadedFile=null;extractedText='';analysisResult=null;
     if($('genre-select'))$('genre-select').value='';
     _updateAnalyzeBtnVisibility();
-    renderLibrary();
+    localStorage.setItem('ml_last_open',JSON.stringify({fileName:uploadedFile.name,manuscriptId:Storage._currentManuscriptId||null}));
+    $('upload-view').classList.add('hidden');
+    $('editor-view').classList.remove('hidden');
+    document.body.classList.remove('lib-mode');
+    renderAll();
   }catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');_updateAnalyzeBtnVisibility()}
 });
 
@@ -265,6 +273,13 @@ function renderAll(){
   if(genreOverride&&r.genre){
     if(!genreOverride.value&&r.genre.primary){genreOverride.value=r.genre.primary}
   }
+  // Gauge caption reflects what's actually scored for this genre (Dialogue is N/A for nonfiction)
+  {const gc=$('gauge-cats');if(gc){
+    const gp=r.genre?.primary;
+    gc.innerHTML=gp==='selfHelp'?'Insight &middot; Clarity &middot; Momentum &middot; Evidence'
+      :Analyzer.isNonfiction(r.genre)?'Structure &middot; Clarity &middot; Pacing &middot; Authority'
+      :'Plot &middot; Clarity &middot; Pacing &middot; Dialogue';
+  }}
   // Topbar genre shows the user-overridden label (secondary cleared on override)
   if(activeGenre&&r.genre)r.genre.secondary=null;
   $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
@@ -403,6 +418,7 @@ async function _aiCalibrate(r){
 // Reader Simulation — generates a grounded, section-by-section reading experience report.
 // Runs once per manuscript per session. Paid users only. Results inject into the Reader view.
 let _readerSimDone=false;
+let _readerSimHTML=null; // cached result — re-renders re-inject this instead of reverting to the placeholder
 async function _runReaderSimulation(r){
   if(_readerSimDone||!r||!extractedText||!_isPaid())return;
   if(typeof AIEngine==='undefined')return;
@@ -447,7 +463,8 @@ async function _runReaderSimulation(r){
     if(sim.recommendation){
       h+='<div style="font-size:.72rem;color:var(--muted);padding:.4rem;border-top:1px solid var(--border);margin-top:.2rem"><span style="color:var(--gold-l);font-weight:600">Fix: </span>'+esc(sim.recommendation)+'</div>';
     }
-    el.innerHTML=h||'<span style="color:var(--muted)">No simulation data.</span>';
+    _readerSimHTML=h||'<span style="color:var(--muted)">No simulation data.</span>';
+    el.innerHTML=_readerSimHTML;
   }catch(e){
     _readerSimDone=false;
     el.textContent='Simulation unavailable.';
@@ -1073,10 +1090,11 @@ async function doRewrite(card) {
     btns.innerHTML =
       '<div class="rpd-rewrite-error">⚠ ' + errMsg + '</div>' +
       '<div class="rpd-rewrite-actions">' +
-        (isAuthErr?'<button class="rpd-retry-btn" onclick="window.location.reload()">Reload</button>':'<button class="rpd-retry-btn">Try Again</button>') +
+        (isAuthErr?'<button class="rpd-retry-btn">Reload</button>':'<button class="rpd-retry-btn">Try Again</button>') +
         '<button class="rpd-skip-btn">Skip</button>' +
       '</div>';
-    if(!isAuthErr)btns.querySelector('.rpd-retry-btn').addEventListener('click', () => doRewrite(card));
+    // No inline onclick — the deployed CSP has no 'unsafe-inline', so inline handlers are dead in production
+    btns.querySelector('.rpd-retry-btn').addEventListener('click', () => { if(isAuthErr){window.location.reload()} else {doRewrite(card)} });
     btns.querySelector('.rpd-skip-btn').addEventListener('click', () => {
       btns.innerHTML = _cardBtnsHtml(card);
       wireCardBtns(card, btns);
@@ -1435,9 +1453,10 @@ function renderReader(r){
     h+='<div style="font-size:.72rem;color:var(--muted)">Higher ease = more readers can follow without friction. Most bestsellers score 60–80.</div>';
     h+='</div>';
   }
-  // Reader Simulation — async, fills in after main render
+  // Reader Simulation — async, fills in after main render.
+  // Show cached result if we have one; only show "Running…" when a run will actually happen.
   h+='<div class="a-sec" id="reader-sim-section"><h3>Reader Simulation</h3>';
-  h+='<div id="reader-sim-result" style="font-size:.78rem;color:var(--muted)">Running simulation…</div>';
+  h+='<div id="reader-sim-result" style="font-size:.78rem;color:var(--muted)">'+(_readerSimHTML?_readerSimHTML:(_isPaid()?'Running simulation…':'AI reader simulation is available on paid plans.'))+'</div>';
   h+='</div>';
   // Writing Quality Engine breakdown
   if(r.writingQuality){
@@ -2160,9 +2179,13 @@ async function runAI(key){
         intro.querySelector('.ai-upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
       }else if(isAuthErr){
         const diagText=_authDiagnosticMessage(msg);
-        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Authentication Error</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">'+esc(diagText)+'</p><div style="display:flex;justify-content:center"><button class="btn-gold" style="width:fit-content;padding:.5rem 1.5rem" onclick="window.location.reload()">Reload to Continue</button></div></div>';
+        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Authentication Error</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">'+esc(diagText)+'</p><div style="display:flex;justify-content:center"><button class="btn-gold ai-reload-btn" style="width:fit-content;padding:.5rem 1.5rem">Reload to Continue</button></div></div>';
+        intro.querySelector('.ai-reload-btn')?.addEventListener('click',()=>window.location.reload());
       }else{
-        intro.innerHTML='<div style="color:var(--red);padding:1rem"><h4>AI Analysis Error</h4><p style="margin:.5rem 0;font-size:.85rem">'+esc(msg)+'</p><button class="btn-gold" style="width:auto;padding:.4rem 1rem;margin-top:.75rem" onclick="runAI(null)">Retry</button></div>';
+        intro.innerHTML='<div style="color:var(--red);padding:1rem"><h4>AI Analysis Error</h4><p style="margin:.5rem 0;font-size:.85rem">'+esc(msg)+'</p><button class="btn-gold ai-retry-btn" style="width:auto;padding:.4rem 1rem;margin-top:.75rem">Retry</button></div>';
+        // Inline onclick="runAI(null)" was doubly broken: CSP blocks inline handlers, and
+        // runAI isn't a global (whole file is an IIFE) — it threw ReferenceError even locally.
+        intro.querySelector('.ai-retry-btn')?.addEventListener('click',()=>runAI(null));
       }
       intro.classList.remove('hidden');
     }
@@ -2307,7 +2330,7 @@ $('export-btn')?.addEventListener('click',()=>{
   let scores='<h2 style="color:#8B4513">AuthorScrolls Analysis Report</h2>';
   scores+='<p><b>File:</b> '+esc(uploadedFile.name)+' | <b>Genre:</b> '+esc(r.genre.label)+' | <b>Words:</b> '+r.totalWords.toLocaleString()+'</p>';
   scores+='<p><b>Overall Score: '+r.overall+'/100</b></p>';
-  scores+='<table style="border-collapse:collapse;margin-bottom:15px"><tr><td style="padding:4px 12px;border:1px solid #ccc"><b>Plot</b><br>'+r.scores.plot+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Copy</b><br>'+r.scores.copy+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Style</b><br>'+r.scores.style+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Dialogue</b><br>'+r.scores.dialogue+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Show/Tell</b><br>'+r.scores.showTell+'</td></tr></table>';
+  scores+='<table style="border-collapse:collapse;margin-bottom:15px"><tr><td style="padding:4px 12px;border:1px solid #ccc"><b>Plot</b><br>'+r.scores.plot+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Copy</b><br>'+r.scores.copy+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Style</b><br>'+r.scores.style+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Dialogue</b><br>'+(r.scores.dialogue==null?'N/A':r.scores.dialogue)+'</td><td style="padding:4px 12px;border:1px solid #ccc"><b>Show/Tell</b><br>'+(r.scores.showTell==null?'N/A':r.scores.showTell)+'</td></tr></table>';
 
   const html='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><style>body{font-family:Cambria,Georgia,serif;font-size:12pt;line-height:1.8;max-width:6.5in;margin:1in}p{text-indent:0.5in;margin:0 0 6pt 0}h1,h2{font-family:Calibri,sans-serif;text-indent:0}table{font-family:Calibri,sans-serif;font-size:10pt}</style></head><body>'+scores+legend+'<h2 style="color:#8B4513">Manuscript with Highlights</h2><p>'+body+'</p><hr><p style="text-indent:0;font-size:9pt;color:#999">Generated by AuthorScrolls &middot; '+new Date().toLocaleDateString()+'</p></body></html>';
 
@@ -2583,7 +2606,7 @@ async function _openManuscript(idx){
   try{
     // Show loading state
     const loadEl=document.createElement('div');
-    loadEl.id='lib-loading';
+    loadEl.id='lib-open-overlay'; // NOT 'lib-loading' — that id already exists in app.html and the catch block below would remove the wrong node
     loadEl.style.cssText='position:fixed;inset:0;background:rgba(10,7,5,.9);display:flex;align-items:center;justify-content:center;z-index:2000;color:#dbb08a;font-size:.9rem;font-family:Inter,sans-serif';
     loadEl.textContent='Opening manuscript...';
     document.body.appendChild(loadEl);
@@ -2641,7 +2664,7 @@ async function _openManuscript(idx){
     renderAll();
     loadEl.remove();
   }catch(err){
-    document.getElementById('lib-loading')?.remove();
+    document.getElementById('lib-open-overlay')?.remove();
     alert('Error opening manuscript: '+(err.message||err));
     console.error('_openManuscript error:',err);
   }
@@ -2704,9 +2727,8 @@ function _showContextMenu(anchor,idx){
 $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="save-btn">&#128190; Save</button>');
 $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="upgrade-btn" style="color:var(--gold-l);border-color:var(--gold-d)">&#9733; Premium</button>');
 $('save-btn')?.addEventListener('click',saveAnalysis);
-// Help button — re-triggers the wizard so users can review the workflow anytime
-$('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="help-btn" title="How to use AuthorScrolls">? Help</button>');
-$('help-btn')?.addEventListener('click',()=>{localStorage.removeItem('wizard_done');maybeShowWizard()});
+// (Help lives in the static "? Help" → faq.html link in the topbar; the old injected
+// duplicate button re-triggered the wizard, which bails for anyone with a manuscript.)
 $('upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
 $('pricing-modal-close')?.addEventListener('click',()=>$('pricing-modal')?.classList.add('hidden'));
 // Stripe checkout — tier buttons
@@ -2717,12 +2739,22 @@ document.querySelectorAll('.checkout-tier').forEach(btn=>{
     const plan=btn.dataset.plan;
     btn.textContent='Redirecting...';btn.disabled=true;
     try{
-      const resp=await fetch('/api/checkout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userId:user.uid,email:user.email,plan})});
+      const hdrs={'content-type':'application/json'};
+      try{hdrs['authorization']='Bearer '+await user.getIdToken()}catch(_){}
+      const resp=await fetch('/api/checkout',{method:'POST',headers:hdrs,body:JSON.stringify({userId:user.uid,email:user.email,plan})});
       const data=await resp.json();
       if(data.url){window.location.href=data.url}
       else{alert(data.error||'Checkout failed');btn.textContent='Get '+plan.charAt(0).toUpperCase()+plan.slice(1);btn.disabled=false}
     }catch(e){alert('Error: '+e.message);btn.textContent='Get '+plan.charAt(0).toUpperCase()+plan.slice(1);btn.disabled=false}
   });
+});
+
+// Plan tier arrives async from Firestore after first paint. Re-render plan-gated UI once it lands
+// so paid (non-admin) users see Fix/Rewrite buttons without a manual refresh.
+window.addEventListener('ml-plan-ready',()=>{
+  if(analysisResult&&!$('editor-view')?.classList.contains('hidden')){
+    renderRight(analysisResult);
+  }
 });
 
 // Cookie consent
@@ -2876,7 +2908,7 @@ function goToLibrary(){
   _undoStack.length=0;
   _redoStack.length=0;
   _updateUndoBtn();
-  _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;_readerSimDone=false;
+  _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;_readerSimDone=false;_readerSimHTML=null;
   $('editor-view').classList.add('hidden');
   $('upload-view').classList.remove('hidden');
   $('upload-modal')?.classList.add('hidden');
@@ -2949,6 +2981,8 @@ const FocusGuard={
   },
   stop(){clearTimeout(this._eyeTimer);clearTimeout(this._moveTimer);clearTimeout(this._longTimer)},
   _show(icon,msg,type){
+    // Wellness nudges are for writing sessions — don't interrupt the library view
+    if(document.body.classList.contains('lib-mode')){this._schedule();return}
     const banner=$('focus-banner');if(!banner)return;
     $('focus-icon').innerHTML=icon;
     $('focus-msg').textContent=msg;
@@ -3295,7 +3329,9 @@ const PushManager={
 // Prompt for push after first successful analysis (gentle, non-intrusive)
 function maybePromptPush(){
   if(localStorage.getItem('ml_push_subscribed')||localStorage.getItem('ml_push_dismissed'))return;
-  if(!PushManager.isSupported)return;
+  // PushManager.isSupported is an async METHOD — a bare property check is always truthy.
+  // Do the equivalent synchronous capability check inline.
+  if(!('Notification' in window)||!('serviceWorker' in navigator)||!('PushManager' in window))return;
   if(Notification.permission==='denied')return;
 
   // Show a subtle opt-in banner rather than a browser permission dialog cold-call

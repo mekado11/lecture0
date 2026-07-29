@@ -113,28 +113,29 @@ const Analyzer = {
     const nfWeight = this.isNonfiction(genre) ? 0.3 : 1; // soften for nonfiction
     const regex = /\b(\w+ly)\b/gi;
     let match;
-    // Comprehensive exceptions: -ly words that are NOT adverbs (adjectives, nouns, verbs)
+    // Comprehensive exceptions: -ly words that are NOT adverbs (adjectives, nouns, verbs).
+    // Note: 'gently' and 'unlikely' are real adverbs and must NOT be listed here.
     const exceptions = new Set([
       // Adjectives ending in -ly
       'only','early','daily','holy','lonely','friendly','likely','ugly','costly',
       'deadly','elderly','ghostly','ghastly','goodly','heavenly','homely','jolly',
-      'kindly','leisurely','lively','lonely','lovely','manly','measly','melancholy',
+      'kindly','leisurely','lively','lovely','manly','measly','melancholy',
       'oily','orderly','scholarly','shapely','silly','sly','smelly','surly','timely',
       'unruly','woolly','worldly','comely','cowardly','curly','burly','grisly','hilly',
       'princely','seemly','sickly','stately','steely','wily','womanly','beastly',
-      'bristly','bubbly','chilly','cleanly','clumsy','comely','costly','crinkly',
-      'crumbly','cuddly','curly','dastardly','dimply','drizzly','fatherly','flimsy',
-      'frilly','frizzly','gangly','gently','giggly','gnarly','godly','grisly','grizzly',
-      'grumbly','homely','jangly','jiggly','kingly','knightly','knobby','lowly',
-      'matronly','motherly','neighborly','northerly','paunchy','pearly','pebble',
+      'bristly','bubbly','chilly','cleanly','crinkly',
+      'crumbly','cuddly','dastardly','dimply','drizzly','fatherly',
+      'frilly','frizzly','gangly','giggly','gnarly','godly','grizzly',
+      'grumbly','jangly','jiggly','kingly','knightly','lowly',
+      'matronly','motherly','neighborly','northerly','pearly',
       'pimply','portly','prickly','priestly','queenly','rascally','rumply','scaly',
       'sisterly','slovenly','southerly','sparkly','spindly','sprightly','squiggly',
-      'stately','straggly','ungainly','unlikely','unmanly','unsightly','wiggly',
+      'straggly','ungainly','unmanly','unsightly','wiggly',
       'wrinkly',
       // Nouns ending in -ly
       'family','supply','rally','belly','bully','fly','july','apply','reply',
       'multiply','ally','italy','lily','folly','tally','assembly','anomaly',
-      'jelly','bully','gully','holly','monopoly','poly','trolley'
+      'jelly','gully','holly','monopoly','poly','trolley'
     ]);
     while ((match = regex.exec(text)) !== null) {
       const word = match[1].toLowerCase();
@@ -651,6 +652,61 @@ const Analyzer = {
       { regex: /\b(taught|taunt)\s+(rope|wire|string|line|chain|cable|muscle|fabric|cloth|skin|bow|sail)\b/gi,
         fix: (m) => 'taut ' + m[2],
         msg: '"Taught" is past tense of teach. "Taut" means tight or stretched.' },
+      // AFFECT vs EFFECT — only high-confidence contexts to avoid false positives
+      { regex: /\btake\s+affect\b/gi,
+        fix: () => 'take effect',
+        msg: '"Affect" is a verb. Things "take effect" (noun).' },
+      { regex: /\bside\s+affects?\b/gi,
+        fix: (m) => 'side effect' + (/s$/i.test(m[0]) ? 's' : ''),
+        msg: '"Affect" is a verb. The noun is "effect" — side effects.' },
+      { regex: /\b(a|an|the|this|that|its|no)\s+affect\s+on\b/gi,
+        fix: (m) => m[1] + ' effect on',
+        msg: '"Affect" is a verb. After an article, use the noun "effect."' },
+      { regex: /\b(adversely|negatively|positively|directly|greatly|deeply|badly|severely)\s+effect(s|ed|ing)?\b/gi,
+        fix: (m) => m[1] + ' affect' + (m[2] || ''),
+        msg: '"Effect" is a noun. The verb is "affect" — to influence.' },
+      // ACCEPT vs EXCEPT
+      { regex: /\b(everyone|everybody|everything|anyone|anybody|anything|nothing|no\s+one|nobody)\s+accept\b/gi,
+        fix: (m) => m[1] + ' except',
+        msg: '"Accept" means to receive. "Except" means excluding.' },
+      // PRINCIPAL vs PRINCIPLE
+      { regex: /\bprinciple\s+(reason|goal|aim|objective|concern|source|cause|focus|purpose|role|character|difference|means|method|argument|component|factor|element|ingredient|city|export|investigator)\b/gi,
+        fix: (m) => 'principal ' + m[1],
+        msg: '"Principle" is a noun (a rule). The adjective meaning "main" is "principal."' },
+      { regex: /\b(basic|general|guiding|moral|fundamental|core|first|underlying)\s+principals?\b/gi,
+        fix: (m) => m[1] + ' principle' + (/s$/i.test(m[0]) ? 's' : ''),
+        msg: '"Principal" is a person or means "main." A rule or belief is a "principle."' },
+      { regex: /\bprincipals?\s+of\s+(physics|economics|design|law|mathematics|justice|democracy|freedom|nature|science|accounting|management|writing)\b/gi,
+        fix: (m) => 'principles of ' + m[1],
+        msg: '"Principal" is a person or means "main." Rules of a field are "principles."' },
+      // LIE vs LAY — only unambiguous constructions
+      { regex: /\blays\s+down\s+(on|in|beside|under|next)\b/gi,
+        fix: (m) => 'lies down ' + m[1],
+        msg: '"Lay" takes an object (lay the book down). Without one, use "lie" — lies down.' },
+      { regex: /\b(was|were|is|are)\s+laying\s+(down|awake|still|there)\b/gi,
+        fix: (m) => m[1] + ' lying ' + m[2],
+        msg: '"Laying" takes an object. Without one, use "lying."' },
+      // COMPLEMENT vs COMPLIMENT
+      { regex: /\bcomplimentary\s+(colors?|colours?|angles?|flavors?|flavours?)\b/gi,
+        fix: (m) => 'complementary ' + m[1],
+        msg: '"Complimentary" means free or praising. Things that complete each other are "complementary."' },
+      { regex: /\bcomplements?\s+on\s+(your|his|her|their|my|our|the)\b/gi,
+        fix: (m) => 'compliment' + (m[0].toLowerCase().startsWith('complements') ? 's' : '') + ' on ' + m[1],
+        msg: '"Complement" means to complete. Praise is a "compliment."' },
+      // STATIONARY vs STATIONERY
+      { regex: /\b(writing|personalized|personalised|office|wedding|embossed)\s+stationary\b/gi,
+        fix: (m) => m[1] + ' stationery',
+        msg: '"Stationary" means not moving. Paper goods are "stationery" (with an e).' },
+      { regex: /\b(remained?|remains|stood|stayed|stays|held|kept)\s+stationery\b/gi,
+        fix: (m) => m[1] + ' stationary',
+        msg: '"Stationery" is paper goods. Not moving is "stationary" (with an a).' },
+      // LOOSE vs LOSE
+      { regex: /\bloosing\b/gi,
+        fix: () => 'losing',
+        msg: '"Loosing" means releasing (archaic). You almost certainly mean "losing."' },
+      { regex: /\bloose\s+(the|my|his|her|their|our|your)\s+(game|match|battle|war|fight|bet|job|mind|way|nerve|balance|grip|temper|faith|hope|weight|money|track|sight|interest|patience|control|argument|election|house|keys)\b/gi,
+        fix: (m) => 'lose ' + m[1] + ' ' + m[2],
+        msg: '"Loose" means not tight. To misplace or be defeated is "lose."' },
     ];
 
     for (const p of patterns) {
