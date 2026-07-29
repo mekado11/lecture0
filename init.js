@@ -11,7 +11,9 @@ firebase.auth().onAuthStateChanged(function(user) {
     if (doc.exists && doc.data().tier) {
       window.__userPlan = doc.data().tier;
     }
-  }).catch(function() {});
+    // Tier resolves after first paint — let the app re-render plan-gated UI (Fix/Rewrite buttons etc.)
+    window.dispatchEvent(new Event('ml-plan-ready'));
+  }).catch(function() { window.dispatchEvent(new Event('ml-plan-ready')); });
   var brand = document.querySelector('.brand');
   if (brand) brand.textContent = 'AuthorScrolls';
   if (window.__isAdmin) {
