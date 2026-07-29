@@ -869,6 +869,15 @@ const Analyzer = {
 
     // Self-Help
     scores.selfHelp = countHits(['habit','mindset','productivity','goal','success','motivation','strategy','step-by-step','exercise','practice','technique','improve','transform','achieve','overcome','chapter summary','action item','takeaway','framework','principle','rule','tip']) * 3;
+    // Direct reader address is THE self-help signature — fiction is almost never written
+    // in sustained second person. Dense "you/your" strongly outweighs topical keyword overlap
+    // (a poverty memoir hits 'freedom'/'control'/'escape' in the dystopian list but reads
+    // nothing like dystopian fiction).
+    const secondPersonCount = (lower.match(/\byou\b|\byour\b/g) || []).length;
+    const totalWordsForNF = text.split(/\s+/).length;
+    const secondPersonDensity = secondPersonCount / Math.max(totalWordsForNF, 1);
+    if (secondPersonDensity > 0.015) scores.selfHelp += 30;
+    else if (secondPersonDensity > 0.008) scores.selfHelp += 15;
 
     // Biography
     scores.biography = 0;
@@ -899,6 +908,9 @@ const Analyzer = {
     let nfBase = countHits(['research','study','according to','evidence','data','analysis','conclusion','hypothesis','methodology','statistics','furthermore','therefore','consequently','in conclusion']) * 3;
     if ((text.match(/^\d+\.\s/gm) || []).length > 3) nfBase += 8;
     if ((text.match(/\(\d{4}\)/g) || []).length > 2) nfBase += 10;
+    // Sustained direct address ("you/your") is a nonfiction register, not a fiction one
+    if (secondPersonDensity > 0.015) nfBase += 20;
+    else if (secondPersonDensity > 0.008) nfBase += 10;
 
     // Determine winner
     // Fiction genres get fiction base added
@@ -922,7 +934,11 @@ const Analyzer = {
     // don't flip a self-help / memoir / biography back to fiction.
     const hasStructuralNonfiction = nfBase >= 30
       || (text.match(/^\d+\.\s/gm) || []).length > 3
-      || (text.match(/\(\d{4}\)/g) || []).length > 2;
+      || (text.match(/\(\d{4}\)/g) || []).length > 2
+      // Sustained direct reader address is structural nonfiction — memoir/self-help
+      // anecdotes ("my mother... she said") inflate fictionBase, but fiction is
+      // essentially never written in dense second person.
+      || secondPersonDensity > 0.015;
     if (['nonfiction','historyNF','biography','memoir','selfHelp'].includes(primary)
         && fictionBase >= nfBase * 1.5
         && !hasStructuralNonfiction) {
@@ -1570,22 +1586,28 @@ const Analyzer = {
 
     // Hook strength - analyze first paragraph + factor in issue density
     const firstPara = paragraphs[0] || '';
-    let hookStrength = 10;
+    // Base 25 (was 10): the old scale made even decent openings read 0–25/100.
+    let hookStrength = 25;
     if (firstPara.includes('?')) hookStrength += 10;
     if ((firstPara.match(/[""\u201C]/g) || []).length > 0) hookStrength += 10;
     if (firstPara.split(/\s+/).length < 50) hookStrength += 5;
+    // Short, punchy first sentence is a hook in any genre
+    const firstSentence_hook = (text.match(/[^.!?]*[.!?]/) || [''])[0].trim();
+    if (firstSentence_hook && firstSentence_hook.split(/\s+/).length <= 12) hookStrength += 8;
     const tensionInOpening = (firstPara.toLowerCase().match(/\b(danger|fear|mystery|secret|death|blood|shadow|dark|strange|suddenly|never|always)\b/g) || []).length;
     if (tensionInOpening > 0) hookStrength += tensionInOpening * 5;
     // Nonfiction: rhetorical hooks (direct address, questions, bold claims)
     if (isNF) {
       const nfHooks = (firstPara.match(/\b(you|your|we|our|must|need|imagine|consider|think|ask yourself)\b/gi) || []).length;
-      hookStrength += Math.min(15, nfHooks * 3);
+      hookStrength += Math.min(20, nfHooks * 3);
     }
-    // Penalize for high issue density — a manuscript with many issues has a weaker hook
+    // Mild penalty for high issue density. Kept small on purpose: issue density already
+    // drives the copy/grammar scores — hammering the hook too was double jeopardy that
+    // pinned hookStrength at 0 for any verbose manuscript.
     const issuesPerK_hook = allIssues.length / Math.max(totalWords / 1000, 1);
-    if (issuesPerK_hook > 20) hookStrength -= 25;
-    else if (issuesPerK_hook > 12) hookStrength -= 15;
-    else if (issuesPerK_hook > 6) hookStrength -= 8;
+    if (issuesPerK_hook > 20) hookStrength -= 15;
+    else if (issuesPerK_hook > 12) hookStrength -= 10;
+    else if (issuesPerK_hook > 6) hookStrength -= 5;
     // Check first 3 paragraphs for passive voice and weak verbs (weakens hook)
     const openingText = paragraphs.slice(0, 3).join(' ').toLowerCase();
     const openingPassives = (openingText.match(/\b(was|were)\s+\w+ed\b/g) || []).length;
@@ -1998,7 +2020,8 @@ const Analyzer = {
   // pacing rhythm, POV discipline, extraneous language, paragraph
   // transitions at the sentence level
   // ========================
-  analyzeLineEditing(text) {
+  analyzeLineEditing(text, genre) {
+    const isNFLine = this.isNonfiction(genre);
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const words = text.match(/\b\w+\b/g) || [];
@@ -2120,25 +2143,44 @@ const Analyzer = {
     }
 
     // === 5. POV DISCIPLINE ===
+    // POV discipline is a FICTION craft concept. Memoir and self-help legitimately mix
+    // first-person narration ("I grew up...") with third-person anecdotes ("she never
+    // gave up") and direct address ("you can..."). Score neutral for nonfiction.
     let povScore = 20;
-    const firstPerson = (text.match(/\bI\b/g) || []).length;
-    const thirdHeShe = (text.match(/\b(he|she)\b/gi) || []).length;
-    const secondYou = (text.match(/\byou\b/gi) || []).length;
+    // Strip quoted dialogue before counting narration pronouns — characters saying
+    // "I think..." in a third-person book (or "he did it!" in a first-person book)
+    // is speech, not narration, and was massively skewing these counts.
+    const narrationOnly = text.replace(/["“][^"”\n]{0,400}["”]/g, ' ');
+    const firstPerson = (narrationOnly.match(/\bI\b/g) || []).length;
+    const thirdHeShe = (narrationOnly.match(/\b(he|she)\b/gi) || []).length;
+    const secondYou = (narrationOnly.match(/\byou\b/gi) || []).length;
     const dominant = firstPerson > thirdHeShe ? 'first' : thirdHeShe > firstPerson ? 'third' : 'mixed';
-    // Check for POV slips
+    if (isNFLine) {
+      povScore = 45; // neutral — matches the max a clean fiction manuscript earns
+    } else {
+    // Check for POV slips — ratio-based, never absolute counts.
+    // A first-person narrator constantly refers to other people as he/she; that is NOT a
+    // POV problem. The old check flagged any first-person book with >5 he/she pronouns
+    // in the entire manuscript, which is every first-person book ever written.
+    const thirdShare = thirdHeShe / Math.max(firstPerson + thirdHeShe, 1);
     if (dominant === 'third' && firstPerson <= 1) povScore += 25;
-    else if (dominant === 'first' && thirdHeShe <= 2) povScore += 25;
+    else if (dominant === 'first' && thirdShare < 0.45) povScore += 25;
     else if (dominant === 'mixed') povScore += 5;
     if (dominant === 'third' && firstPerson > 2) {
       const slipRate = firstPerson / (firstPerson + thirdHeShe);
-      if (slipRate > 0.05) {
+      // A slip is a partial leak of "I" into third-person narration. A large share
+      // (>= 0.35) means the book is intentionally first-person-with-a-large-cast or
+      // deliberately mixed POV — not an accident, so don't flag it.
+      if (slipRate > 0.05 && slipRate < 0.35) {
         povScore -= 15;
         findings.push({ type: 'pov', severity: 'high', message: 'POV slip: ' + firstPerson + ' first-person ("I") occurrences in third-person narrative. Unless intentional, stay consistent.' });
       }
     }
-    if (dominant === 'first' && thirdHeShe > 5) {
+    // Only flag first-person narration when third-person pronouns nearly MATCH first-person
+    // usage across the book — i.e. the narration genuinely drifts between modes.
+    if (dominant === 'first' && thirdShare > 0.45 && thirdHeShe > 50) {
       povScore -= 10;
-      findings.push({ type: 'pov', severity: 'medium', message: 'POV inconsistency: heavy third-person pronouns in first-person narrative.' });
+      findings.push({ type: 'pov', severity: 'medium', message: 'Narration alternates heavily between first person ("I") and third person (he/she). If sections are intentionally in different POVs, ignore this; otherwise pick one mode per scene.' });
     }
     // Head-hopping: in third person limited, check if we see multiple characters\' thoughts
     if (dominant === 'third') {
@@ -2149,6 +2191,7 @@ const Analyzer = {
         povScore -= 15;
         findings.push({ type: 'pov', severity: 'medium', message: 'Possible head-hopping: both "he thought/felt/knew" (' + heThoughts + ') and "she thought/felt/knew" (' + sheThoughts + '). In limited third person, only one character\'s thoughts should be accessible per scene.' });
       }
+    }
     }
 
     // === 6. EXTRANEOUS LANGUAGE ===
@@ -3397,7 +3440,7 @@ const Analyzer = {
 
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const copyScore = this.scoreCopyEditing(allIssues, totalWords);
-    const lineEditing = this.analyzeLineEditing(text);
+    const lineEditing = this.analyzeLineEditing(text, genre);
     // Nonfiction flow softening: sentence-to-sentence word-overlap is the wrong metric for
     // instructional/rhetorical prose (short punchy sentences, deliberate topic shifts, anaphora).
     // Clamp flowScore to minimum 45 and recompute composite score so it can't torpedo the line score.

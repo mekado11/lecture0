@@ -53,6 +53,10 @@ $('analyze-btn').addEventListener('click',async()=>{
   // Genre is required — defense in depth (the button shouldn't even be visible without one)
   const selectedGenre=$('genre-select')?.value;
   if(!selectedGenre){alert('Please select a genre before analyzing.');return}
+  // Sync the topbar override to this upload's pick IMMEDIATELY. _currentGenreKey() prefers the
+  // topbar dropdown, so a stale value from a previous manuscript would silently override the
+  // genre the user just chose (self-help book scored under Dystopian fiction rules).
+  if($('genre-override'))$('genre-override').value=selectedGenre;
   $('analyze-btn').classList.add('hidden');
   $('upload-loading').classList.remove('hidden');
   try{
@@ -74,16 +78,16 @@ $('analyze-btn').addEventListener('click',async()=>{
           }
         };
         _analyzerWorker.addEventListener('message',handler);
-        _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v,genreKey:_currentGenreKey()});
+        _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v,genreKey:selectedGenre});
       });
     }else{
       await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
-      analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
+      analysisResult=Analyzer.analyze(extractedText,selectedGenre);
     }
     if(!analysisResult||analysisResult.error){alert(analysisResult?.error||'Analysis produced no result');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
     // Genre defense: if worker auto-detect disagrees with user's selection, re-analyze with correct genre.
     // This runs on the main thread so genre override is always honored before saving to Firestore.
-    {const sg=_currentGenreKey();if(sg&&analysisResult.genre?.primary!==sg){try{analysisResult=Analyzer.analyze(extractedText,sg)}catch(e){console.warn('Genre re-analyze failed:',e.message)}}}
+    {if(analysisResult.genre?.primary!==selectedGenre){try{analysisResult=Analyzer.analyze(extractedText,selectedGenre)}catch(e){console.warn('Genre re-analyze failed:',e.message)}}}
     // Save immediately to Firestore/localStorage so it appears in library
     trackSession('analyzing');
     // Direct save (don't wait for debounced autoSave)
@@ -873,11 +877,18 @@ function renderLeft(r){
   const fkSub='Grade '+Math.round(fkGrade)+' · '+fkLabel;
   const isSHLeft=r.genre?.primary==='selfHelp';
   const shL=r.selfHelpScores||{};
+  const _hookIssueCount=(r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0);
+  const _pacingScore=isSHLeft?Math.round(shL.emotionalMomentum||0):Math.round(((scores.plot||0)+(scores.transitions||0))/2);
+  // Badge must agree with the number — never show "Good" next to a red/yellow score.
+  // pacingFeel (paragraph-rhythm heuristic) only supplies the Rushed/Slow qualifier.
+  const _pacingBadge=(rp.pacingFeel||'').includes('Rushed')?'Rushed'
+    :(rp.pacingFeel||'').includes('Slow')?'Slow'
+    :_pacingScore>=70?'Good':_pacingScore>=45?'Uneven':'Needs work';
   const cards=[
     {name:isSHLeft?'Reader Buy-In':'Engagement Score',score:isSHLeft?Math.round(((shL.readerIdentification||0)+(shL.emotionalMomentum||0))/2):rp.engagementScore||0,sub:isSHLeft?'Reader ID + Momentum':'How hooked will readers be?',action:'+ Improve Opening',bar:true},
-    {name:isSHLeft?'Promise Strength':'Hook Strength',score:isSHLeft?Math.round(shL.readerIdentification||0):rp.hookStrength||0,sub:(r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0)+' Issues',action:'+ Improve Opening',bar:false},
+    {name:isSHLeft?'Promise Strength':'Hook Strength',score:isSHLeft?Math.round(shL.readerIdentification||0):rp.hookStrength||0,sub:_hookIssueCount+(_hookIssueCount===1?' Issue':' Issues'),action:'+ Improve Opening',bar:false},
     {name:isSHLeft?'Clarity & Polish':'Clarity',score:isSHLeft?Math.round(shL.clarityReadability||0):rp.clarityScore||0,sub:isSHLeft?'Readability + flow':'Weak transitions',bar:true},
-    {name:isSHLeft?'Reader Momentum':'Pacing',score:isSHLeft?Math.round(shL.emotionalMomentum||0):Math.round(((scores.plot||0)+(scores.transitions||0))/2),sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':(rp.pacingFeel||'').includes('Slow')?'Slow':'Good'},
+    {name:isSHLeft?'Reader Momentum':'Pacing',score:_pacingScore,sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:_pacingBadge},
     {name:'Readability',score:fkEase,sub:fkSub,bar:true}
   ];
   $('lp-cards').innerHTML=cards.map(c=>{
