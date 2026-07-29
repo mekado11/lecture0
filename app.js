@@ -53,6 +53,10 @@ $('analyze-btn').addEventListener('click',async()=>{
   // Genre is required — defense in depth (the button shouldn't even be visible without one)
   const selectedGenre=$('genre-select')?.value;
   if(!selectedGenre){alert('Please select a genre before analyzing.');return}
+  // Sync the topbar override to this upload's pick IMMEDIATELY. _currentGenreKey() prefers the
+  // topbar dropdown, so a stale value from a previous manuscript would silently override the
+  // genre the user just chose (self-help book scored under Dystopian fiction rules).
+  if($('genre-override'))$('genre-override').value=selectedGenre;
   $('analyze-btn').classList.add('hidden');
   $('upload-loading').classList.remove('hidden');
   try{
@@ -74,16 +78,16 @@ $('analyze-btn').addEventListener('click',async()=>{
           }
         };
         _analyzerWorker.addEventListener('message',handler);
-        _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v,genreKey:_currentGenreKey()});
+        _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v,genreKey:selectedGenre});
       });
     }else{
       await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
-      analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
+      analysisResult=Analyzer.analyze(extractedText,selectedGenre);
     }
     if(!analysisResult||analysisResult.error){alert(analysisResult?.error||'Analysis produced no result');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
     // Genre defense: if worker auto-detect disagrees with user's selection, re-analyze with correct genre.
     // This runs on the main thread so genre override is always honored before saving to Firestore.
-    {const sg=_currentGenreKey();if(sg&&analysisResult.genre?.primary!==sg){try{analysisResult=Analyzer.analyze(extractedText,sg)}catch(e){console.warn('Genre re-analyze failed:',e.message)}}}
+    {if(analysisResult.genre?.primary!==selectedGenre){try{analysisResult=Analyzer.analyze(extractedText,selectedGenre)}catch(e){console.warn('Genre re-analyze failed:',e.message)}}}
     // Save immediately to Firestore/localStorage so it appears in library
     trackSession('analyzing');
     // Direct save (don't wait for debounced autoSave)
@@ -119,6 +123,15 @@ $('analyze-btn').addEventListener('click',async()=>{
     renderAll();
   }catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');_updateAnalyzeBtnVisibility()}
 });
+
+// Scoring must only count issues inside the narrative span (front/back matter — copyright
+// pages, disclaimers, ToC — stays highlighted but never damages manuscript scores).
+function _narrativeIssues(r){
+  const seg=r?.segmentation;
+  if(!seg||!Array.isArray(r.issues))return r?.issues||[];
+  return r.issues.filter(i=>i.index>=seg.narrativeStart&&i.index<seg.narrativeEnd);
+}
+function _narrativeWords(r){return r?.segmentation?.narrativeWords||r?.totalWords||1}
 
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function escA(s){return(s||'').replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -280,6 +293,7 @@ function renderAll(){
       :Analyzer.isNonfiction(r.genre)?'Structure &middot; Clarity &middot; Pacing &middot; Authority'
       :'Plot &middot; Clarity &middot; Pacing &middot; Dialogue';
   }}
+  _renderSubScores(r);
   // Topbar genre shows the user-overridden label (secondary cleared on override)
   if(activeGenre&&r.genre)r.genre.secondary=null;
   $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
@@ -332,14 +346,14 @@ async function _enhanceGrammar(r){
     }
     if(added>0){
       r.issueCounts.grammar=(r.issueCounts.grammar||0)+added;
-      const grammarFiltered=r.issues.filter(i=>i.type==='grammar');
-      const grammarPerK=(grammarFiltered.length/Math.max(r.totalWords,1))*1000;
+      const grammarFiltered=_narrativeIssues(r).filter(i=>i.type==='grammar');
+      const grammarPerK=(grammarFiltered.length/Math.max(_narrativeWords(r),1))*1000;
       r.scores.grammar=Math.min(100,Math.max(0,Math.round(
         100-Math.min(35,grammarPerK*6)-
         Math.min(20,grammarFiltered.filter(i=>i.severity==='high').length*3)-
         Math.min(10,grammarFiltered.filter(i=>i.severity==='medium').length*1)
       )));
-      r.scores.copy=Analyzer.scoreCopyEditing(r.issues,r.totalWords);
+      r.scores.copy=Analyzer.scoreCopyEditing(_narrativeIssues(r),_narrativeWords(r));
       r.overall=Analyzer.recalcOverall(r);
       updateScoresOnly(r);
       console.log('[GrammarEnhance] +'+added+' issues from LanguageTool (total grammar: '+grammarFiltered.length+')');
@@ -395,11 +409,11 @@ async function _aiCalibrate(r){
     });
 
     // Recompute affected dimension scores
-    r.scores.copy=Analyzer.scoreCopyEditing(r.issues,r.totalWords);
+    r.scores.copy=Analyzer.scoreCopyEditing(_narrativeIssues(r),_narrativeWords(r));
     // showTell only matters for fiction (nonfiction has it hidden)
     if(!Analyzer.isNonfiction(r.genre)){
-      const showTellCount=r.issues.filter(i=>i.type==='show-tell').length;
-      const showTellPerK=(showTellCount/Math.max(r.totalWords,1))*1000;
+      const showTellCount=_narrativeIssues(r).filter(i=>i.type==='show-tell').length;
+      const showTellPerK=(showTellCount/Math.max(_narrativeWords(r),1))*1000;
       r.scores.showTell=Math.max(0,Math.round(100-showTellPerK*2.5));
     }
     r.overall=Analyzer.recalcOverall(r);
@@ -502,7 +516,7 @@ async function maybeRunSmartScan(r){
     });
 
     // Re-render both panels so Document Health reflects AI-enhanced suggestions
-    r.scores.copy=Analyzer.scoreCopyEditing(r.issues,r.totalWords);
+    r.scores.copy=Analyzer.scoreCopyEditing(_narrativeIssues(r),_narrativeWords(r));
     r.overall=Analyzer.recalcOverall(r);
     updateScoresOnly(r);
 
@@ -833,8 +847,29 @@ function diffHighlights(newIssues){
 }
 
 // Lightweight update: refresh scores, sidebar, issue panel without touching the editor
+// Narrative Health vs Language Quality — one giant score hides too much.
+// Rendered as a small line under the gauge; also shows how much front matter was
+// excluded from literary analysis so the numbers are explainable.
+function _renderSubScores(r){
+  const wrap=$('gauge-cats');if(!wrap||!r)return;
+  let el=document.getElementById('gauge-subscores');
+  if(!el){
+    el=document.createElement('div');
+    el.id='gauge-subscores';
+    el.style.cssText='font-size:.62rem;color:var(--muted);text-align:center;margin-top:.25rem;line-height:1.5';
+    wrap.insertAdjacentElement('afterend',el);
+  }
+  const ss=r.subScores||{};
+  const part=(label,v)=>v==null?'':label+' <b style="color:'+scHex(v)+'">'+v+'</b>';
+  const bits=[part('Narrative',ss.narrativeHealth),part('Language',ss.languageQuality)].filter(Boolean);
+  const fmWords=r.segmentation?.frontMatterWords||0;
+  const fmNote=fmWords>50?'<span style="color:var(--dim)" title="Copyright pages, disclaimers, dedication, and contents are excluded from narrative scoring">'+fmWords.toLocaleString()+' words of front matter excluded</span>':'';
+  el.innerHTML=bits.join(' &middot; ')+(bits.length&&fmNote?'<br>':'')+fmNote;
+}
+
 function updateScoresOnly(r){
   if(!r)return;
+  _renderSubScores(r);
   // Topbar
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
   $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
@@ -873,11 +908,18 @@ function renderLeft(r){
   const fkSub='Grade '+Math.round(fkGrade)+' · '+fkLabel;
   const isSHLeft=r.genre?.primary==='selfHelp';
   const shL=r.selfHelpScores||{};
+  const _hookIssueCount=(r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0);
+  const _pacingScore=isSHLeft?Math.round(shL.emotionalMomentum||0):Math.round(((scores.plot||0)+(scores.transitions||0))/2);
+  // Badge must agree with the number — never show "Good" next to a red/yellow score.
+  // pacingFeel (paragraph-rhythm heuristic) only supplies the Rushed/Slow qualifier.
+  const _pacingBadge=(rp.pacingFeel||'').includes('Rushed')?'Rushed'
+    :(rp.pacingFeel||'').includes('Slow')?'Slow'
+    :_pacingScore>=70?'Good':_pacingScore>=45?'Uneven':'Needs work';
   const cards=[
     {name:isSHLeft?'Reader Buy-In':'Engagement Score',score:isSHLeft?Math.round(((shL.readerIdentification||0)+(shL.emotionalMomentum||0))/2):rp.engagementScore||0,sub:isSHLeft?'Reader ID + Momentum':'How hooked will readers be?',action:'+ Improve Opening',bar:true},
-    {name:isSHLeft?'Promise Strength':'Hook Strength',score:isSHLeft?Math.round(shL.readerIdentification||0):rp.hookStrength||0,sub:(r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0)+' Issues',action:'+ Improve Opening',bar:false},
+    {name:isSHLeft?'Promise Strength':'Hook Strength',score:isSHLeft?Math.round(shL.readerIdentification||0):rp.hookStrength||0,sub:_hookIssueCount+(_hookIssueCount===1?' Issue':' Issues'),action:'+ Improve Opening',bar:false},
     {name:isSHLeft?'Clarity & Polish':'Clarity',score:isSHLeft?Math.round(shL.clarityReadability||0):rp.clarityScore||0,sub:isSHLeft?'Readability + flow':'Weak transitions',bar:true},
-    {name:isSHLeft?'Reader Momentum':'Pacing',score:isSHLeft?Math.round(shL.emotionalMomentum||0):Math.round(((scores.plot||0)+(scores.transitions||0))/2),sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':(rp.pacingFeel||'').includes('Slow')?'Slow':'Good'},
+    {name:isSHLeft?'Reader Momentum':'Pacing',score:_pacingScore,sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:_pacingBadge},
     {name:'Readability',score:fkEase,sub:fkSub,bar:true}
   ];
   $('lp-cards').innerHTML=cards.map(c=>{
@@ -1799,45 +1841,69 @@ function buildChapterNav(){
   const text=extractedText||'';
   if(!text){list.innerHTML='<div style="padding:.5rem .7rem;font-size:.7rem;color:var(--dim)">No manuscript loaded</div>';return}
 
-  const entries=[];
+  // CANONICAL OUTLINE — one normalized, source-ordered chapter list.
+  // Rules: (1) suppress table-of-contents clusters (runs of headings with no body text
+  // between them — a docx ToC imports as a wall of H1/H2s and used to duplicate every
+  // chapter); (2) drop headings inside front/back matter using the analyzer's
+  // segmentation; (3) dedupe only exact title+position double-detections; (4) NEVER
+  // reorder by chapter number — prologues, interludes, and repeated labels are
+  // intentional. Source order is the outline.
+  const seg=analysisResult?.segmentation;
+  const nStart=seg?seg.narrativeStart:0;
+  const nEnd=seg?seg.narrativeEnd:Infinity;
+  const normTitle=t=>t.toLowerCase().replace(/\s+/g,' ').trim();
+  let entries=[];
 
   // Method 1: Scan DOM for H1/H2 elements (most reliable after user edits)
   if(page){
+    const raw=[];
     let charPos=0;
     for(const child of page.children){
       const tag=child.tagName;
       const txt=(child.textContent||'').trim();
       if(!txt){charPos+=2;continue}
-      if(tag==='H1'){
-        entries.push({title:txt,index:charPos,level:1,el:child});
-      }else if(tag==='H2'){
-        entries.push({title:txt,index:charPos,level:2,el:child});
+      if(tag==='H1'||tag==='H2'){
+        raw.push({title:txt,index:charPos,level:tag==='H1'?1:2,el:child,bodyAfter:0});
+      }else if(raw.length){
+        raw[raw.length-1].bodyAfter+=txt.length;
       }
       charPos+=txt.length+2;
     }
+    // ToC cluster suppression: >=4 consecutive headings each followed by <40 chars of
+    // body text is a table of contents, not four empty chapters.
+    let run=[];
+    const flushRun=()=>{if(run.length>=4)run.forEach(r=>{r._toc=true});run=[]};
+    for(const r of raw){
+      if(r.bodyAfter<40){run.push(r)}
+      else{flushRun()}
+    }
+    flushRun();
+    entries=raw.filter(r=>!r._toc);
   }
 
-  // Method 2: Regex fallback on plain text (catches chapters not yet formatted as H1)
+  // Method 2: Regex fallback on plain text (catches chapters not yet formatted as H1).
+  // Front-matter labels (copyright, dedication, preface) are excluded by the
+  // segmentation filter below, not listed as chapters.
   if(entries.length===0){
-    const chapterRe=/^(chapter\s+\d+\s*[:\-–—]?\s*[^\n]*|chapter\s+[a-z]+\s*[:\-–—]?\s*[^\n]*|part\s+\d+\s*[:\-–—]?\s*[^\n]*|part\s+[a-z]+\s*[:\-–—]?\s*[^\n]*|prologue[^\n]*|epilogue[^\n]*|dedication[^\n]*|copyright[^\n]*|introduction[^\n]*|foreword[^\n]*|preface[^\n]*|acknowledgm?ents?[^\n]*|about\s+the\s+author[^\n]*)/gim;
+    const chapterRe=/^(chapter\s+\d+\s*[:\-–—]?\s*[^\n]*|chapter\s+[a-z]+\s*[:\-–—]?\s*[^\n]*|part\s+\d+\s*[:\-–—]?\s*[^\n]*|part\s+[a-z]+\s*[:\-–—]?\s*[^\n]*|prologue[^\n]*|epilogue[^\n]*|introduction[^\n]*)/gim;
     const sectionRe=/^(section\s+\d+[^\n]*|scene\s+\d+[^\n]*)/gim;
     let m;
+    while((m=chapterRe.exec(text))!==null)entries.push({title:m[1].trim(),index:m.index,level:1});
+    while((m=sectionRe.exec(text))!==null)entries.push({title:m[1].trim(),index:m.index,level:2});
+    // Segmentation filter: headings inside front/back matter are not chapters
+    entries=entries.filter(e=>e.index>=nStart&&e.index<nEnd);
+  }
+
+  // Dedupe exact double-detections (same normalized title at the same position),
+  // then restore source order. No sorting by chapter number.
+  {
     const seen=new Set();
-    while((m=chapterRe.exec(text))!==null){
-      const title=m[1].trim();
-      const key=title.toLowerCase().replace(/\s+/g,' ').substring(0,40);
-      if(seen.has(key))continue;
+    entries=entries.filter(e=>{
+      const key=normTitle(e.title)+'::'+e.index;
+      if(seen.has(key))return false;
       seen.add(key);
-      entries.push({title:title,index:m.index,level:1});
-    }
-    while((m=sectionRe.exec(text))!==null){
-      const title=m[1].trim();
-      const key=title.toLowerCase().replace(/\s+/g,' ').substring(0,40);
-      if(seen.has(key))continue;
-      seen.add(key);
-      entries.push({title:title,index:m.index,level:2});
-    }
-    entries.sort((a,b)=>a.index-b.index);
+      return true;
+    }).sort((a,b)=>a.index-b.index);
   }
 
   if(entries.length===0){

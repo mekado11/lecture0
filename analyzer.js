@@ -10,7 +10,150 @@ const _FICTION_WEIGHTS = {
 // Quick sanity check: weights must sum to 1.00
 // (Object.values(_FICTION_WEIGHTS).reduce((a,b)=>a+b,0) === 1.00 ✓)
 
+const SECTION_TYPES = {
+  FRONT_MATTER: 'front_matter',
+  NARRATIVE: 'narrative',
+  BACK_MATTER: 'back_matter',
+  UNKNOWN: 'unknown'
+};
+
+const FRONT_MATTER_PATTERNS = [
+  /^copyright\b/i,
+  /all rights reserved/i,
+  /isbn[:\s\d-]/i,
+  /library of congress/i,
+  /published by/i,
+  /publisher'?s? note/i,
+  /work of fiction/i,
+  /important disclaimer/i,
+  /^disclaimer\b/i,
+  /^legal notice/i,
+  /^dedication\s*$/i,
+  /^acknowledg(e)?ments?\s*$/i,
+  /^table of contents\s*$/i,
+  /^contents\s*$/i,
+  /^preface\b/i,
+  /^foreword\b/i,
+  /^title page\b/i,
+  /first (edition|printing)/i,
+  /printed in (the )?[a-z]/i,
+  /no part of this (book|publication|work)/i,
+  /without (the )?(prior )?written permission/i,
+  /^also by\b/i,
+  /cover (design|art|photo)/i,
+  /^©/,
+  /this (book|publication) is (designed|intended) to provide/i,
+  /the author and publisher/i
+];
+
+const BACK_MATTER_PATTERNS = [
+  /^about the author\b/i,
+  /^acknowledg(e)?ments?\s*$/i,
+  /^appendix\b/i,
+  /^glossary\s*$/i,
+  /^bibliograph/i,
+  /^index\s*$/i,
+  /^end ?notes?\s*$/i,
+  /^references\s*$/i,
+  /^also by\b/i,
+  /^afterword\b/i,
+  /^resources\s*$/i
+];
+
 const Analyzer = {
+
+  // ========================
+  // DOCUMENT SEGMENTATION — stage 1 of the pipeline.
+  // Classify front matter (copyright/ISBN/dedication/ToC/disclaimers) and back matter
+  // (about the author/appendix/index) BEFORE any literary analysis. Narrative-only
+  // dimensions (hook, plot, pacing, dialogue, POV, show-vs-tell) must never score a
+  // copyright page. Fails open: if segmentation is uncertain, the whole text is treated
+  // as narrative — exactly the pre-segmentation behavior.
+  // ========================
+  segmentDocument(text) {
+    const fallback = {
+      narrativeStart: 0, narrativeEnd: text.length,
+      frontMatterWords: 0, backMatterWords: 0, narrativeWords: (text.match(/\b\w+\b/g) || []).length,
+      sections: [{ type: SECTION_TYPES.NARRATIVE, start: 0, end: text.length }],
+      applicable: true
+    };
+    if (!text || text.length < 400) return fallback;
+
+    // Split into blocks (blank-line separated), preserving exact offsets
+    const blocks = [];
+    let cursor = 0;
+    for (const part of text.split(/(\n\s*\n)/)) {
+      if (part.trim() && !/^\n\s*\n$/.test(part)) blocks.push({ text: part, start: cursor, end: cursor + part.length });
+      cursor += part.length;
+    }
+    if (blocks.length < 2) return fallback;
+
+    const wordCount = s => (s.match(/\b\w+\b/g) || []).length;
+    const isFrontBlock = b => {
+      const t = b.text.trim();
+      if (FRONT_MATTER_PATTERNS.some(re => re.test(t))) return true;
+      // Metadata-ish: short block containing publishing tokens
+      if (wordCount(t) <= 60 && /(©|\(c\)\s*\d{4}|isbn|www\.|\.com\b|@|\b\d{4} by\b|edition|publishing|publisher)/i.test(t)) return true;
+      return false;
+    };
+    // Table of contents: a block whose lines are mostly chapter labels / dotted page refs
+    const isTocBlock = b => {
+      const lines = b.text.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length < 4) return false;
+      const tocLines = lines.filter(l =>
+        /^(chapter|part|prologue|epilogue|introduction|section|appendix)\b/i.test(l) || /\.{2,}\s*\d+\s*$/.test(l) || /\s\d{1,4}\s*$/.test(l) && l.length < 60
+      ).length;
+      return tocLines / lines.length > 0.6;
+    };
+    const isHeadingOnly = b => wordCount(b.text) <= 12 && !/[.!?]\s*["']?\s*$/.test(b.text.trim());
+
+    // ---- Find where narrative starts ----
+    // Front matter continues only while blocks AFFIRMATIVELY look like front matter
+    // (patterns / ToC / bare headings / tiny fragments). The first ordinary prose block
+    // ends it — this direction fails open: uncertain blocks count as narrative.
+    let firstNarrativeIdx = 0;
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      const isFrontish = isFrontBlock(b) || isTocBlock(b) || isHeadingOnly(b) || wordCount(b.text) < 15;
+      // Safety valve: never classify more than 30% of the doc as front matter
+      if (!isFrontish || b.end > text.length * 0.3) { firstNarrativeIdx = i; break; }
+      firstNarrativeIdx = i + 1;
+    }
+    if (firstNarrativeIdx >= blocks.length) firstNarrativeIdx = 0;
+    // Include an immediately-preceding chapter/part heading with the narrative it introduces
+    if (firstNarrativeIdx > 0) {
+      const prev = blocks[firstNarrativeIdx - 1];
+      if (isHeadingOnly(prev) && !isFrontBlock(prev) && !isTocBlock(prev)) firstNarrativeIdx -= 1;
+    }
+
+    // ---- Find where back matter starts: last BACK heading in the final 20% of the doc ----
+    let backStartOffset = text.length;
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const b = blocks[i];
+      if (b.start < text.length * 0.8) break;
+      if (BACK_MATTER_PATTERNS.some(re => re.test(b.text.trim()))) backStartOffset = b.start;
+    }
+
+    const narrativeStart = blocks[firstNarrativeIdx] ? blocks[firstNarrativeIdx].start : 0;
+    const narrativeEnd = Math.max(narrativeStart, backStartOffset);
+    const narrativeWords = wordCount(text.slice(narrativeStart, narrativeEnd));
+    // Fail open when segmentation leaves too little narrative to trust
+    if (narrativeWords < 150) return fallback;
+
+    const sections = [];
+    if (narrativeStart > 0) sections.push({ type: SECTION_TYPES.FRONT_MATTER, start: 0, end: narrativeStart });
+    sections.push({ type: SECTION_TYPES.NARRATIVE, start: narrativeStart, end: narrativeEnd });
+    if (narrativeEnd < text.length) sections.push({ type: SECTION_TYPES.BACK_MATTER, start: narrativeEnd, end: text.length });
+
+    return {
+      narrativeStart, narrativeEnd,
+      frontMatterWords: wordCount(text.slice(0, narrativeStart)),
+      backMatterWords: wordCount(text.slice(narrativeEnd)),
+      narrativeWords,
+      sections,
+      applicable: true
+    };
+  },
 
   // ========================
   // GENRE FAMILY HELPERS
@@ -869,6 +1012,15 @@ const Analyzer = {
 
     // Self-Help
     scores.selfHelp = countHits(['habit','mindset','productivity','goal','success','motivation','strategy','step-by-step','exercise','practice','technique','improve','transform','achieve','overcome','chapter summary','action item','takeaway','framework','principle','rule','tip']) * 3;
+    // Direct reader address is THE self-help signature — fiction is almost never written
+    // in sustained second person. Dense "you/your" strongly outweighs topical keyword overlap
+    // (a poverty memoir hits 'freedom'/'control'/'escape' in the dystopian list but reads
+    // nothing like dystopian fiction).
+    const secondPersonCount = (lower.match(/\byou\b|\byour\b/g) || []).length;
+    const totalWordsForNF = text.split(/\s+/).length;
+    const secondPersonDensity = secondPersonCount / Math.max(totalWordsForNF, 1);
+    if (secondPersonDensity > 0.015) scores.selfHelp += 30;
+    else if (secondPersonDensity > 0.008) scores.selfHelp += 15;
 
     // Biography
     scores.biography = 0;
@@ -899,6 +1051,9 @@ const Analyzer = {
     let nfBase = countHits(['research','study','according to','evidence','data','analysis','conclusion','hypothesis','methodology','statistics','furthermore','therefore','consequently','in conclusion']) * 3;
     if ((text.match(/^\d+\.\s/gm) || []).length > 3) nfBase += 8;
     if ((text.match(/\(\d{4}\)/g) || []).length > 2) nfBase += 10;
+    // Sustained direct address ("you/your") is a nonfiction register, not a fiction one
+    if (secondPersonDensity > 0.015) nfBase += 20;
+    else if (secondPersonDensity > 0.008) nfBase += 10;
 
     // Determine winner
     // Fiction genres get fiction base added
@@ -922,7 +1077,11 @@ const Analyzer = {
     // don't flip a self-help / memoir / biography back to fiction.
     const hasStructuralNonfiction = nfBase >= 30
       || (text.match(/^\d+\.\s/gm) || []).length > 3
-      || (text.match(/\(\d{4}\)/g) || []).length > 2;
+      || (text.match(/\(\d{4}\)/g) || []).length > 2
+      // Sustained direct reader address is structural nonfiction — memoir/self-help
+      // anecdotes ("my mother... she said") inflate fictionBase, but fiction is
+      // essentially never written in dense second person.
+      || secondPersonDensity > 0.015;
     if (['nonfiction','historyNF','biography','memoir','selfHelp'].includes(primary)
         && fictionBase >= nfBase * 1.5
         && !hasStructuralNonfiction) {
@@ -1570,22 +1729,28 @@ const Analyzer = {
 
     // Hook strength - analyze first paragraph + factor in issue density
     const firstPara = paragraphs[0] || '';
-    let hookStrength = 10;
+    // Base 25 (was 10): the old scale made even decent openings read 0–25/100.
+    let hookStrength = 25;
     if (firstPara.includes('?')) hookStrength += 10;
     if ((firstPara.match(/[""\u201C]/g) || []).length > 0) hookStrength += 10;
     if (firstPara.split(/\s+/).length < 50) hookStrength += 5;
+    // Short, punchy first sentence is a hook in any genre
+    const firstSentence_hook = (text.match(/[^.!?]*[.!?]/) || [''])[0].trim();
+    if (firstSentence_hook && firstSentence_hook.split(/\s+/).length <= 12) hookStrength += 8;
     const tensionInOpening = (firstPara.toLowerCase().match(/\b(danger|fear|mystery|secret|death|blood|shadow|dark|strange|suddenly|never|always)\b/g) || []).length;
     if (tensionInOpening > 0) hookStrength += tensionInOpening * 5;
     // Nonfiction: rhetorical hooks (direct address, questions, bold claims)
     if (isNF) {
       const nfHooks = (firstPara.match(/\b(you|your|we|our|must|need|imagine|consider|think|ask yourself)\b/gi) || []).length;
-      hookStrength += Math.min(15, nfHooks * 3);
+      hookStrength += Math.min(20, nfHooks * 3);
     }
-    // Penalize for high issue density — a manuscript with many issues has a weaker hook
+    // Mild penalty for high issue density. Kept small on purpose: issue density already
+    // drives the copy/grammar scores — hammering the hook too was double jeopardy that
+    // pinned hookStrength at 0 for any verbose manuscript.
     const issuesPerK_hook = allIssues.length / Math.max(totalWords / 1000, 1);
-    if (issuesPerK_hook > 20) hookStrength -= 25;
-    else if (issuesPerK_hook > 12) hookStrength -= 15;
-    else if (issuesPerK_hook > 6) hookStrength -= 8;
+    if (issuesPerK_hook > 20) hookStrength -= 15;
+    else if (issuesPerK_hook > 12) hookStrength -= 10;
+    else if (issuesPerK_hook > 6) hookStrength -= 5;
     // Check first 3 paragraphs for passive voice and weak verbs (weakens hook)
     const openingText = paragraphs.slice(0, 3).join(' ').toLowerCase();
     const openingPassives = (openingText.match(/\b(was|were)\s+\w+ed\b/g) || []).length;
@@ -1998,7 +2163,8 @@ const Analyzer = {
   // pacing rhythm, POV discipline, extraneous language, paragraph
   // transitions at the sentence level
   // ========================
-  analyzeLineEditing(text) {
+  analyzeLineEditing(text, genre) {
+    const isNFLine = this.isNonfiction(genre);
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const words = text.match(/\b\w+\b/g) || [];
@@ -2120,25 +2286,44 @@ const Analyzer = {
     }
 
     // === 5. POV DISCIPLINE ===
+    // POV discipline is a FICTION craft concept. Memoir and self-help legitimately mix
+    // first-person narration ("I grew up...") with third-person anecdotes ("she never
+    // gave up") and direct address ("you can..."). Score neutral for nonfiction.
     let povScore = 20;
-    const firstPerson = (text.match(/\bI\b/g) || []).length;
-    const thirdHeShe = (text.match(/\b(he|she)\b/gi) || []).length;
-    const secondYou = (text.match(/\byou\b/gi) || []).length;
+    // Strip quoted dialogue before counting narration pronouns — characters saying
+    // "I think..." in a third-person book (or "he did it!" in a first-person book)
+    // is speech, not narration, and was massively skewing these counts.
+    const narrationOnly = text.replace(/["“][^"”\n]{0,400}["”]/g, ' ');
+    const firstPerson = (narrationOnly.match(/\bI\b/g) || []).length;
+    const thirdHeShe = (narrationOnly.match(/\b(he|she)\b/gi) || []).length;
+    const secondYou = (narrationOnly.match(/\byou\b/gi) || []).length;
     const dominant = firstPerson > thirdHeShe ? 'first' : thirdHeShe > firstPerson ? 'third' : 'mixed';
-    // Check for POV slips
+    if (isNFLine) {
+      povScore = 45; // neutral — matches the max a clean fiction manuscript earns
+    } else {
+    // Check for POV slips — ratio-based, never absolute counts.
+    // A first-person narrator constantly refers to other people as he/she; that is NOT a
+    // POV problem. The old check flagged any first-person book with >5 he/she pronouns
+    // in the entire manuscript, which is every first-person book ever written.
+    const thirdShare = thirdHeShe / Math.max(firstPerson + thirdHeShe, 1);
     if (dominant === 'third' && firstPerson <= 1) povScore += 25;
-    else if (dominant === 'first' && thirdHeShe <= 2) povScore += 25;
+    else if (dominant === 'first' && thirdShare < 0.45) povScore += 25;
     else if (dominant === 'mixed') povScore += 5;
     if (dominant === 'third' && firstPerson > 2) {
       const slipRate = firstPerson / (firstPerson + thirdHeShe);
-      if (slipRate > 0.05) {
+      // A slip is a partial leak of "I" into third-person narration. A large share
+      // (>= 0.35) means the book is intentionally first-person-with-a-large-cast or
+      // deliberately mixed POV — not an accident, so don't flag it.
+      if (slipRate > 0.05 && slipRate < 0.35) {
         povScore -= 15;
         findings.push({ type: 'pov', severity: 'high', message: 'POV slip: ' + firstPerson + ' first-person ("I") occurrences in third-person narrative. Unless intentional, stay consistent.' });
       }
     }
-    if (dominant === 'first' && thirdHeShe > 5) {
+    // Only flag first-person narration when third-person pronouns nearly MATCH first-person
+    // usage across the book — i.e. the narration genuinely drifts between modes.
+    if (dominant === 'first' && thirdShare > 0.45 && thirdHeShe > 50) {
       povScore -= 10;
-      findings.push({ type: 'pov', severity: 'medium', message: 'POV inconsistency: heavy third-person pronouns in first-person narrative.' });
+      findings.push({ type: 'pov', severity: 'medium', message: 'Narration alternates heavily between first person ("I") and third person (he/she). If sections are intentionally in different POVs, ignore this; otherwise pick one mode per scene.' });
     }
     // Head-hopping: in third person limited, check if we see multiple characters\' thoughts
     if (dominant === 'third') {
@@ -2149,6 +2334,7 @@ const Analyzer = {
         povScore -= 15;
         findings.push({ type: 'pov', severity: 'medium', message: 'Possible head-hopping: both "he thought/felt/knew" (' + heThoughts + ') and "she thought/felt/knew" (' + sheThoughts + '). In limited third person, only one character\'s thoughts should be accessible per scene.' });
       }
+    }
     }
 
     // === 6. EXTRANEOUS LANGUAGE ===
@@ -3309,14 +3495,22 @@ const Analyzer = {
 
     // Detect manuscript mode and genre first — needed for genre-aware scoring.
     // genreOverride (string key from user dropdown) is sacred — bypasses detection AND fallback reclassification.
-    const manuscriptMode = this.detectMode(text);
+    // STAGE 1: segment the document. Literary analysis must read the STORY, not the
+    // copyright page, disclaimers, dedication, or table of contents.
+    const segmentation = this.segmentDocument(text);
+    const aText = text.slice(segmentation.narrativeStart, segmentation.narrativeEnd);
+    const aOffset = segmentation.narrativeStart;
+
+    const manuscriptMode = this.detectMode(aText);
     const mode = manuscriptMode.mode;
-    const detected = this.detectGenre(text);
+    const detected = this.detectGenre(aText);
     const genre = (genreOverride && typeof genreOverride === 'string')
       ? { primary: genreOverride, label: this._genreLabelFor(genreOverride), secondary: null, userOverride: true }
       : detected;
     const isNF = this.isNonfiction(genre);
 
+    // Language-quality detectors run on the FULL text so editor highlights cover
+    // front/back matter too (a typo in the preface is still a typo)…
     const passiveIssues = this.findPassiveVoice(text, genre);
     const adverbIssues = this.findAdverbs(text, genre);
     const clicheIssues = this.findCliches(text);
@@ -3324,7 +3518,10 @@ const Analyzer = {
     const wordyIssues = this.findWordyPhrases(text);
     const repetitionIssues = this.findRepetitions(text);
     const longSentenceIssues = this.findLongSentences(text);
-    const showTellIssues = this.findShowVsTell(text, genre);
+    // …but show-vs-tell is a NARRATIVE craft dimension: run it on narrative text only,
+    // then shift indexes back to full-document coordinates for highlighting.
+    const showTellIssues = this.findShowVsTell(aText, genre);
+    if (aOffset > 0) showTellIssues.forEach(i => { i.index += aOffset; });
     const confusedWordIssues = this.findConfusedWords(text);
     const grammarIssues = this.findGrammarIssues(text);
 
@@ -3376,28 +3573,35 @@ const Analyzer = {
       return true;
     }).sort((a, b) => a.index - b.index);
 
-    // Pass mode + genre to mode-aware analyzers
-    const plot = this.analyzePlot(text, mode, genre);
-    const transitions = this.analyzeTransitions(text);
-    const dialogue = this.analyzeDialogue(text, genre);
-    const style = this.analyzeStyle(text);
-    const sentenceVariety = this.analyzeSentenceVariety(text);
-    const readability = this.fleschKincaid(text);
-    const readerPerspective = this.analyzeReaderPerspective(text, mode, allIssues, genre);
-    const dnfAnalysis = this.analyzeDNF(text, manuscriptMode, genre);
+    // Issues inside the narrative span drive the SCORES; front/back-matter issues stay
+    // visible as highlights but must not damage the manuscript's scores.
+    const narrativeIssues = aOffset > 0 || segmentation.narrativeEnd < text.length
+      ? allIssues.filter(i => i.index >= segmentation.narrativeStart && i.index < segmentation.narrativeEnd)
+      : allIssues;
+    const narrativeWords = segmentation.narrativeWords;
+
+    // STAGE 2: literary analysis — every narrative dimension reads narrative text only.
+    const plot = this.analyzePlot(aText, mode, genre);
+    const transitions = this.analyzeTransitions(aText);
+    const dialogue = this.analyzeDialogue(aText, genre);
+    const style = this.analyzeStyle(aText);
+    const sentenceVariety = this.analyzeSentenceVariety(aText);
+    const readability = this.fleschKincaid(aText);
+    const readerPerspective = this.analyzeReaderPerspective(aText, mode, narrativeIssues, genre);
+    const dnfAnalysis = this.analyzeDNF(aText, manuscriptMode, genre);
     // Backfill readerPerspective.dnfRisk from new engine for backward compat
     readerPerspective.dnfRisk = dnfAnalysis.dnf_risk;
-    const pacing = this.analyzePacing(text);
-    const characters = this.analyzeCharacters(text);
-    const blurbs = this.generateBlurbs(text, characters, genre, mode);
-    const scifiWorld = this.analyzeSciFiWorldbuilding(text, genre);
-    const genreElements = this.analyzeGenreElements(text, genre);
-    const openingDiagnosis = this.diagnoseOpening(text, genre);
-    const sceneEmotions = this.detectSceneEmotions(text);
+    const pacing = this.analyzePacing(aText);
+    const characters = this.analyzeCharacters(aText);
+    const blurbs = this.generateBlurbs(aText, characters, genre, mode);
+    const scifiWorld = this.analyzeSciFiWorldbuilding(aText, genre);
+    const genreElements = this.analyzeGenreElements(aText, genre);
+    const openingDiagnosis = this.diagnoseOpening(aText, genre);
+    const sceneEmotions = this.detectSceneEmotions(aText);
 
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
-    const copyScore = this.scoreCopyEditing(allIssues, totalWords);
-    const lineEditing = this.analyzeLineEditing(text);
+    const copyScore = this.scoreCopyEditing(narrativeIssues, narrativeWords);
+    const lineEditing = this.analyzeLineEditing(aText, genre);
     // Nonfiction flow softening: sentence-to-sentence word-overlap is the wrong metric for
     // instructional/rhetorical prose (short punchy sentences, deliberate topic shifts, anaphora).
     // Clamp flowScore to minimum 45 and recompute composite score so it can't torpedo the line score.
@@ -3412,14 +3616,15 @@ const Analyzer = {
       );
     }
     const lineScore = lineEditing.score;
-    // Show/Tell: normalize per 1000 words so long manuscripts aren't unfairly floored to 0.
-    // For 27 issues / 56K words: perK = 0.48 → score = 99. For 27 / 5K: perK = 5.4 → score = 86.
-    const showTellPerK = (showTellIssues.length / Math.max(totalWords, 1)) * 1000;
+    // Show/Tell: normalize per 1000 NARRATIVE words so long manuscripts aren't unfairly floored to 0.
+    const showTellPerK = (showTellIssues.length / Math.max(narrativeWords, 1)) * 1000;
     const showTellScore = Math.max(0, Math.round(100 - showTellPerK * 2.5));
 
-    // Grammar score: penalize based on grammar issue density
-    const grammarFiltered = allIssues.filter(i => i.type === 'grammar');
-    const grammarPerK = (grammarFiltered.length / Math.max(totalWords, 1)) * 1000;
+    // Grammar score: penalize based on grammar issue density within the narrative.
+    // Boilerplate (copyright blocks, ISBN lines) trips grammar heuristics constantly and
+    // must not drag down the manuscript's grammar score.
+    const grammarFiltered = narrativeIssues.filter(i => i.type === 'grammar');
+    const grammarPerK = (grammarFiltered.length / Math.max(narrativeWords, 1)) * 1000;
     // Impact-weighted: floor at 100 - 35 - 20 - 10 = 35. Was 5; too punishing for
     // long manuscripts with normal proofreading-level errors.
     const grammarScore = Math.min(100, Math.max(0, Math.round(
@@ -3428,39 +3633,41 @@ const Analyzer = {
       Math.min(10, grammarFiltered.filter(i => i.severity === 'medium').length * 1)
     )));
 
-    // Deep writing quality engine
-    const writingQuality = this.analyzeWritingQuality(text, allIssues, sentenceVariety, readability, dialogue, style, genre);
+    // Deep writing quality engine — narrative text, narrative issues
+    const writingQuality = this.analyzeWritingQuality(aText, narrativeIssues, sentenceVariety, readability, dialogue, style, genre);
 
     // Self-help: specialized 8-dimension scoring model (replaces fiction blend)
-    const selfHelpScores = (genre.primary === 'selfHelp') ? this._analyzeSelfHelp(text, mode) : null;
+    const selfHelpScores = (genre.primary === 'selfHelp') ? this._analyzeSelfHelp(aText, mode) : null;
 
-    // Overall: blend structural + writing quality + engagement + grammar
-    // Nonfiction may have null dialogue score and 0 showTellScore — use neutral 70 so they don't tank the overall
-    const dialogueForOverall = (dialogue.score == null) ? 70 : dialogue.score;
-    const showTellForOverall = isNF ? 70 : showTellScore;
-    const W = _FICTION_WEIGHTS;
-    const fictionOverall = Math.round(
-      plot.score * W.plot +
-      transitions.score * W.transitions +
-      copyScore * W.copy +
-      lineScore * W.line +
-      style.score * W.style +
-      dialogueForOverall * W.dialogue +
-      showTellForOverall * W.showTell +
-      grammarScore * W.grammar +
-      writingQuality.clarityScore * W.clarity +
-      writingQuality.disciplineScore * W.discipline +
-      writingQuality.efficiencyScore * W.efficiency +
-      writingQuality.engagementScore * W.engagement +
-      writingQuality.momentumScore * W.momentum
-    );
-    const overall = selfHelpScores ? selfHelpScores.overall : fictionOverall;
+    // Overall: weighted average across APPLICABLE dimensions only. Non-applicable
+    // dimensions (null dialogue, show-vs-tell for nonfiction) are skipped and the
+    // remaining weights renormalized — never substituted with fake neutral values.
+    const bundle = this._computeScoreBundle({
+      plot: plot.score, transitions: transitions.score, copy: copyScore, line: lineScore,
+      style: style.score, dialogue: dialogue.score, showTell: isNF ? null : showTellScore,
+      grammar: grammarScore,
+      clarity: writingQuality.clarityScore, discipline: writingQuality.disciplineScore,
+      efficiency: writingQuality.efficiencyScore, engagement: writingQuality.engagementScore,
+      momentum: writingQuality.momentumScore
+    });
+    const overall = selfHelpScores ? selfHelpScores.overall : bundle.overall;
+    const subScores = bundle.subScores;
 
     // Issue density normalized per 1000 words
     const issuesPerK = Math.round(allIssues.length / Math.max(totalWords, 1) * 1000 * 10) / 10;
 
     return {
       overall, genre, totalWords, manuscriptMode, issuesPerK,
+      subScores,
+      // Segmentation report: what was excluded from literary analysis and why scores
+      // are trustworthy. narrativeStart/End are offsets into the full text.
+      segmentation: {
+        narrativeStart: segmentation.narrativeStart,
+        narrativeEnd: segmentation.narrativeEnd,
+        narrativeWords: segmentation.narrativeWords,
+        frontMatterWords: segmentation.frontMatterWords,
+        backMatterWords: segmentation.backMatterWords
+      },
       selfHelpScores,
       scores: {
         plot: plot.score, transitions: transitions.score, copy: copyScore,
@@ -3520,25 +3727,44 @@ const Analyzer = {
     const s = r.scores || {};
     const wq = r.writingQuality || {};
     const isNF = this.isNonfiction(r.genre);
-    // Null dialogue (nonfiction N/A) and 0 showTell (nonfiction skip) → use neutral 70 so they don't tank overall
-    const dialogueScore = (s.dialogue == null) ? 70 : s.dialogue;
-    const showTellScore = isNF ? 70 : (s.showTell || 0);
+    const bundle = this._computeScoreBundle({
+      plot: s.plot, transitions: s.transitions, copy: s.copy, line: s.line,
+      style: s.style, dialogue: s.dialogue, showTell: isNF ? null : s.showTell,
+      grammar: s.grammar,
+      clarity: wq.clarityScore, discipline: wq.disciplineScore,
+      efficiency: wq.efficiencyScore, engagement: wq.engagementScore,
+      momentum: wq.momentumScore
+    });
+    r.subScores = bundle.subScores; // keep sub-scores in sync on interactive recalc
+    return bundle.overall;
+  },
+
+  // Weighted average across APPLICABLE dimensions only. A dimension that doesn't apply
+  // (null/undefined score) is skipped and its weight redistributed — a manuscript is
+  // never penalized with a fake 0 or padded with a fake 70 for a dimension that wasn't
+  // measured. Also produces the Narrative Health / Language Quality sub-scores so one
+  // giant number doesn't hide where the problems actually are.
+  _NARRATIVE_DIMS: ['plot', 'transitions', 'dialogue', 'showTell', 'engagement', 'momentum'],
+  _LANGUAGE_DIMS: ['copy', 'line', 'style', 'grammar', 'clarity', 'discipline', 'efficiency'],
+  _computeScoreBundle(dimScores) {
     const W = _FICTION_WEIGHTS;
-    return Math.round(
-      (s.plot || 0) * W.plot +
-      (s.transitions || 0) * W.transitions +
-      (s.copy || 0) * W.copy +
-      (s.line || 0) * W.line +
-      (s.style || 0) * W.style +
-      dialogueScore * W.dialogue +
-      showTellScore * W.showTell +
-      (s.grammar || 0) * W.grammar +
-      (wq.clarityScore || 0) * W.clarity +
-      (wq.disciplineScore || 0) * W.discipline +
-      (wq.efficiencyScore || 0) * W.efficiency +
-      (wq.engagementScore || 0) * W.engagement +
-      (wq.momentumScore || 0) * W.momentum
-    );
+    const avg = keys => {
+      let total = 0, weight = 0;
+      for (const k of keys) {
+        const v = dimScores[k];
+        if (v == null || !Number.isFinite(v)) continue;
+        const w = W[k] ?? 1;
+        total += v * w; weight += w;
+      }
+      return weight ? Math.round(total / weight) : null;
+    };
+    return {
+      overall: avg(Object.keys(W)) ?? 0,
+      subScores: {
+        narrativeHealth: avg(this._NARRATIVE_DIMS),
+        languageQuality: avg(this._LANGUAGE_DIMS)
+      }
+    };
   },
 
   extractStyleFingerprint(text) {
