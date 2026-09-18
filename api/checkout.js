@@ -34,7 +34,8 @@ module.exports = async (req, res) => {
     starter: { amount: 500, name: 'AuthorScrolls Starter', interval: 'month' },
     premium: { amount: 1500, name: 'AuthorScrolls Premium', interval: 'month' }
   };
-  const selectedPlan = prices[plan] || prices.starter;
+  if (!Object.prototype.hasOwnProperty.call(prices, plan)) { res.status(400).json({ error: 'Invalid subscription plan' }); return; }
+  const selectedPlan = prices[plan];
 
   const payload = new URLSearchParams({
     'payment_method_types[0]': 'card',
@@ -75,7 +76,8 @@ module.exports = async (req, res) => {
         resolve();
       });
     });
-    proxyReq.on('error', err => { res.status(500).json({ error: err.message }); resolve(); });
+    proxyReq.setTimeout(15000, () => proxyReq.destroy(new Error('Stripe timeout')));
+    proxyReq.on('error', () => { res.status(502).json({ error: 'Checkout provider unavailable' }); resolve(); });
     proxyReq.write(payload); proxyReq.end();
   });
 };
