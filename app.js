@@ -821,7 +821,9 @@ function _renderSubScores(r){
   }
   const ss=r.subScores||{};
   const part=(label,v)=>v==null?'':label+' <b style="color:'+scHex(v)+'">'+v+'</b>';
-  const bits=[part('Narrative',ss.narrativeHealth),part('Language',ss.languageQuality)].filter(Boolean);
+  // "Narrative" is the wrong word for nonfiction — call the content-side score "Message"
+  const _nhLabel=Analyzer.isNonfiction(r.genre)?'Message':'Narrative';
+  const bits=[part(_nhLabel,ss.narrativeHealth),part('Language',ss.languageQuality)].filter(Boolean);
   const fmWords=r.segmentation?.frontMatterWords||0;
   const fmNote=fmWords>50?'<span style="color:var(--dim)" title="Copyright pages, disclaimers, dedication, and contents are excluded from narrative scoring">'+fmWords.toLocaleString()+' words of front matter excluded</span>':'';
   el.innerHTML=bits.join(' &middot; ')+(bits.length&&fmNote?'<br>':'')+fmNote;
@@ -885,11 +887,16 @@ function renderLeft(r){
   const _pacingBadge=(rp.pacingFeel||'').includes('Rushed')?'Rushed'
     :(rp.pacingFeel||'').includes('Slow')?'Slow'
     :_pacingScore>=70?'Good':_pacingScore>=45?'Uneven':'Needs work';
+  // Sub text must agree with the badge — "Uneven" next to "Well-paced" reads broken.
+  const _pacingSub=(_pacingBadge==='Rushed'||_pacingBadge==='Slow')?(rp.pacingFeel||'').split(' - ')[0]
+    :_pacingBadge==='Good'?'Well-paced'
+    :_pacingBadge==='Uneven'?'Momentum dips in places'
+    :'Loses momentum';
   const cards=[
     {name:isSHLeft?'Reader Buy-In':'Engagement Score',score:isSHLeft?Math.round(((shL.readerIdentification||0)+(shL.emotionalMomentum||0))/2):rp.engagementScore||0,sub:isSHLeft?'Reader ID + Momentum':'How hooked will readers be?',action:'+ Improve Opening',bar:true},
     {name:isSHLeft?'Promise Strength':'Hook Strength',score:isSHLeft?Math.round(shL.readerIdentification||0):rp.hookStrength||0,sub:_hookIssueCount+(_hookIssueCount===1?' Issue':' Issues'),action:'+ Improve Opening',bar:false},
     {name:isSHLeft?'Clarity & Polish':'Clarity',score:isSHLeft?Math.round(shL.clarityReadability||0):rp.clarityScore||0,sub:isSHLeft?'Readability + flow':'Weak transitions',bar:true},
-    {name:isSHLeft?'Reader Momentum':'Pacing',score:_pacingScore,sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:_pacingBadge},
+    {name:isSHLeft?'Reader Momentum':'Pacing',score:_pacingScore,sub:_pacingSub,badge:_pacingBadge},
     {name:'Readability',score:fkEase,sub:fkSub,bar:true}
   ];
   $('lp-cards').innerHTML=cards.map((c,i)=>{
@@ -1448,11 +1455,31 @@ function renderReader(r){
   const d=$('ed-reader');if(!d||!r)return;d.className='ms-page dark-page';const rp=r.readerPerspective||{};
   const mc=(s,inv)=>{const v=inv?100-s:s;return v>=70?'var(--green)':v>=40?'var(--yellow)':'var(--red)'};
   let h='<div class="rdr-grid">';
-  h+=rc('Engagement',rp.engagementScore||0,mc(rp.engagementScore||0),'How hooked?');
-  h+=rc('Hook Strength',rp.hookStrength||0,mc(rp.hookStrength||0),'Opening grab?');
-  h+=rc('Clarity',rp.clarityScore||0,mc(rp.clarityScore||0),'Follow the story?');
-  h+='<div class="rdr-card"><h4>Pacing</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.pacingFeel||'N/A')+'</p></div>';
-  h+='<div class="rdr-card"><h4>Verdict</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.overallVerdict||'N/A')+'</p></div>';
+  // Self-help: these cards must show the SAME numbers as the Manuscript Health cards
+  // (both derive from the 8-dimension self-help model). Showing the fiction
+  // readerPerspective values here put "Engagement 38" on the same screen as
+  // "Reader Buy-In 65" for the same concept.
+  const shR=r.genre?.primary==='selfHelp'?(r.selfHelpScores||null):null;
+  if(shR){
+    const buyIn=Math.round(((shR.readerIdentification||0)+(shR.emotionalMomentum||0))/2);
+    const promise=Math.round(shR.readerIdentification||0);
+    const clarity=Math.round(shR.clarityReadability||0);
+    h+=rc('Reader Buy-In',buyIn,mc(buyIn),'Will readers commit?');
+    h+=rc('Promise Strength',promise,mc(promise),'Does the opening promise land?');
+    h+=rc('Clarity',clarity,mc(clarity),'Easy to follow?');
+    h+='<div class="rdr-card"><h4>Reader Momentum</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc((rp.pacingFeel||'').split(' - ')[0]||'N/A')+'</p></div>';
+    const shVerdict=buyIn>=80?'Strong reader buy-in. The promise and momentum carry the book.'
+      :buyIn>=60?'Good buy-in overall. Sharpen the opening promise and keep chapters actionable.'
+      :buyIn>=40?'Moderate buy-in. Strengthen reader identification — more "you", more concrete stories, clearer payoffs per chapter.'
+      :'Needs work on reader buy-in. Open with the reader\'s problem, promise a specific transformation, and ground each chapter in lived examples.';
+    h+='<div class="rdr-card"><h4>Verdict</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(shVerdict)+'</p></div>';
+  }else{
+    h+=rc('Engagement',rp.engagementScore||0,mc(rp.engagementScore||0),'How hooked?');
+    h+=rc('Hook Strength',rp.hookStrength||0,mc(rp.hookStrength||0),'Opening grab?');
+    h+=rc('Clarity',rp.clarityScore||0,mc(rp.clarityScore||0),'Follow the story?');
+    h+='<div class="rdr-card"><h4>Pacing</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.pacingFeel||'N/A')+'</p></div>';
+    h+='<div class="rdr-card"><h4>Verdict</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.overallVerdict||'N/A')+'</p></div>';
+  }
   h+='</div>';
   // Readability panel — Flesch-Kincaid, a real peer-reviewed metric
   if(r.readability){

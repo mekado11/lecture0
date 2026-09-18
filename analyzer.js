@@ -1852,10 +1852,10 @@ const Analyzer = {
 
     // Overall verdict
     let overallVerdict = 'Solid manuscript with good reader engagement.';
-    if (engagementScore >= 80) overallVerdict = 'Highly engaging! Readers will have a hard time putting this down.';
-    else if (engagementScore >= 60) overallVerdict = 'Good engagement overall. A few areas could be tightened to keep readers hooked.';
-    else if (engagementScore >= 40) overallVerdict = 'Moderate engagement. Consider strengthening hooks, pacing, and emotional resonance.';
-    else overallVerdict = 'Needs work on engagement. Focus on a stronger opening, clearer stakes, and emotional connection.';
+    if (engagementScore >= 80) overallVerdict = isNF ? 'Highly engaging! The voice and momentum will carry readers through.' : 'Highly engaging! Readers will have a hard time putting this down.';
+    else if (engagementScore >= 60) overallVerdict = isNF ? 'Good engagement overall. Tighten a few sections to keep readers moving chapter to chapter.' : 'Good engagement overall. A few areas could be tightened to keep readers hooked.';
+    else if (engagementScore >= 40) overallVerdict = isNF ? 'Moderate engagement. Use more direct address, concrete stories, and clear payoffs per chapter.' : 'Moderate engagement. Consider strengthening hooks, pacing, and emotional resonance.';
+    else overallVerdict = isNF ? 'Needs work on engagement. Open with the reader\'s problem, promise a specific outcome, and ground claims in lived examples.' : 'Needs work on engagement. Focus on a stronger opening, clearer stakes, and emotional connection.';
 
     return { engagementScore, hookStrength, pageturnerScore, emotionalConnection, pacingFeel, clarityScore, immersionBreakers, emotionalJourney, dnfRisk, overallVerdict };
   },
@@ -2104,20 +2104,34 @@ const Analyzer = {
     if (avgParaWords < 80) efficiencyScore += 15; else if (avgParaWords < 120) efficiencyScore += 8; else if (avgParaWords > 180) efficiencyScore -= 15;
 
     let engagementScore = 15;
-    const infoDumps = paragraphs.filter(p => p.split(/\s+/).length > 200 && !/[\u201C""]/.test(p)).length;
-    let noDialogueStreak = 0, maxStreak = 0;
-    paragraphs.forEach(p => { if (!/[\u201C""]/.test(p)) { noDialogueStreak++; maxStreak = Math.max(maxStreak, noDialogueStreak) } else { noDialogueStreak = 0 } });
     const questions = (text.match(/\?/g) || []).length;
-    const sensory = (lower.match(/\b(smell|taste|touch|sound|sight|heard|felt|warm|cold|rough|smooth|bitter|sweet|sharp|soft|bright|dim|loud|quiet|whisper|roar|glimmer|shadow|echo)\b/g) || []).length;
-    const sensoryRate = sensory / Math.max(totalWords, 1) * 1000;
-    const emotionTags = (text.match(/[\u201D""]\s*\w+\s+(angrily|sadly|happily|nervously|excitedly|furiously|quietly|loudly|softly|tearfully|breathlessly)/gi) || []).length;
-    if (infoDumps === 0) engagementScore += 15; else engagementScore -= infoDumps * 8;
-    if (maxStreak <= 3) engagementScore += 15; else if (maxStreak <= 5) engagementScore += 5; else engagementScore -= (maxStreak - 5) * 4;
-    if (questions > 0) engagementScore += Math.min(12, questions * 2);
-    if (sensoryRate > 5) engagementScore += 15; else if (sensoryRate > 3) engagementScore += 10; else if (sensoryRate > 1) engagementScore += 5;
-    engagementScore -= emotionTags * 4;
-    const hasDialogue = paragraphs.some(p => /[\u201C""]/.test(p));
-    if (hasDialogue) engagementScore += 8;
+    if (isNF) {
+      // Nonfiction engagement is rhetorical, not dramatic: direct address, questions,
+      // stories/examples, concrete evidence. The fiction branch below penalizes
+      // "paragraphs without dialogue" \u2014 which floored every self-help book to 0.
+      const directAddressRate = (lower.match(/\byou\b|\byour\b/g) || []).length / Math.max(totalWords, 1) * 1000;
+      const exampleMarkers = (lower.match(/\b(for example|for instance|imagine|consider|picture this|case in point|let me tell you|i remember|when i was|a client|a student|a reader|research shows|studies show|one study|true story)\b/g) || []).length;
+      const exampleRate = exampleMarkers / Math.max(totalWords, 1) * 1000;
+      const numberFacts = (text.match(/\b\d+(\.\d+)?%?\b/g) || []).length;
+      if (directAddressRate > 8) engagementScore += 25; else if (directAddressRate > 3) engagementScore += 15; else if (directAddressRate > 1) engagementScore += 8;
+      engagementScore += Math.min(15, Math.round(questions / Math.max(totalWords / 1000, 1) * 3));
+      if (exampleRate > 1) engagementScore += 25; else if (exampleRate > 0.4) engagementScore += 15; else if (exampleMarkers > 0) engagementScore += 8;
+      if (numberFacts / Math.max(totalWords, 1) * 1000 > 1) engagementScore += 10;
+    } else {
+      const infoDumps = paragraphs.filter(p => p.split(/\s+/).length > 200 && !/[\u201C""]/.test(p)).length;
+      let noDialogueStreak = 0, maxStreak = 0;
+      paragraphs.forEach(p => { if (!/[\u201C""]/.test(p)) { noDialogueStreak++; maxStreak = Math.max(maxStreak, noDialogueStreak) } else { noDialogueStreak = 0 } });
+      const sensory = (lower.match(/\b(smell|taste|touch|sound|sight|heard|felt|warm|cold|rough|smooth|bitter|sweet|sharp|soft|bright|dim|loud|quiet|whisper|roar|glimmer|shadow|echo)\b/g) || []).length;
+      const sensoryRate = sensory / Math.max(totalWords, 1) * 1000;
+      const emotionTags = (text.match(/[\u201D""]\s*\w+\s+(angrily|sadly|happily|nervously|excitedly|furiously|quietly|loudly|softly|tearfully|breathlessly)/gi) || []).length;
+      if (infoDumps === 0) engagementScore += 15; else engagementScore -= infoDumps * 8;
+      if (maxStreak <= 3) engagementScore += 15; else if (maxStreak <= 5) engagementScore += 5; else engagementScore -= (maxStreak - 5) * 4;
+      if (questions > 0) engagementScore += Math.min(12, questions * 2);
+      if (sensoryRate > 5) engagementScore += 15; else if (sensoryRate > 3) engagementScore += 10; else if (sensoryRate > 1) engagementScore += 5;
+      engagementScore -= emotionTags * 4;
+      const hasDialogueEng = paragraphs.some(p => /[\u201C""]/.test(p));
+      if (hasDialogueEng) engagementScore += 8;
+    }
 
     let dialogueQuality = (dialogue.score == null) ? 70 : dialogue.score; // neutral default for nonfiction N/A
     if (dialogue.count > 0 && dialogue.saidRatio > 60 && dialogue.saidRatio < 90) dialogueQuality += 5;
@@ -2125,15 +2139,32 @@ const Analyzer = {
     dialogueQuality = Math.min(100, Math.max(0, dialogueQuality));
 
     let momentumScore = 20;
-    const backstory = (lower.match(/\b(he remembered|she remembered|years ago|back when|it had been|there had been|used to be|once upon a time|long ago|in those days)\b/g) || []).length;
-    const backstoryRate = backstory / Math.max(totalWords, 1) * 1000;
-    const sceneBreaks = (text.match(/\n\s*\*\s*\*\s*\*|\n\s*#|\n\s*---/g) || []).length;
-    const actionVerbs = (lower.match(/\b(ran|grabbed|turned|slammed|pushed|pulled|threw|shouted|raced|lunged|leaped|opened|decided|chose|moved|stepped|spoke|asked|demanded|refused)\b/g) || []).length;
-    const actionRate = actionVerbs / Math.max(totalWords, 1) * 1000;
-    if (backstoryRate < 0.5) momentumScore += 20; else if (backstoryRate < 1.5) momentumScore += 10; else momentumScore -= backstory * 4;
-    if (sceneBreaks > 0) momentumScore += 10;
-    if (actionRate > 5) momentumScore += 20; else if (actionRate > 2) momentumScore += 12; else if (actionRate > 1) momentumScore += 5;
-    if (hasDialogue) momentumScore += 10;
+    let _wqDetailExtras = {};
+    if (isNF) {
+      // Nonfiction momentum is structural cadence, not car chases: section headings,
+      // transitional signposts, actionable imperatives, digestible paragraphs.
+      const nfHeadings = (text.match(/^(chapter|part|step|rule|principle|lesson|habit|law|key)\b[^\n]*$/gim) || []).length;
+      const signposts = (lower.match(/\b(first|second|third|next|then|finally|here's the point|the point is|which means|bottom line|in short|the takeaway)\b/g) || []).length;
+      const signpostRate = signposts / Math.max(totalWords, 1) * 1000;
+      const imperatives = (text.match(/(?:^|\.\s+)(Start|Stop|Try|Ask|Write|List|Take|Choose|Pick|Set|Make|Do|Think|Remember|Notice|Practice|Focus)\b/g) || []).length;
+      const imperativeRate = imperatives / Math.max(totalWords, 1) * 1000;
+      if (nfHeadings > 2) momentumScore += 15; else if (nfHeadings > 0) momentumScore += 8;
+      if (signpostRate > 3) momentumScore += 25; else if (signpostRate > 1.5) momentumScore += 15; else if (signpostRate > 0.5) momentumScore += 8;
+      if (imperativeRate > 1.5) momentumScore += 25; else if (imperativeRate > 0.5) momentumScore += 15; else if (imperatives > 0) momentumScore += 8;
+      if (avgParaWords < 110) momentumScore += 10;
+      _wqDetailExtras = { signposts, imperatives, sectionHeadings: nfHeadings };
+    } else {
+      const backstory = (lower.match(/\b(he remembered|she remembered|years ago|back when|it had been|there had been|used to be|once upon a time|long ago|in those days)\b/g) || []).length;
+      const backstoryRate = backstory / Math.max(totalWords, 1) * 1000;
+      const sceneBreaks = (text.match(/\n\s*\*\s*\*\s*\*|\n\s*#|\n\s*---/g) || []).length;
+      const actionVerbs = (lower.match(/\b(ran|grabbed|turned|slammed|pushed|pulled|threw|shouted|raced|lunged|leaped|opened|decided|chose|moved|stepped|spoke|asked|demanded|refused)\b/g) || []).length;
+      const actionRate = actionVerbs / Math.max(totalWords, 1) * 1000;
+      if (backstoryRate < 0.5) momentumScore += 20; else if (backstoryRate < 1.5) momentumScore += 10; else momentumScore -= backstory * 4;
+      if (sceneBreaks > 0) momentumScore += 10;
+      if (actionRate > 5) momentumScore += 20; else if (actionRate > 2) momentumScore += 12; else if (actionRate > 1) momentumScore += 5;
+      if (paragraphs.some(p => /[“""]/.test(p))) momentumScore += 10;
+      _wqDetailExtras = { backstoryMarkers: backstory };
+    }
 
     // Clamp all scores
     clarityScore = Math.min(100, Math.max(0, Math.round(clarityScore)));
@@ -2147,12 +2178,13 @@ const Analyzer = {
     return {
       overall, clarityScore, disciplineScore, efficiencyScore, engagementScore, dialogueQuality, momentumScore,
       details: {
-        fillerWords: fillers, hedgeWords: hedges, weakOpenings, infoDumps,
-        modifierStacks, overExplain, backstoryMarkers: backstory,
-        sensoryWords: sensory, punchySentences, emotionTags,
+        fillerWords: fillers, hedgeWords: hedges, weakOpenings,
+        modifierStacks, overExplain,
+        punchySentences,
         avgParagraphLength: Math.round(avgParaWords),
         pronounDensity: Math.round(pronounRatio * 100),
-        fillerRate: Math.round(fillerRate * 10) / 10
+        fillerRate: Math.round(fillerRate * 10) / 10,
+        ..._wqDetailExtras
       }
     };
   },
@@ -3689,6 +3721,14 @@ const Analyzer = {
     });
     const overall = selfHelpScores ? selfHelpScores.overall : bundle.overall;
     const subScores = bundle.subScores;
+    // Self-help: sub-scores must come from the SAME model as the overall, or the line
+    // under the gauge contradicts it (e.g. "Narrative 40" under a 75 built from the
+    // 8-dimension self-help scores).
+    if (selfHelpScores) {
+      const sh = selfHelpScores;
+      subScores.narrativeHealth = Math.round(((sh.readerIdentification||0)+(sh.structureProgression||0)+(sh.insightQuality||0)+(sh.emotionalMomentum||0)+(sh.practicalApplication||0)+(sh.evidenceSupport||0))/6);
+      subScores.languageQuality = Math.round((sh.clarityReadability||0)*0.4+(sh.voiceAuthority||0)*0.3+grammarScore*0.3);
+    }
 
     // Issue density normalized per 1000 words
     const issuesPerK = Math.round(allIssues.length / Math.max(totalWords, 1) * 1000 * 10) / 10;
@@ -3751,6 +3791,11 @@ const Analyzer = {
     // Self-help uses its own weighted model
     if (r.selfHelpScores) {
       const sh = r.selfHelpScores;
+      // Keep sub-scores in the same model as the overall
+      r.subScores = {
+        narrativeHealth: Math.round(((sh.readerIdentification||0)+(sh.structureProgression||0)+(sh.insightQuality||0)+(sh.emotionalMomentum||0)+(sh.practicalApplication||0)+(sh.evidenceSupport||0))/6),
+        languageQuality: Math.round((sh.clarityReadability||0)*0.4+(sh.voiceAuthority||0)*0.3+((r.scores&&r.scores.grammar)||0)*0.3)
+      };
       return Math.round(
         (sh.clarityReadability   || 0) * 0.15 +
         (sh.readerIdentification || 0) * 0.15 +
