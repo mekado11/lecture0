@@ -64,6 +64,7 @@ function pdf(){
       window.__fixture=createFirebaseFixture();window.firebase=__fixture.firebase;
       localStorage.setItem('ml_storage_owner','test-author');localStorage.setItem('wizard_done','1');
       localStorage.setItem('cookie_consent','essential');localStorage.setItem('ml_push_dismissed','1');
+      Object.defineProperty(navigator,'serviceWorker',{configurable:true,get(){throw new DOMException('Notifications blocked in this environment','SecurityError');}});
     });
     let providerCalls=0,contextSent='';
     await context.route('**/api/claude',async route=>{

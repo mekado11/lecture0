@@ -3347,9 +3347,9 @@ function maybePromptPush(){
 }
 
 // Register service worker early (needed for push to work even before prompting)
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('/sw.js').catch(()=>{});
-}
+try{
+  if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}catch(_){/* Optional notifications must never prevent editor initialization. */}
 
 window.AuthorScrollsEditor={
   save:()=>persistDraft(),

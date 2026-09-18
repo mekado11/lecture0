@@ -57,6 +57,8 @@ Source inspection additionally found a missing classifier signal yielding non-fi
 
 Browser flows include TXT/DOCX/text-PDF import, navigation tabs, grounded question, optional-check consent, score immutability, save, immediate export, snapshot restore, unsaved-text safety snapshot, failed-save navigation guard, recovery download, same-name drafts, long-book analysis, genre switching, mobile layout, homepage theme/navigation/auth modal and supporting-page rendering.
 
+The browser fixture also simulates a service-worker getter that throws a SecurityError. Optional notification registration is isolated so this cannot interrupt the editor’s public interface and navigator initialization.
+
 The optional `scripts/build-review-preview.js` creates an explicitly labeled Computer-only review entry using synthetic text and in-memory service fixtures. It is NOT part of `npm run build` or production CI deployment. Do not ship that preview entry or its fixture files to production.
 
 ## Outstanding priorities
