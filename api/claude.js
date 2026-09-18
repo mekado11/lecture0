@@ -151,7 +151,12 @@ module.exports = async (req, res) => {
   res.setHeader('X-AuthorScrolls-Feature', requestedFeature);
 
   // Count only authenticated, authorized, structurally valid requests.
-  const used = await checkAndIncrement(userId, today);
+  let used;
+  try { used = await checkAndIncrement(userId, today); }
+  catch (e) {
+    console.error('AI rate limiter unavailable:', e.message);
+    res.status(503).json({ error: { message: 'AI service temporarily unavailable', code: 'RATE_LIMIT_UNAVAILABLE' } }); return;
+  }
   if (used > limit) {
     res.status(429).json({
       error: {
