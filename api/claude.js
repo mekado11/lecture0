@@ -123,11 +123,22 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // Determine which model/provider to use
+  // The server owns model authorization. Client routing is only a request hint.
   const ALLOWED_ROUTES = new Set(['claude','claude-premium','openai-fast','openai-nano','openai-premium']);
   const requestedModel = req.headers['x-model'] || 'openai-fast';
   if (!ALLOWED_ROUTES.has(requestedModel)) {
     res.status(400).json({ error: { message: 'Invalid model route' } }); return;
+  }
+  const ROUTES_BY_TIER = {
+    free: new Set(),
+    starter: new Set(['openai-fast','openai-nano']),
+    beta: new Set(['openai-fast','openai-nano','claude']),
+    premium: new Set(['openai-fast','openai-nano','openai-premium','claude','claude-premium']),
+    dev: ALLOWED_ROUTES
+  };
+  const permittedRoutes = ROUTES_BY_TIER[userTier] || ROUTES_BY_TIER.free;
+  if (!permittedRoutes.has(requestedModel)) {
+    res.status(403).json({ error: { message: 'This AI route is not available for your subscription tier', code: 'MODEL_NOT_ALLOWED', tier: userTier } }); return;
   }
 
   // Extract only allowed fields — never forward arbitrary client payload
