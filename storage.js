@@ -36,7 +36,15 @@ const Storage = {
   },
 
   _buildBookIntelligence(parsed, analysisResult = null) {
-    if (typeof BookIntelligence !== 'undefined' && BookIntelligence.build) {\n      const base = BookIntelligence.build(parsed, analysisResult);\n      const story = (typeof StoryIntelligence !== 'undefined' && StoryIntelligence.enrich) ? StoryIntelligence.enrich(parsed, base) : base;\n      const continuity = (typeof ContinuityIntelligence !== 'undefined' && ContinuityIntelligence.enrich) ? ContinuityIntelligence.enrich(parsed, story) : story;\n      const timeline = (typeof TimelineIntelligence !== 'undefined' && TimelineIntelligence.enrich) ? TimelineIntelligence.enrich(parsed, continuity) : continuity;\n      const momentum = (typeof NarrativeMomentum !== 'undefined' && NarrativeMomentum.enrich) ? NarrativeMomentum.enrich(timeline) : timeline;\n      const relationships = (typeof RelationshipIntelligence !== 'undefined' && RelationshipIntelligence.enrich) ? RelationshipIntelligence.enrich(parsed, momentum) : momentum;\n      return (typeof CharacterLedger !== 'undefined' && CharacterLedger.enrich) ? CharacterLedger.enrich(relationships) : relationships;\n    }
+    if (typeof BookIntelligence !== 'undefined' && BookIntelligence.build) {
+      const base = BookIntelligence.build(parsed, analysisResult);
+      const story = (typeof StoryIntelligence !== 'undefined' && StoryIntelligence.enrich) ? StoryIntelligence.enrich(parsed, base) : base;
+      const continuity = (typeof ContinuityIntelligence !== 'undefined' && ContinuityIntelligence.enrich) ? ContinuityIntelligence.enrich(parsed, story) : story;
+      const timeline = (typeof TimelineIntelligence !== 'undefined' && TimelineIntelligence.enrich) ? TimelineIntelligence.enrich(parsed, continuity) : continuity;
+      const momentum = (typeof NarrativeMomentum !== 'undefined' && NarrativeMomentum.enrich) ? NarrativeMomentum.enrich(timeline) : timeline;
+      const relationships = (typeof RelationshipIntelligence !== 'undefined' && RelationshipIntelligence.enrich) ? RelationshipIntelligence.enrich(parsed, momentum) : momentum;
+      return (typeof CharacterLedger !== 'undefined' && CharacterLedger.enrich) ? CharacterLedger.enrich(relationships) : relationships;
+    }
     return null;
   },
 
