@@ -3,7 +3,7 @@ const IntelligenceWindow = (() => {
   'use strict';
   const $ = id => document.getElementById(id);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let latest = null, mode = 'chapters', renderId = 0, answerId = 0, previousFocus = null;
+  let latest = null, mode = 'chapters', renderId = 0, answerId = 0, previousFocus = null, buildToken = 0;
   function invalidateContext() {
     answerId++;
     if($('workspace-context'))$('workspace-context').innerHTML='';
@@ -11,21 +11,68 @@ const IntelligenceWindow = (() => {
     if($('intel-ask'))$('intel-ask').disabled=false;
   }
   function currentText() { return window.AuthorScrollsEditor?.getText() || ''; }
-  function build() {
+  // A coarse content signature, not object identity. analysisResult in app.js is
+  // reassigned to a NEW OBJECT on nearly every reanalysis pass (every ~2s while
+  // typing), so comparing `latest.analysis !== analysis` by reference almost never
+  // hit the cache — the full pipeline (chapter parse + POV/character scan +
+  // nonfiction evidence extraction) re-ran on every render even when nothing
+  // the pipeline cares about had actually changed.
+  function analysisSignature(analysis) {
+    if (!analysis) return 'none';
+    return (analysis.overall ?? '') + '|' + (analysis.genre?.primary ?? '') + '|' + (analysis.totalWords ?? '');
+  }
+  // Synchronous, cheap: returns the cached result or null. Never runs the pipeline.
+  function cachedBuild() {
     const text = currentText();
     if (!text.trim()) return null;
     const analysis = window.AuthorScrollsEditor?.getAnalysis();
-    if (!latest || latest.text !== text || latest.analysis !== analysis) {
-      latest = { ...IntelligencePipeline.build(text, analysis), analysis };
-    }
+    const sig = analysisSignature(analysis);
+    return (latest && latest.text === text && latest.sig === sig) ? latest : null;
+  }
+  function build() {
+    const cached = cachedBuild();
+    if (cached) return cached;
+    const text = currentText();
+    if (!text.trim()) return null;
+    const analysis = window.AuthorScrollsEditor?.getAnalysis();
+    latest = { ...IntelligencePipeline.build(text, analysis), analysis, sig: analysisSignature(analysis) };
     return latest;
+  }
+  // Building the pipeline on a large manuscript (chapter parsing + a POV/character
+  // regex sweep per chapter + nonfiction evidence extraction per chapter) is
+  // expensive enough to visibly freeze the tab if run synchronously inside a click
+  // handler. Toggling the panel's `.open` class and then blocking the main thread
+  // in the same tick means the browser can't paint the slide-in transition OR any
+  // "Loading…" text until the computation finishes — from the outside that reads
+  // as a hard hang, not a slow load. Deferring past a paint (rAF + setTimeout 0)
+  // guarantees the loading state is on screen before the heavy work starts.
+  function buildDeferred(onReady) {
+    const cached = cachedBuild();
+    if (cached) { onReady(cached); return; }
+    const token = ++buildToken;
+    requestAnimationFrame(() => setTimeout(() => {
+      if (token !== buildToken) return; // superseded by a newer request — discard
+      onReady(build());
+    }, 0));
   }
   const empty = text => `<p class="workspace-nav-hint">${esc(text)}</p>`;
   const evidence = rows => rows.map(row => `<small>${esc(row.chapterId || '')} · ${esc(row.text || row.evidence || '')}</small>`).join('');
+  let renderToken = 0;
   function render() {
-    const data = build(), host = $('intel-body');
+    const host = $('intel-body');
     if (!host) return;
-    if (!data) { host.innerHTML = empty('Open a manuscript to explore its story intelligence.'); return; }
+    const cached = cachedBuild();
+    if (cached) { renderBody(cached, host); return; }
+    host.innerHTML = empty('Reading your manuscript…');
+    const token = ++renderToken;
+    buildDeferred(data => {
+      if (token !== renderToken) return; // a newer render request superseded this one
+      if (!$('intel-window')?.classList.contains('open')) return; // panel closed while building
+      if (!data) { host.innerHTML = empty('Open a manuscript to explore its story intelligence.'); return; }
+      renderBody(data, host);
+    });
+  }
+  function renderBody(data, host) {
     const i = data.intel;
     const nf=i.nonfiction;
     if(nf){
@@ -100,9 +147,17 @@ const IntelligenceWindow = (() => {
   }
   async function renderNavigator(nextMode = mode) {
     mode=nextMode;
-    const token=++renderId, host=$('workspace-nav-content'),data=build();
+    const token=++renderId, host=$('workspace-nav-content');
     if (!host) return;
     document.querySelectorAll('.ws-nav').forEach(b=>b.classList.toggle('active',b.dataset.wsnav===mode));
+    let data = cachedBuild();
+    if (!data) {
+      // Same freeze risk as render(): this fires on every edit-pause debounce, so
+      // it must not block the main thread on a large manuscript either.
+      host.innerHTML = empty('Reading your manuscript…');
+      data = await new Promise(resolve => buildDeferred(resolve));
+      if (token !== renderId) return; // a newer navigator request superseded this one
+    }
     if (!data) { host.innerHTML=empty('Open a manuscript to build its navigator.'); return; }
     const nf=data.intel.nonfiction;
     document.querySelector('[data-wsnav="characters"]').textContent=nf?'Concepts':'Characters';
