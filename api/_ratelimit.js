@@ -1,5 +1,5 @@
 // Persistent rate limiting via Upstash Redis.
-// Falls back to in-memory Map when Redis is not configured (dev only).
+// Production fails closed when Redis is unavailable. Local development may opt into memory fallback.
 // Requires UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN env vars.
 
 'use strict';
@@ -7,6 +7,7 @@
 let redis = null;
 let redisInitialized = false;
 const fallbackMap = new Map();
+const allowMemoryFallback = process.env.NODE_ENV !== 'production' && process.env.ALLOW_IN_MEMORY_RATE_LIMIT === 'true';
 
 function getRedis() {
   if (redisInitialized) return redis;
@@ -14,7 +15,7 @@ function getRedis() {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) {
-    console.warn('Rate limiting: UPSTASH_REDIS_REST_URL/TOKEN not set — using in-memory fallback (resets on cold start)');
+    console.error('Rate limiting: Redis configuration missing');
     return null;
   }
   try {
@@ -39,7 +40,8 @@ async function checkAndIncrement(userId, today) {
     return count;
   }
 
-  // In-memory fallback
+  if (!allowMemoryFallback) throw new Error('RATE_LIMIT_UNAVAILABLE');
+  // Explicit local-development fallback only.
   const current = fallbackMap.get(key) || 0;
   fallbackMap.set(key, current + 1);
   for (const [k] of fallbackMap) {
@@ -55,6 +57,7 @@ async function getCount(userId, today) {
   if (r) {
     return parseInt(await r.get(key), 10) || 0;
   }
+  if (!allowMemoryFallback) throw new Error('RATE_LIMIT_UNAVAILABLE');
   return fallbackMap.get(key) || 0;
 }
 
