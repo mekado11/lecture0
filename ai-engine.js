@@ -68,14 +68,14 @@ const AIEngine = {
       query: packet.query,
       chapters: (packet.chapters || []).map(c => ({ id:c.chapterId, title:c.title, text:c.text })),
       characters: packet.characters || [], facts: packet.facts || [], relationships: packet.relationships || [],
-      timeline: packet.timeline || [], continuity: packet.continuity || [], plotThreads: packet.plotThreads || []
+      timeline: packet.timeline || [], stateChanges: packet.stateChanges || [], continuity: packet.continuity || [], plotThreads: packet.plotThreads || []
     };
     return JSON.stringify(compact);
   },
 
   buildGroundedContext(query, manuscriptText, analysis = null) {
     if (typeof ManuscriptParser === 'undefined' || typeof BookIntelligence === 'undefined' || typeof ManuscriptRetrieval === 'undefined') return null;
-    const key = this._shortHash(manuscriptText) + '|' + manuscriptText.length;
+    const analysisSig = analysis ? this._shortHash(JSON.stringify({overall:analysis.overall||0,scores:analysis.scores||{},genre:analysis.genre||{}})) : 'none';\n    const key = this._shortHash(manuscriptText) + '|' + manuscriptText.length + '|' + analysisSig;
     let built = this._bookContextCache.get(key);
     if (!built) {
       const parsed = ManuscriptParser.parse(manuscriptText);
@@ -96,7 +96,9 @@ const AIEngine = {
     return this._callClaude(apiKey,
       'You are AuthorScrolls Writer\\'s Room. Answer the author\\'s question using only the supplied manuscript context. Distinguish manuscript evidence from interpretation. If the retrieved evidence is insufficient, say so instead of inventing details.',
       'AUTHOR QUESTION:\\n' + question + '\\n\\nReturn JSON: {"answer":"...","evidence":[{"chapterId":"...","quote":"short supporting excerpt"}],"confidence":"high|medium|low","insufficientEvidence":false}',
-      '', 'writersRoom:' + this._shortHash(question + context)
+      '', 'writersRoom:' + this._shortHash(question + context), {
+        contextOverride: 'RETRIEVED BOOK CONTEXT:\n' + context
+      }
     );
   },
 
