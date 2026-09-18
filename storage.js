@@ -37,13 +37,16 @@ const Storage = {
 
   _buildBookIntelligence(parsed, analysisResult = null) {
     if (typeof BookIntelligence !== 'undefined' && BookIntelligence.build) {
-      const base = BookIntelligence.build(parsed, analysisResult);
-      const story = (typeof StoryIntelligence !== 'undefined' && StoryIntelligence.enrich) ? StoryIntelligence.enrich(parsed, base) : base;
-      const continuity = (typeof ContinuityIntelligence !== 'undefined' && ContinuityIntelligence.enrich) ? ContinuityIntelligence.enrich(parsed, story) : story;
-      const timeline = (typeof TimelineIntelligence !== 'undefined' && TimelineIntelligence.enrich) ? TimelineIntelligence.enrich(parsed, continuity) : continuity;
-      const momentum = (typeof NarrativeMomentum !== 'undefined' && NarrativeMomentum.enrich) ? NarrativeMomentum.enrich(timeline) : timeline;
-      const relationships = (typeof RelationshipIntelligence !== 'undefined' && RelationshipIntelligence.enrich) ? RelationshipIntelligence.enrich(parsed, momentum) : momentum;
-      return (typeof CharacterLedger !== 'undefined' && CharacterLedger.enrich) ? CharacterLedger.enrich(relationships) : relationships;
+      let intel = BookIntelligence.build(parsed, analysisResult);
+      if (typeof DocumentIntelligence !== 'undefined' && DocumentIntelligence.enrich) intel = DocumentIntelligence.enrich(parsed, intel);
+      const isNonfiction = intel.documentType?.type === 'nonfiction';
+      if (!isNonfiction && typeof StoryIntelligence !== 'undefined' && StoryIntelligence.enrich) intel = StoryIntelligence.enrich(parsed, intel);
+      if (!isNonfiction && typeof ContinuityIntelligence !== 'undefined' && ContinuityIntelligence.enrich) intel = ContinuityIntelligence.enrich(parsed, intel);
+      if (!isNonfiction && typeof TimelineIntelligence !== 'undefined' && TimelineIntelligence.enrich) intel = TimelineIntelligence.enrich(parsed, intel);
+      if (!isNonfiction && typeof NarrativeMomentum !== 'undefined' && NarrativeMomentum.enrich) intel = NarrativeMomentum.enrich(intel);
+      if (!isNonfiction && typeof RelationshipIntelligence !== 'undefined' && RelationshipIntelligence.enrich) intel = RelationshipIntelligence.enrich(parsed, intel);
+      if (!isNonfiction && typeof CharacterLedger !== 'undefined' && CharacterLedger.enrich) intel = CharacterLedger.enrich(intel);
+      return intel;
     }
     return null;
   },
@@ -73,6 +76,7 @@ const Storage = {
       timelineEventCount: (intelligence.timeline?.events||[]).length,
       threadCount: (intelligence.narrativeMomentum?.arcs||[]).length,
       continuityCount: (intelligence.continuity||[]).length,
+      documentType: intelligence.documentType || null, nonfictionCounts: intelligence.nonfiction ? { concepts:(intelligence.nonfiction.concepts||[]).length, claims:(intelligence.nonfiction.claims||[]).length, personalEvidence:(intelligence.nonfiction.personalEvidence||[]).length, reflectionQuestions:(intelligence.nonfiction.reflectionQuestions||[]).length, actions:(intelligence.nonfiction.actions||[]).length, recommendations:(intelligence.nonfiction.recommendations||[]).length } : null,
       pov: intelligence.pov, scoreEvidence: intelligence.scoreEvidence || {},
       scoreConflicts: (intelligence.scoreConflicts || []).slice(0,20),
       generatedAt: firebase.firestore.FieldValue.serverTimestamp()
