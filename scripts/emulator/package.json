@@ -1,0 +1,14 @@
+{
+  "name": "authorscrolls-emulator-tests",
+  "private": true,
+  "engines": { "node": "22.x" },
+  "scripts": {
+    "test": "firebase emulators:exec --config ../../firebase.emulator.json --project demo-authorscrolls-staging --only auth,firestore \"node --test --test-concurrency=1 integration.cjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "5.0.2",
+    "firebase": "12.19.0",
+    "firebase-client": "npm:firebase@10.12.0",
+    "firebase-tools": "15.30.2"
+  }
+}

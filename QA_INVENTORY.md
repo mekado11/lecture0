@@ -1,6 +1,6 @@
 # Workspace and engine verification inventory
 
-This inventory separates code-level, browser-fixture and live-service evidence. No live customer manuscript is a fixture.
+This inventory separates code-level, browser-fixture, real local-emulator and live-service evidence. No live customer manuscript is a fixture.
 
 | User-visible claim / control | Functional check | Visual state / evidence |
 |---|---|---|
@@ -27,4 +27,6 @@ This inventory separates code-level, browser-fixture and live-service evidence. 
 
 ## Explicit exclusions
 
-Live Firebase Auth, deployed Firestore Rules, real cross-device/offline transactions, paid-provider editorial quality, Stripe test-mode lifecycle, Safari/Firefox, full accessibility conformance, and a representative human-reviewed scoring corpus are not certified by browser fixtures. Preserve these as production gates.
+The ten checks documented in `scripts/emulator/README.md` now exercise real local Auth/Firestore services and repository Rules: sign-in/reset/revocation, ownership, multi-part saves, snapshots, concurrent clients, missing parts, offline stale edits, deletion conflicts and current AI access. The client SDK is pinned to the version used by the app. This closes the earlier mocked-only Rules/transaction evidence gap, not live-service acceptance.
+
+Live Firebase Auth, deployed IAM/Rules, Google OAuth, real email delivery, actual multi-browser/device offline recovery, paid-provider editorial quality, production Redis, Stripe test-mode lifecycle, Safari/Firefox, full accessibility conformance, and a representative human-reviewed scoring corpus remain uncertified. Billing was excluded from this continuation, not marked complete.

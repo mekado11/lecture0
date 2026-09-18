@@ -7,46 +7,23 @@ const { checkAndIncrement } = require('./_ratelimit');
 
 const LIMITS = { dev: 9999, beta: 50, premium: 75, starter: 25, free: 0 };
 
-// Brief in-memory tier cache to avoid hitting Firestore on every request
-const tierCache = new Map();
-const TIER_CACHE_TTL = 60000; // 1 minute
-
-async function getUserTier(userId, email) {
-  if ((process.env.ADMIN_UIDS||'').split(',').map(s=>s.trim()).includes(userId)) return 'dev';
-
-  const cached = tierCache.get(userId);
-
+async function getUserTier(userId) {
   const fb = getAdmin();
   if (fb) {
     try {
-      // Always read if no cache, or cache has expired.
-      // Also re-read if the Firestore tierUpdatedAt is newer than our cached snapshot —
-      // this ensures a downgrade (subscription cancelled) takes effect immediately rather
-      // than persisting for up to TIER_CACHE_TTL across all running instances.
-      let needsRead = !cached || Date.now() - cached.ts >= TIER_CACHE_TTL;
-      if (!needsRead && cached) {
-        const doc = await fb.firestore().collection('users').doc(userId).get();
-        if (doc.exists) {
-          const updatedAt = doc.data().tierUpdatedAt;
-          const updatedMs = updatedAt ? updatedAt.toMillis() : 0;
-          if (updatedMs > cached.ts) {
-            const tier = doc.data().tier || 'free';
-            tierCache.set(userId, { tier, ts: Date.now() });
-            return tier;
-          }
-        }
-        return cached.tier;
-      }
-      if (needsRead) {
-        const doc = await fb.firestore().collection('users').doc(userId).get();
-        const tier = doc.exists ? (doc.data().tier || 'free') : 'free';
-        tierCache.set(userId, { tier, ts: Date.now() });
-        return tier;
-      }
-      return cached.tier;
-    } catch (e) { /* Fail closed after a bounded cache lifetime. */ }
+      // Admin reads bypass Rules. Check the same deletion boundary explicitly,
+      // including privileged accounts, and never reuse stale authorization.
+      const db = fb.firestore();
+      const [profile, deletion] = await db.getAll(
+        db.collection('users').doc(userId),
+        db.collection('accountDeletions').doc(userId)
+      );
+      if (deletion.exists) return 'free';
+      if ((process.env.ADMIN_UIDS||'').split(',').map(s=>s.trim()).includes(userId)) return 'dev';
+      const tier = profile.exists ? profile.data().tier : 'free';
+      return typeof tier === 'string' && Object.hasOwn(LIMITS,tier) ? tier : 'free';
+    } catch (_) { return null; } // Unavailable authority is not a cached grant.
   }
-  if (cached&&Date.now()-cached.ts<TIER_CACHE_TTL) return cached.tier;
   return 'free';
 }
 
@@ -95,10 +72,13 @@ module.exports = async (req, res) => {
 
   const decoded = auth.user;
   const userId = decoded.uid;
-  const userEmail = (decoded.email || '').toLowerCase();
   const today = new Date().toISOString().split('T')[0];
 
-  const userTier = await getUserTier(userId, userEmail);
+  const userTier = await getUserTier(userId);
+  if (userTier === null) {
+    res.status(503).json({error:{message:'Access verification unavailable. Please try again.',code:'ACCESS_UNAVAILABLE'}});
+    return;
+  }
   const limit = LIMITS[userTier] || LIMITS.free;
 
   // The server owns model authorization. Client routing is only a request hint.
