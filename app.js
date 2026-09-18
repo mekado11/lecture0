@@ -595,10 +595,8 @@ function autoSave(){
           }else{
             Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
           }
-          await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
         }else{
           await Storage.updateManuscript(Storage._currentManuscriptId,extractedText,analysisResult);
-          await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
         }
       }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Cloud save error:',e.message)}
     }else if(!_cloudSaveWarned){
