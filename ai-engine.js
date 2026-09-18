@@ -62,6 +62,37 @@ const AIEngine = {
     return 'openai-fast';
   },
 
+  _serializeContextPacket(packet) {
+    if (!packet) return '';
+    const compact = {
+      query: packet.query,
+      chapters: (packet.chapters || []).map(c => ({ id:c.chapterId, title:c.title, text:c.text })),
+      characters: packet.characters || [], facts: packet.facts || [], relationships: packet.relationships || [],
+      timeline: packet.timeline || [], continuity: packet.continuity || [], plotThreads: packet.plotThreads || []
+    };
+    return JSON.stringify(compact);
+  },
+
+  buildGroundedContext(query, manuscriptText, analysis = null) {
+    if (typeof ManuscriptParser === 'undefined' || typeof BookIntelligence === 'undefined' || typeof ManuscriptRetrieval === 'undefined') return null;
+    let parsed = ManuscriptParser.parse(manuscriptText);
+    let intel = BookIntelligence.build(parsed, analysis);
+    if (typeof StoryIntelligence !== 'undefined') intel = StoryIntelligence.enrich(parsed, intel);
+    if (typeof ContinuityIntelligence !== 'undefined') intel = ContinuityIntelligence.enrich(parsed, intel);
+    if (typeof TimelineIntelligence !== 'undefined') intel = TimelineIntelligence.enrich(parsed, intel);
+    return ManuscriptRetrieval.contextPacket(query, parsed, intel, 6);
+  },
+
+  async askManuscript(apiKey, question, manuscriptText, analysis = null) {
+    const packet = this.buildGroundedContext(question, manuscriptText, analysis);
+    const context = this._serializeContextPacket(packet);
+    return this._callClaude(apiKey,
+      'You are AuthorScrolls Writer\\'s Room. Answer the author\\'s question using only the supplied manuscript context. Distinguish manuscript evidence from interpretation. If the retrieved evidence is insufficient, say so instead of inventing details.',
+      'AUTHOR QUESTION:\\n' + question + '\\n\\nRETRIEVED BOOK CONTEXT:\\n' + context + '\\n\\nReturn JSON: {"answer":"...","evidence":[{"chapterId":"...","quote":"short supporting excerpt"}],"confidence":"high|medium|low","insufficientEvidence":false}',
+      '', 'writersRoom:' + this._shortHash(question + context)
+    );
+  },
+
   async _callClaude(apiKey, systemPrompt, userPrompt, manuscriptText, feature) {
     // Check cache first
     const cached = this._getCached(manuscriptText, feature);
