@@ -3681,7 +3681,7 @@ const Analyzer = {
     // remaining weights renormalized — never substituted with fake neutral values.
     const bundle = this._computeScoreBundle({
       plot: plot.score, transitions: transitions.score, copy: copyScore, line: lineScore,
-      style: style.score, dialogue: dialogue.score, showTell: isNF ? null : showTellScore,
+      style: style.score, dialogue: isNF ? null : dialogue.score, showTell: isNF ? null : showTellScore,
       grammar: grammarScore,
       clarity: writingQuality.clarityScore, discipline: writingQuality.disciplineScore,
       efficiency: writingQuality.efficiencyScore, engagement: writingQuality.engagementScore,
@@ -3695,6 +3695,7 @@ const Analyzer = {
 
     return {
       overall, genre, totalWords, manuscriptMode, issuesPerK,
+      scoreModel: selfHelpScores ? 'self-help-v1' : (isNF ? 'nonfiction-v1' : 'fiction-v1'),
       subScores,
       // Segmentation report: what was excluded from literary analysis and why scores
       // are trustworthy. narrativeStart/End are offsets into the full text.
@@ -3708,8 +3709,8 @@ const Analyzer = {
       selfHelpScores,
       scores: {
         plot: plot.score, transitions: transitions.score, copy: copyScore,
-        line: lineScore, style: style.score, dialogue: dialogue.score,
-        showTell: showTellScore, grammar: grammarScore
+        line: lineScore, style: style.score, dialogue: isNF ? null : dialogue.score,
+        showTell: isNF ? null : showTellScore, grammar: grammarScore
       },
       writingQuality, lineEditing, blurbs, scifiWorld, genreElements, openingDiagnosis, sceneEmotions,
       plot, transitions, dialogue, style, sentenceVariety, readability,
@@ -3766,7 +3767,7 @@ const Analyzer = {
     const isNF = this.isNonfiction(r.genre);
     const bundle = this._computeScoreBundle({
       plot: s.plot, transitions: s.transitions, copy: s.copy, line: s.line,
-      style: s.style, dialogue: s.dialogue, showTell: isNF ? null : s.showTell,
+      style: s.style, dialogue: isNF ? null : s.dialogue, showTell: isNF ? null : s.showTell,
       grammar: s.grammar,
       clarity: wq.clarityScore, discipline: wq.disciplineScore,
       efficiency: wq.efficiencyScore, engagement: wq.engagementScore,
