@@ -126,20 +126,6 @@ module.exports = async (req, res) => {
     res.status(403).json({ error: { message: 'This AI route is not available for your subscription tier', code: 'MODEL_NOT_ALLOWED', tier: userTier } }); return;
   }
 
-  // Count only authenticated, structurally valid requests that are authorized to use this route.
-  const used = await checkAndIncrement(userId, today);
-  if (used > limit) {
-    res.status(429).json({
-      error: {
-        message: userTier === 'free'
-          ? 'AI features require a subscription.'
-          : 'Daily AI limit reached (' + limit + '/day). Try again after the daily reset.',
-        code: 'RATE_LIMITED', limit, used: used - 1, tier: userTier
-      }
-    });
-    return;
-  }
-
   // Extract only allowed fields — never forward arbitrary client payload.
   // Bound prompt size at the server even if a modified client bypasses UI/retrieval budgets.
   const body = req.body && typeof req.body === 'object' ? req.body : {};
@@ -158,6 +144,17 @@ module.exports = async (req, res) => {
     messages,
     max_tokens: Math.min(Math.max(Number(body.max_tokens) || 2048, 64), 2048)
   };
+
+  // Count only authenticated, authorized, structurally valid requests.
+  const used = await checkAndIncrement(userId, today);
+  if (used > limit) {
+    res.status(429).json({
+      error: {
+        message: userTier === 'free' ? 'AI features require a subscription.' : 'Daily AI limit reached (' + limit + '/day). Try again after the daily reset.',
+        code: 'RATE_LIMITED', limit, used: used - 1, tier: userTier
+      }
+    }); return;
+  }
 
   if (requestedModel === 'claude' || requestedModel === 'claude-premium') {
     return callClaude(sanitized, res);
