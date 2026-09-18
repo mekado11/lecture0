@@ -267,7 +267,14 @@ const AIEngine = {
       try {
         results[f.key] = await f.fn();
       } catch (err) {
-        results[f.key] = { error: err?.message || String(err) };
+        const msg = err?.message || String(err);
+        // Circuit breaker: auth failures and rate limits are batch-fatal — every
+        // remaining feature is guaranteed to fail the same way. Rethrow immediately
+        // instead of hammering the dead endpoint ten times in a row.
+        if (msg.startsWith('SERVER_AUTH_ERROR:') || msg.includes('limit reached') || msg.includes('RATE_LIMITED')) {
+          throw err;
+        }
+        results[f.key] = { error: msg };
       }
     }
     return results;

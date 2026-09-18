@@ -432,6 +432,13 @@ body.lib-mode{overflow:auto}
 @media(max-width:600px){.topbar-c{display:none}.topbar{height:auto;flex-wrap:wrap;padding:.4rem .6rem}.topbar-r{flex-wrap:wrap;gap:.3rem}.tb-btn{font-size:.72rem;padding:.35rem .5rem;min-height:44px}}
 @media(max-width:480px){.lib-cards-grid{grid-template-columns:1fr}.topbar-r{gap:.2rem}.lib-title{font-size:1.4rem}.lib-nav-r{gap:.5rem}.bottom-tabs{overflow-x:auto;flex-wrap:nowrap}.btab{white-space:nowrap;flex-shrink:0}.rdr-grid,.beta-grid,.comp-grid{grid-template-columns:1fr}.stats{grid-template-columns:1fr;gap:.5rem}}
 
+   LONG-MANUSCRIPT RENDERING
+   content-visibility lets the browser skip layout+paint for
+   off-screen paragraphs — a 70k-word manuscript renders like a
+   short one. contain-intrinsic-size keeps the scrollbar stable.
+   ============================================================ */
+.ms-page p{content-visibility:auto;contain-intrinsic-size:auto 90px}
+=======
 /* Book Intelligence Window */
 .intel-window{position:fixed;top:0;right:0;width:min(460px,94vw);height:100vh;background:var(--panel,#fff);border-left:1px solid var(--border,#ddd);box-shadow:-18px 0 50px rgba(0,0,0,.16);z-index:1200;transform:translateX(105%);transition:transform .24s ease;padding:1.2rem;overflow:auto;font-family:Inter,sans-serif}.intel-window.open{transform:translateX(0)}.intel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem}.intel-head h3{font-family:Lora,serif;margin:.15rem 0;font-size:1.35rem}.intel-kicker{font-size:.62rem;letter-spacing:.14em;color:var(--gold,#a66f43);font-weight:800}.intel-close{border:0;background:transparent;font-size:1.7rem;cursor:pointer;color:var(--muted)}.intel-sub,.intel-note{color:var(--muted);font-size:.78rem;line-height:1.55}.intel-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:.45rem;margin:1rem 0}.intel-summary div{border:1px solid var(--border,#ddd);border-radius:8px;padding:.65rem .35rem;text-align:center}.intel-summary b{display:block;font-family:Lora,serif;font-size:1.15rem}.intel-summary span{font-size:.58rem;color:var(--muted)}.intel-body section{margin:1.15rem 0}.intel-body h4{font-family:Lora,serif;margin:0 0 .5rem}.intel-body article,.intel-answer{padding:.65rem;border:1px solid var(--border,#ddd);border-radius:8px;margin:.45rem 0;font-size:.76rem;line-height:1.45}.intel-body small,.intel-answer small{display:block;color:var(--muted);margin-top:.3rem}.intel-empty{font-size:.75rem;color:var(--muted)}.intel-askbox{position:sticky;bottom:-1.2rem;background:var(--panel,#fff);padding:1rem 0 1.2rem;border-top:1px solid var(--border,#ddd)}.intel-askbox label{display:block;font-weight:700;font-size:.72rem;margin-bottom:.4rem}.intel-askbox>div:first-of-type{display:flex;gap:.4rem}.intel-askbox input{flex:1;min-width:0;padding:.65rem;border:1px solid var(--border,#ccc);border-radius:7px;background:transparent;color:inherit}.intel-askbox button{padding:.55rem .8rem;border:0;border-radius:7px;background:var(--gold,#a66f43);color:white;font-weight:700;cursor:pointer}
 
@@ -448,3 +455,5 @@ body.lib-mode{overflow:auto}
 .version-diff{margin:.55rem 0;padding:.55rem;background:var(--surface);border:1px solid var(--border);border-radius:6px}.version-diff>b{display:block;font-size:.68rem;margin-bottom:.3rem;color:var(--gold-l)}.version-diff>div{display:flex;justify-content:space-between;gap:.5rem;padding:.22rem 0;border-top:1px solid rgba(128,128,128,.12);font-size:.64rem}.version-diff>div small{margin:0;white-space:nowrap}.workspace-context details{margin:.45rem 0;font-size:.65rem;color:var(--muted);cursor:pointer}
 
 .revision-intel{margin:.5rem 0;padding:.55rem;border:1px solid var(--gold-d);border-radius:6px;background:rgba(200,149,108,.06)}.revision-intel>b{display:block;color:var(--gold-l);font-size:.68rem;margin-bottom:.25rem}.revision-intel small{line-height:1.5;border:0;padding:0}
+
+/* =====================================================
