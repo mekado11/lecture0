@@ -104,7 +104,10 @@ $('analyze-btn').addEventListener('click',async()=>{
         }
       }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Save error:',e.message)}
     }
-    try{const{rawIssues:_raw,...safeResult}=analysisResult||{};localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:safeResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}))}catch(e){if(e.name==='QuotaExceededError')_showSaveToast('Local storage full — cloud save only');console.warn('Autosave to localStorage failed (quota):',e.message)}
+    // Do not persist manuscript bodies or analysis in localStorage. It is synchronous,
+    // quota-limited, readable by any same-origin script, and duplicates the Firestore source
+    // of truth. Keep only non-sensitive reopen metadata.
+    try{localStorage.setItem('ml_last_open',JSON.stringify({fileName:uploadedFile.name,manuscriptId:Storage._currentManuscriptId||null,savedAt:new Date().toISOString()}));localStorage.removeItem('ml_autosave')}catch(e){console.warn('Local reopen metadata failed:',e.message)}
     // Close modal and go straight to the editor with the fresh analysis.
     // (Previously this reset state and dumped the user back in the library, forcing them to
     // find the card, click it, and sit through a second full analysis of the same text.)
@@ -603,7 +606,10 @@ function autoSave(){
       _cloudSaveWarned=true;
       _showSaveToast('Not signed in — saving locally only');
     }
-    try{const{rawIssues:_raw,...safeResult}=analysisResult||{};localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:safeResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}))}catch(e){if(e.name==='QuotaExceededError')_showSaveToast('Local storage full — cloud save only');console.warn('Autosave to localStorage failed (quota):',e.message)}
+    // Do not persist manuscript bodies or analysis in localStorage. It is synchronous,
+    // quota-limited, readable by any same-origin script, and duplicates the Firestore source
+    // of truth. Keep only non-sensitive reopen metadata.
+    try{localStorage.setItem('ml_last_open',JSON.stringify({fileName:uploadedFile.name,manuscriptId:Storage._currentManuscriptId||null,savedAt:new Date().toISOString()}));localStorage.removeItem('ml_autosave')}catch(e){console.warn('Local reopen metadata failed:',e.message)}
   },5000);
 }
 
