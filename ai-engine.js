@@ -68,8 +68,10 @@ const AIEngine = {
     const compact = {
       query: packet.query,
       chapters: (packet.chapters || []).map(c => ({ id:c.chapterId, title:c.title, text:c.text })),
+      documentType: packet.documentType || null,
       characters: packet.characters || [], facts: packet.facts || [], relationships: packet.relationships || [],
-      timeline: packet.timeline || [], stateChanges: packet.stateChanges || [], continuity: packet.continuity || [], plotThreads: packet.plotThreads || []
+      timeline: packet.timeline || [], stateChanges: packet.stateChanges || [], continuity: packet.continuity || [], plotThreads: packet.plotThreads || [],
+      nonfiction: packet.nonfiction || null
     };
     return JSON.stringify(compact);
   },
@@ -82,12 +84,14 @@ const AIEngine = {
     if (!built) {
       const parsed = ManuscriptParser.parse(manuscriptText);
       let intel = BookIntelligence.build(parsed, analysis);
-      if (typeof StoryIntelligence !== 'undefined') intel = StoryIntelligence.enrich(parsed, intel);
-      if (typeof ContinuityIntelligence !== 'undefined') intel = ContinuityIntelligence.enrich(parsed, intel);
-      if (typeof TimelineIntelligence !== 'undefined') intel = TimelineIntelligence.enrich(parsed, intel);
-    if (typeof NarrativeMomentum !== 'undefined') intel = NarrativeMomentum.enrich(intel);
-    if (typeof RelationshipIntelligence !== 'undefined') intel = RelationshipIntelligence.enrich(parsed, intel);
-    if (typeof CharacterLedger !== 'undefined') intel = CharacterLedger.enrich(intel);
+      if (typeof DocumentIntelligence !== 'undefined') intel = DocumentIntelligence.enrich(parsed, intel);
+      const isNonfiction = intel.documentType?.type === 'nonfiction';
+      if (!isNonfiction && typeof StoryIntelligence !== 'undefined') intel = StoryIntelligence.enrich(parsed, intel);
+      if (!isNonfiction && typeof ContinuityIntelligence !== 'undefined') intel = ContinuityIntelligence.enrich(parsed, intel);
+      if (!isNonfiction && typeof TimelineIntelligence !== 'undefined') intel = TimelineIntelligence.enrich(parsed, intel);
+      if (!isNonfiction && typeof NarrativeMomentum !== 'undefined') intel = NarrativeMomentum.enrich(intel);
+      if (!isNonfiction && typeof RelationshipIntelligence !== 'undefined') intel = RelationshipIntelligence.enrich(parsed, intel);
+      if (!isNonfiction && typeof CharacterLedger !== 'undefined') intel = CharacterLedger.enrich(intel);
       built = { parsed, intel };
       this._bookContextCache.clear();
       this._bookContextCache.set(key, built);
@@ -140,7 +144,7 @@ const AIEngine = {
         },
         {
           type: 'text',
-          text: 'MANUSCRIPT TEXT:\n\n' + manuscriptText.substring(0, 15000),
+          text: options.contextOverride || ('MANUSCRIPT TEXT:\n\n' + manuscriptText.substring(0, 15000)),
           cache_control: { type: 'ephemeral' }
         }
       ],
