@@ -176,12 +176,19 @@ let _tipDismissWired=false;
 const _undoStack=[];
 const _redoStack=[];
 const MAX_UNDO=50;
+// Long manuscripts: each snapshot holds the full editor innerHTML (multi-MB at 70k+ words),
+// so cap the stack depth by document size to bound memory.
+function _maxUndo(){return (extractedText&&extractedText.length>180000)?15:MAX_UNDO}
 let _lastSnapshotText='';
+// Snapshots hold html+text ONLY. The old code also structuredClone()d the entire
+// analysisResult (issues, rawIssues, every sub-report) into every snapshot — a
+// main-thread deep clone of megabytes on every settled keystroke. Undo/redo now
+// restore the text and let the 2s reanalyze pipeline re-derive the scores.
 function pushUndo(){
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult?structuredClone(analysisResult):null});
-  if(_undoStack.length>MAX_UNDO)_undoStack.shift();
+  _undoStack.push({html:page.innerHTML,text:extractedText});
+  while(_undoStack.length>_maxUndo())_undoStack.shift();
   _redoStack.length=0;
   _lastSnapshotText=extractedText;
   _updateUndoBtn();
@@ -190,8 +197,8 @@ function _pushTypingSnapshot(){
   if(extractedText===_lastSnapshotText)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult?structuredClone(analysisResult):null});
-  if(_undoStack.length>MAX_UNDO)_undoStack.shift();
+  _undoStack.push({html:page.innerHTML,text:extractedText});
+  while(_undoStack.length>_maxUndo())_undoStack.shift();
   _redoStack.length=0;
   _lastSnapshotText=extractedText;
 }
@@ -199,11 +206,10 @@ function undoLastFix(){
   if(_undoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _redoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult?structuredClone(analysisResult):null});
+  _redoStack.push({html:page.innerHTML,text:extractedText});
   const state=_undoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
-  if(state.analysis){analysisResult=state.analysis;updateScoresOnly(analysisResult)}
   _lastSnapshotText=extractedText;
   scheduleReanalyze();
   _updateUndoBtn();
@@ -212,11 +218,10 @@ function redoLastFix(){
   if(_redoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult?structuredClone(analysisResult):null});
+  _undoStack.push({html:page.innerHTML,text:extractedText});
   const state=_redoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
-  if(state.analysis){analysisResult=state.analysis;updateScoresOnly(analysisResult)}
   _lastSnapshotText=extractedText;
   scheduleReanalyze();
   _updateUndoBtn();
@@ -301,6 +306,7 @@ function renderAll(){
   renderSceneIntel(r);
   // Book preview now renders on-demand when the Preview tab is activated — not here
   renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderBlurbs(r);renderVersions();
+  _lastScoresSig=_scoresSig(r); // renderAll rendered directly — keep the skip-signature in sync
   // Auto-save
   autoSave();
   // Re-engagement tracking
@@ -579,10 +585,16 @@ function _hydrateFromBatchCache(r,cached){
 }
 
 // AUTO-SAVE (Firestore + localStorage fallback)
+let _lastAutoSaveKey='';
 function autoSave(){
   if(!analysisResult||!uploadedFile)return;
+  // Skip entirely when nothing changed since the last save — the reanalyze loop calls
+  // this on every completion, and each save JSON.stringifies the whole manuscript.
+  const saveKey=extractedText.length+':'+(extractedText?extractedText.substring(0,80):'')+':'+(analysisResult.overall??'')+':'+(analysisResult.issues?analysisResult.issues.length:0);
+  if(saveKey===_lastAutoSaveKey)return;
   clearTimeout(autoSaveTimer);
   autoSaveTimer=setTimeout(async()=>{
+    _lastAutoSaveKey=saveKey;
     await Storage.whenReady();
     if(Storage.userId){
       try{
@@ -675,22 +687,9 @@ function renderSceneIntel(r){
   h+='<div class="focus-toggle" id="focus-toggle">Focus Mode <span class="focus-badge off">OFF</span></div>';
   h+='<button class="sim-btn" id="sim-reader-btn">\uD83D\uDC41 Simulate Reader Experience</button>';
   el.innerHTML=h;
-  // Focus mode: hides sidebars
-  $('focus-toggle')?.addEventListener('click',()=>{
-    const lp=$('left-panel'),rp2=$('right-panel'),gb=$('goal-bar'),badge=document.querySelector('.focus-badge');
-    const isOn=badge.textContent==='ON';
-    if(isOn){
-      if(lp)lp.style.display='';if(rp2)rp2.style.display='';if(gb)gb.style.display='';
-      badge.textContent='OFF';badge.className='focus-badge off';
-      document.getElementById('focus-exit-pill')?.remove();
-    }else{
-      if(lp)lp.style.display='none';if(rp2)rp2.style.display='none';if(gb)gb.style.display='none';
-      badge.textContent='ON';badge.className='focus-badge';
-      // Show a floating "Exit Focus Mode" pill
-      let pill=document.getElementById('focus-exit-pill');
-      if(!pill){pill=document.createElement('button');pill.id='focus-exit-pill';pill.textContent='Exit Focus';pill.style.cssText='position:fixed;bottom:.7rem;right:1rem;z-index:500;padding:.25rem .6rem;background:rgba(30,24,18,.85);border:1px solid rgba(200,149,108,.25);color:var(--gold);border-radius:5px;font-size:.65rem;cursor:pointer;font-family:Inter,sans-serif;opacity:.5;transition:opacity .2s';pill.title='Click to restore all panels';pill.onmouseenter=()=>pill.style.opacity='1';pill.onmouseleave=()=>pill.style.opacity='.5';document.body.appendChild(pill);pill.addEventListener('click',()=>$('focus-toggle')?.click())}
-    }
-  });
+  // Focus mode: hides sidebars (shared state with the fullscreen toggle so the
+  // ON/OFF badge can never desync from what's actually on screen)
+  $('focus-toggle')?.addEventListener('click',()=>{_setPanelsHidden(!_panelsHidden)});
   // Simulate reader: switch to reader view
   $('sim-reader-btn')?.addEventListener('click',()=>{
     document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
@@ -699,6 +698,25 @@ function renderSceneIntel(r){
     if(readerBtn)readerBtn.classList.add('active');
     $('ed-reader')?.classList.add('active');
   });
+}
+
+// SINGLE panel-visibility state — Focus Mode (Scene Intelligence) and the fullscreen
+// button (#bi-fullscreen) used to each toggle display:none independently, so using one
+// after the other desynced the Focus badge from reality.
+let _panelsHidden=false;
+function _setPanelsHidden(hidden){
+  _panelsHidden=hidden;
+  const lp=$('left-panel'),rp2=$('right-panel'),gb=$('goal-bar');
+  const d=hidden?'none':'';
+  if(lp)lp.style.display=d;if(rp2)rp2.style.display=d;if(gb)gb.style.display=d;
+  const badge=document.querySelector('.focus-badge');
+  if(badge){badge.textContent=hidden?'ON':'OFF';badge.className='focus-badge'+(hidden?'':' off')}
+  if(hidden){
+    let pill=document.getElementById('focus-exit-pill');
+    if(!pill){pill=document.createElement('button');pill.id='focus-exit-pill';pill.textContent='Exit Focus';pill.style.cssText='position:fixed;bottom:.7rem;right:1rem;z-index:500;padding:.25rem .6rem;background:rgba(30,24,18,.85);border:1px solid rgba(200,149,108,.25);color:var(--gold);border-radius:5px;font-size:.65rem;cursor:pointer;font-family:Inter,sans-serif;opacity:.5;transition:opacity .2s';pill.title='Click to restore all panels';pill.onmouseenter=()=>pill.style.opacity='1';pill.onmouseleave=()=>pill.style.opacity='.5';document.body.appendChild(pill);pill.addEventListener('click',()=>_setPanelsHidden(false))}
+  }else{
+    document.getElementById('focus-exit-pill')?.remove();
+  }
 }
 
 // REPLACE & FIX: select the highlight text and use execCommand to replace
@@ -867,6 +885,11 @@ function _renderSubScores(r){
   el.innerHTML=bits.join(' &middot; ')+(bits.length&&fmNote?'<br>':'')+fmNote;
 }
 
+let _lastScoresSig='';
+function _scoresSig(r){
+  const rp=r.readerPerspective||{};
+  return JSON.stringify([r.overall,r.scores,r.issueCounts,r.subScores,rp.engagementScore,rp.hookStrength,rp.pacingFeel,r.genre?.primary,r.totalWords]);
+}
 function updateScoresOnly(r){
   if(!r)return;
   _renderSubScores(r);
@@ -886,12 +909,17 @@ function updateScoresOnly(r){
   }
   previousScore=r.overall;
 
-  // Sidebar scores + issue panel
-  renderLeft(r);
-  renderRight(r);
-  // Chapter nav rebuild
+  // Sidebars are full innerHTML + canvas rebuilds \u2014 skip them when nothing they
+  // display has changed (the 2s reanalyze loop fires this constantly while typing).
+  const sig=_scoresSig(r);
+  if(sig!==_lastScoresSig){
+    _lastScoresSig=sig;
+    renderLeft(r);
+    renderRight(r);
+  }
+  // Chapter nav rebuild (has its own change detection)
   buildChapterNav();
-  // Auto-save
+  // Auto-save (skips internally when text+scores unchanged)
   autoSave();
 }
 
@@ -922,9 +950,9 @@ function renderLeft(r){
     {name:isSHLeft?'Reader Momentum':'Pacing',score:_pacingScore,sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:_pacingBadge},
     {name:'Readability',score:fkEase,sub:fkSub,bar:true}
   ];
-  $('lp-cards').innerHTML=cards.map(c=>{
+  $('lp-cards').innerHTML=cards.map((c,i)=>{
     const col=c.inv?scHex(100-c.score):scHex(c.score);
-    const id='lpc-'+Math.random().toString(36).substr(2,5);
+    const id='lpc-ring-'+i;
     return '<div class="lp-card"><div class="lp-card-head"><div class="lpc-ring"><canvas id="'+id+'" width="40" height="40"></canvas><span class="lpc-num" style="color:'+col+'">'+c.score+'</span></div><div class="lpc-info"><div class="lpc-name">'+c.name+'</div><div class="lpc-sub">'+esc(c.sub)+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="lpc-score" style="color:'+col+'">'+c.score+'</span>')+'</div>'+(c.bar?'<div class="lpc-bar"><div class="lpc-bar-fill" style="width:'+c.score+'%;background:'+col+'"></div></div>':'')+(c.action?'<span class="lpc-action">'+c.action+'</span>':'')+'</div>';
   }).join('');
   // Draw rings
@@ -936,6 +964,7 @@ function renderLeft(r){
 }
 
 // RIGHT SIDEBAR
+let _activeDetailCat=null;
 function renderRight(r){
   if(!r)return;
   const stIssues=r.showTell&&r.showTell.issues?r.showTell.issues.length:(r.issueCounts?r.issueCounts['show-tell']:0)||0;
@@ -988,8 +1017,8 @@ function renderRight(r){
     ];
   }
   const container=$('rp-scores');
-  container.innerHTML=cats.map(c=>{
-    const col=scHex(c.score);const id='rsc-'+Math.random().toString(36).substr(2,5);
+  container.innerHTML=cats.map((c,i)=>{
+    const col=scHex(c.score);const id='rsc-ring-'+i;
     // Show density when available (replaces raw count); fall back to clean/— for zero-issue categories
     const issueLabel=c.density?c.density:c.issues>0&&c.issues<=5?c.issues+' issue'+(c.issues===1?'':'s'):c.score>=80?'Clean':'—';
     const issueColor=c.score<50?'var(--red)':c.score<70?'var(--yellow)':'var(--green)';
@@ -998,9 +1027,15 @@ function renderRight(r){
   // Draw rings
   cats.forEach((c,i)=>{const cvs=container.querySelectorAll('.rsc-ring canvas')[i];if(cvs)drawRing(cvs,c.score,34)});
   // Click handlers
-  container.querySelectorAll('.rsc').forEach(el=>{el.addEventListener('click',()=>{container.querySelectorAll('.rsc').forEach(e=>e.classList.remove('active'));el.classList.add('active');showDetail(el.dataset.cat)})});
-  // Show first by default
-  if(cats.length)showDetail(cats[0].k);
+  container.querySelectorAll('.rsc').forEach(el=>{el.addEventListener('click',()=>{container.querySelectorAll('.rsc').forEach(e=>e.classList.remove('active'));el.classList.add('active');_activeDetailCat=el.dataset.cat;showDetail(el.dataset.cat)})});
+  // Preserve the user's selected category across re-renders — the 2s reanalyze loop
+  // used to reset the detail panel to the first category on every score update.
+  if(cats.length){
+    const want=cats.some(c=>c.k===_activeDetailCat)?_activeDetailCat:cats[0].k;
+    const activeEl=container.querySelector('.rsc[data-cat="'+want+'"]');
+    if(activeEl)activeEl.classList.add('active');
+    showDetail(want);
+  }
 }
 
 // WHY explanations per issue type — helps writers understand the impact, not just the rule
@@ -1778,12 +1813,7 @@ document.querySelectorAll('.btab').forEach(t=>{t.addEventListener('click',()=>{
   function activateTab(t){tabs.forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}const chNav=$('chapter-nav');if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';}
   $('bi-prev-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur>0)activateTab(tabs[cur-1])});
   $('bi-next-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur<tabs.length-1)activateTab(tabs[cur+1])});
-  $('bi-fullscreen')?.addEventListener('click',()=>{
-    const lp=$('left-panel'),rp2=$('right-panel');
-    const hidden=lp?.style.display==='none';
-    if(hidden){if(lp)lp.style.display='';if(rp2)rp2.style.display=''}
-    else{if(lp)lp.style.display='none';if(rp2)rp2.style.display='none'}
-  });
+  $('bi-fullscreen')?.addEventListener('click',()=>{_setPanelsHidden(!_panelsHidden)});
   let _fontSize=16;
   $('bi-zoom-in')?.addEventListener('click',()=>{_fontSize=Math.min(22,_fontSize+1);document.querySelectorAll('.ms-page').forEach(p=>p.style.fontSize=_fontSize+'px')});
   $('bi-zoom-out')?.addEventListener('click',()=>{_fontSize=Math.max(12,_fontSize-1);document.querySelectorAll('.ms-page').forEach(p=>p.style.fontSize=_fontSize+'px')});
@@ -1835,11 +1865,23 @@ $('fmt-spacing')?.addEventListener('change',e=>{
 // ============================================================
 // CHAPTER NAVIGATION — detect chapters, render sidebar, click-to-scroll
 // ============================================================
+let _lastChapterNavSig='';
 function buildChapterNav(){
   const list=$('chn-list');if(!list)return;
   const page=$('ed-annotated');
   const text=extractedText||'';
   if(!text){list.innerHTML='<div style="padding:.5rem .7rem;font-size:.7rem;color:var(--dim)">No manuscript loaded</div>';return}
+  // Cheap change detection: headings rarely change while typing prose, but this is
+  // called on every reanalyze completion. Skip the rebuild when the outline is identical.
+  let navSig='';
+  if(page){
+    for(const child of page.children){
+      const tag=child.tagName;
+      if(tag==='H1'||tag==='H2')navSig+=tag+':'+(child.textContent||'').trim()+'|';
+    }
+  }else{navSig='txt:'+text.length}
+  if(navSig===_lastChapterNavSig&&list.children.length>0)return;
+  _lastChapterNavSig=navSig;
 
   // CANONICAL OUTLINE — one normalized, source-ordered chapter list.
   // Rules: (1) suppress table-of-contents clusters (runs of headings with no body text
@@ -2012,7 +2054,17 @@ function renderAnnotatedAsPages(text,issues){
 
   // sentence-length issues span full sentences (100-300 chars) and block all per-word highlights
   // inside them — show them in the scores panel only, not as inline annotation spans
-  const inlineIssues=issues.filter(i=>i.type!=='sentence-length'&&i.index>=0&&i.length>0);
+  let inlineIssues=issues.filter(i=>i.type!=='sentence-length'&&i.index>=0&&i.length>0);
+  // Long-manuscript cap: thousands of highlight spans make the contenteditable DOM sluggish
+  // (every keystroke re-layouts them). Render the highest-severity 800 inline; the rest stay
+  // available in the Smart Feedback panel.
+  const MAX_INLINE_HL=800;
+  if(inlineIssues.length>MAX_INLINE_HL){
+    const sevRank={high:0,medium:1,low:2};
+    inlineIssues=[...inlineIssues]
+      .sort((a,b)=>((sevRank[a.severity]??3)-(sevRank[b.severity]??3))||((b.confidence||0)-(a.confidence||0)))
+      .slice(0,MAX_INLINE_HL);
+  }
   // Build non-overlapping issues sorted by position
   const sorted=[...inlineIssues].sort((a,b)=>a.index-b.index);
   const noOverlap=[];let lastEnd=-1;
@@ -2562,13 +2614,17 @@ async function renderLibrary(){
 }
 
 function _wireLibraryEvents(){
-  // Add Manuscript button
+  // Add Manuscript button (lives inside the re-rendered grid — must rewire each time)
   $('lib-add-btn')?.addEventListener('click',()=>{
     $('upload-modal')?.classList.remove('hidden');
   });
 
-  // Upload modal back button
-  $('upload-modal-back')?.addEventListener('click',e=>{
+  // Upload modal back button — static element in app.html; _wireLibraryEvents runs on
+  // every renderLibrary(), so guard against stacking a new listener each time
+  const modalBackBtn=$('upload-modal-back');
+  if(modalBackBtn&&!modalBackBtn._wired){
+  modalBackBtn._wired=true;
+  modalBackBtn.addEventListener('click',e=>{
     e.preventDefault();
     $('upload-modal')?.classList.add('hidden');
     // Reset upload state
@@ -2577,6 +2633,7 @@ function _wireLibraryEvents(){
     $('file-info')?.classList.add('hidden');
     fi.value='';uploadedFile=null;
   });
+  }
 
   // Open buttons
   document.querySelectorAll('[data-action="open"]').forEach(btn=>{

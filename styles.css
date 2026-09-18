@@ -431,3 +431,11 @@ body.lib-mode{overflow:auto}
 @media(max-width:700px){.panels{flex-direction:column}.left-panel,.right-panel{width:100%!important;max-height:45vh;border:none;border-bottom:1px solid var(--border);min-width:0!important;overflow-y:auto}.chapter-nav{display:none}.ms-ruler{display:none}.lib-nav{padding:.5rem 1rem}.lib-content{padding:1.5rem 1rem}.lib-search{width:140px;height:40px}.lib-cards-grid{grid-template-columns:1fr 1fr}.center-toolbar{flex-wrap:wrap}.bottom-tabs{flex-wrap:wrap;gap:.15rem}.btab{font-size:.75rem;padding:.5rem .7rem;min-height:44px}.fmt-right{display:none}.fmt-btn{min-height:44px;min-width:44px}.tb-btn{min-height:44px;padding:.4rem .7rem}.bi-btn{min-height:44px;padding:.4rem .6rem}.lpc-action{min-height:44px;line-height:44px}.rpd-fix-btn,.rpd-ign-btn{min-height:44px;padding:.5rem .8rem}.lib-card-actions button{min-height:44px}.lib-avatar{width:40px;height:40px}.focus-btn{min-height:44px;padding:.5rem 1rem}.tip{max-width:calc(100vw - 2rem);left:1rem!important;right:auto}#gauge-canvas{max-width:100%;height:auto}.lib-card-meta,.lib-card-badge,.lpc-sub,.status-pill,.genre-override,.lpc-collapse{font-size:max(.78rem,12px)}}
 @media(max-width:600px){.topbar-c{display:none}.topbar{height:auto;flex-wrap:wrap;padding:.4rem .6rem}.topbar-r{flex-wrap:wrap;gap:.3rem}.tb-btn{font-size:.72rem;padding:.35rem .5rem;min-height:44px}}
 @media(max-width:480px){.lib-cards-grid{grid-template-columns:1fr}.topbar-r{gap:.2rem}.lib-title{font-size:1.4rem}.lib-nav-r{gap:.5rem}.bottom-tabs{overflow-x:auto;flex-wrap:nowrap}.btab{white-space:nowrap;flex-shrink:0}.rdr-grid,.beta-grid,.comp-grid{grid-template-columns:1fr}.stats{grid-template-columns:1fr;gap:.5rem}}
+
+/* ============================================================
+   LONG-MANUSCRIPT RENDERING
+   content-visibility lets the browser skip layout+paint for
+   off-screen paragraphs — a 70k-word manuscript renders like a
+   short one. contain-intrinsic-size keeps the scrollbar stable.
+   ============================================================ */
+.ms-page p{content-visibility:auto;contain-intrinsic-size:auto 90px}

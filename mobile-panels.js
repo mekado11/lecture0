@@ -8,7 +8,9 @@
     if (!isMobile()) return;
     var panels = document.querySelectorAll('.left-panel, .right-panel');
     panels.forEach(function (panel) {
-      var header = panel.querySelector('.lp-header, .rp-header, h3, h4');
+      // The real header classes are .lp-head / .rp-head (the old selectors
+      // .lp-header/.rp-header matched nothing, so collapse never worked)
+      var header = panel.querySelector('.lp-head, .rp-head');
       if (!header || header.dataset.mobileToggle) return;
       header.dataset.mobileToggle = '1';
       header.style.cursor = 'pointer';
@@ -19,10 +21,14 @@
     });
   }
 
-  // Inject collapse style once
+  // Inject collapse style once — hide everything in the panel except its header
+  // (there are no .lp-body/.rp-body wrappers in the markup)
   var style = document.createElement('style');
   style.textContent =
-    '@media(max-width:700px){.mob-collapsed .lp-body,.mob-collapsed .rp-body{display:none}}';
+    '@media(max-width:700px){' +
+    '.left-panel.mob-collapsed > :not(.lp-head){display:none}' +
+    '.right-panel.mob-collapsed > :not(.rp-head){display:none}' +
+    '}';
   document.head.appendChild(style);
 
   if (document.readyState === 'loading') {
@@ -30,4 +36,7 @@
   } else {
     addPanelToggles();
   }
+  // Panels render after analysis, not at DOMContentLoaded — retry when entering the editor
+  window.addEventListener('resize', addPanelToggles);
+  document.addEventListener('click', function () { addPanelToggles(); }, true);
 }());
