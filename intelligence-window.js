@@ -3,7 +3,13 @@ const IntelligenceWindow = (() => {
   'use strict';
   const $ = id => document.getElementById(id);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let latest = null, mode = 'chapters', renderId = 0, previousFocus = null;
+  let latest = null, mode = 'chapters', renderId = 0, answerId = 0, previousFocus = null;
+  function invalidateContext() {
+    answerId++;
+    if($('workspace-context'))$('workspace-context').innerHTML='';
+    if($('intel-answer'))$('intel-answer').textContent='';
+    if($('intel-ask'))$('intel-ask').disabled=false;
+  }
   function currentText() { return window.AuthorScrollsEditor?.getText() || ''; }
   function build() {
     const text = currentText();
@@ -85,7 +91,10 @@ const IntelligenceWindow = (() => {
         latest=null; await renderNavigator('versions');
         host.innerHTML=empty('Version restored. Your previous working text is available in the safety snapshot.');
       } catch(error) {
-        button.disabled=false; host.querySelector('.version-status').textContent='Restore failed: '+error.message;
+        button.disabled=false;
+        const status=host.querySelector('.version-status');
+        if(status)status.textContent='Restore failed: '+error.message;
+        else host.innerHTML=empty('Restore could not be completed: '+error.message);
       }
     });
   }
@@ -114,7 +123,7 @@ const IntelligenceWindow = (() => {
         });
         host.querySelectorAll('[data-version]').forEach(b=>b.addEventListener('click',async()=>{
           try {const version=await Storage.getVersion(id,b.dataset.version);if(version && token===renderId)showVersionPreview(id,version);}
-          catch(error){$('workspace-context').innerHTML=empty('This snapshot could not be read completely. It has not been restored.');}
+          catch(error){if(token===renderId)$('workspace-context').innerHTML=empty('This snapshot could not be read completely. It has not been restored.');}
         }));
       } catch(error){if(token===renderId)host.innerHTML=empty('Snapshots could not be loaded. Check your connection.');}
       return;
@@ -136,15 +145,17 @@ const IntelligenceWindow = (() => {
     const question=$('intel-question')?.value.trim(),data=build(),button=$('intel-ask'),out=$('intel-answer');
     if (!question || !data || button.disabled) return;
     if (!confirm('Send relevant passages from this manuscript to our AI provider to answer this question?')) return;
+    const token=++answerId;
     button.disabled=true;out.textContent='Reading relevant passages…';
     try {
       const result=await AIEngine.askManuscript(null,question,data.text,data.analysis);
+      if(token!==answerId)return;
       if (currentText()!==data.text) {out.textContent='Your manuscript changed while answering. Ask again using the updated draft.';return;}
       // Display only quotations that can be located verbatim in the claimed chapter.
       const supported=(result.evidence||[]).filter(e=>e.quote&&data.parsed.chapters.some(c=>c.id===e.chapterId&&(c.body||c.text).includes(e.quote)));
       out.innerHTML=`<article class="intel-answer"><b>Writer’s Room</b><p>${esc(result.answer||result.raw||'No answer returned.')}</p>${supported.map(e=>`<small>${esc(e.chapterId)} · “${esc(e.quote)}”</small>`).join('')}<small>Interpretation, not a verdict. Verify against your manuscript.</small></article>`;
-    } catch(error){out.textContent=error.message||'The answer could not be loaded.';}
-    finally{button.disabled=false;}
+    } catch(error){if(token===answerId)out.textContent=error.message||'The answer could not be loaded.';}
+    finally{if(token===answerId)button.disabled=false;}
   }
   function open() {previousFocus=document.activeElement;$('intel-window')?.classList.add('open');$('intel-window')?.removeAttribute('inert');render();$('intel-close')?.focus();}
   function close() {$('intel-window')?.classList.remove('open');$('intel-window')?.setAttribute('inert','');previousFocus?.focus();}
@@ -157,8 +168,8 @@ const IntelligenceWindow = (() => {
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('intel-window')?.classList.contains('open'))close();});
     document.querySelectorAll('.ws-nav').forEach(b=>b.addEventListener('click',()=>renderNavigator(b.dataset.wsnav)));
     let timer;
-    $('ed-annotated')?.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>{latest=null;renderNavigator();},800);});
-    window.addEventListener('manuscript:changed',()=>{latest=null;renderNavigator();if($('intel-window')?.classList.contains('open'))render();});
+    $('ed-annotated')?.addEventListener('input',()=>{invalidateContext();clearTimeout(timer);timer=setTimeout(()=>{latest=null;renderNavigator();},800);});
+    window.addEventListener('manuscript:changed',()=>{invalidateContext();latest=null;renderNavigator();if($('intel-window')?.classList.contains('open'))render();});
     renderNavigator();
   }
   return {init,open,close,render,renderNavigator};

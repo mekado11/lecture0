@@ -121,6 +121,25 @@ function pdf(){
     assert.ok(contextSent.includes('Alice'));
     await page.locator('#intel-close').click();
     await page.waitForTimeout(350);
+    // A late answer must not reappear after genre/context invalidation, even
+    // when the source text is identical.
+    await page.evaluate(()=>{
+      window.__originalAsk=AIEngine.askManuscript;
+      AIEngine.askManuscript=async()=>new Promise(resolve=>{window.__releaseAnswer=resolve;});
+    });
+    await page.locator('#intel-open').click();
+    await page.locator('#intel-ask').click();
+    await page.waitForFunction(()=>typeof window.__releaseAnswer==='function');
+    await page.locator('#intel-close').click();
+    await page.waitForTimeout(350);
+    await page.locator('#genre-override').selectOption('selfHelp');
+    await page.locator('#genre-override').selectOption('fantasy');
+    await page.evaluate(async()=>{
+      AIEngine.askManuscript=window.__originalAsk;
+      window.__releaseAnswer({answer:'STALE_ANSWER_SENTINEL',evidence:[]});
+      await new Promise(resolve=>setTimeout(resolve,0));
+    });
+    assert.equal(await page.locator('#intel-answer').innerText(),'','Context changes clear answers and discard late results');
     await page.locator('#save-btn').click();
     await page.waitForFunction(async()=> (await Storage.getVersions(Storage._currentManuscriptId)).length>0);
     await page.locator('#ed-annotated').evaluate(el=>{el.appendChild(Object.assign(document.createElement('p'),{textContent:'UNSAVED SENTINEL'}));el.dispatchEvent(new InputEvent('input',{bubbles:true}));});
@@ -132,19 +151,48 @@ function pdf(){
     // Restore snapshot while current edits have not been saved.
     await page.locator('[data-wsnav="versions"]').click();
     await page.locator('[data-version]').first().click();
+    await page.evaluate(()=>{
+      window.__originalRestore=Storage.restoreVersion.bind(Storage);
+      Storage.restoreVersion=async(...args)=>{
+        await new Promise(resolve=>{window.__releaseRestore=resolve;});
+        return window.__originalRestore(...args);
+      };
+    });
     await page.locator('.ws-restore').click();
+    await page.waitForFunction(()=>typeof window.__releaseRestore==='function');
+    assert.equal(await page.locator('#editor-view').evaluate(el=>el.inert),true,'Editing is locked during restore');
+    const restoreRecoveryDownload=page.waitForEvent('download');
+    await page.getByRole('button',{name:'Export current draft',exact:true}).click();
+    assert.ok(fs.readFileSync(await (await restoreRecoveryDownload).path(),'utf8').includes('UNSAVED SENTINEL'),'Export remains available during a stalled restore');
+    assert.match(await page.evaluate(async()=>{
+      try{await AuthorScrollsEditor.restoreVersion(Storage._currentManuscriptId,'unused');return '';}
+      catch(error){return error.message;}
+    }),/already in progress/);
+    await page.evaluate(()=>{Storage.restoreVersion=window.__originalRestore;window.__releaseRestore();});
     await page.getByText('Version restored. Your previous working text is available in the safety snapshot.').waitFor();
+    assert.equal(await page.locator('#editor-view').evaluate(el=>el.inert),false,'Editing resumes after restore');
     assert.ok(!(await page.locator('#ed-annotated').innerText()).includes('UNSAVED SENTINEL'));
     assert.ok(await page.evaluate(async()=>{
       const versions=await Storage.getVersions(Storage._currentManuscriptId);
       const safety=versions.find(v=>v.reason==='before_restore');
       return (await Storage.getVersion(Storage._currentManuscriptId,safety.id)).text.includes('UNSAVED SENTINEL');
     }));
+    assert.match(await page.evaluate(async()=>{
+      const before=AuthorScrollsEditor.getText();
+      Storage.restoreVersion=async()=>{throw new Error('Simulated restore failure');};
+      try{await AuthorScrollsEditor.restoreVersion(Storage._currentManuscriptId,'unused');return '';}
+      catch(error){
+        if(AuthorScrollsEditor.getText()!==before)throw new Error('Failed restore changed the open draft');
+        return error.message;
+      }finally{Storage.restoreVersion=window.__originalRestore;}
+    }),/Simulated restore failure/);
+    assert.equal(await page.locator('#editor-view').evaluate(el=>el.inert),false,'Failed restore releases interaction lock');
     await page.locator('#ed-annotated').evaluate(el=>{el.appendChild(Object.assign(document.createElement('p'),{textContent:'NAVIGATION SENTINEL'}));el.dispatchEvent(new InputEvent('input',{bubbles:true}));});
     await page.locator('#new-btn').click();
     await page.locator('#upload-view:not(.hidden)').waitFor();
     assert.ok(await page.evaluate(async()=>{const m=(await Storage.getManuscripts())[0];return (await Storage.getManuscript(m.id)).text.includes('NAVIGATION SENTINEL');}));
     await upload('draft.txt',Buffer.from(text));
+    assert.equal(await page.locator('#workspace-context').innerText(),'','Prior manuscript context must not carry forward');
     assert.equal(await page.evaluate(async()=>(await Storage.getManuscripts()).length),2,'Same-name drafts preserved');
     await page.locator('#new-btn').click();
     await page.locator('#upload-view:not(.hidden)').waitFor();
@@ -179,6 +227,14 @@ function pdf(){
     await page.locator('#new-btn').click();
     assert.ok(await page.locator('#editor-view').isVisible());
     assert.equal(await page.locator('#save-state').innerText(),'Not saved');
+    assert.match(await page.locator('#save-state').getAttribute('title'),/Injected write failure/);
+    assert.match(await page.locator('#save-toast').innerText(),/export your draft before reloading/);
+    await page.setViewportSize({width:375,height:812});
+    await page.screenshot({path:path.join(root,'test-results/save-failure-mobile.png')});
+    assert.ok(await page.locator('#save-toast').evaluate(el=>{
+      const bounds=el.getBoundingClientRect();return bounds.left>=0&&bounds.right<=innerWidth;
+    }),'Save failure guidance fits mobile');
+    await page.setViewportSize({width:1440,height:1000});
     assert.ok((await page.evaluate(()=>AuthorScrollsEditor.getText())).includes('UNSAVED_FAILURE_SENTINEL'));
     await page.evaluate(()=>{__fixture.fail=null;});
     await page.locator('#save-btn').click();

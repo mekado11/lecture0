@@ -521,9 +521,10 @@ function _hydrateFromBatchCache(r,cached){
 // Cloud-only persistence. An unsaved draft remains in this tab, never localStorage.
 let pendingSave=Promise.resolve();
 let _savedText=null;
-function setSaveState(state,label){
+let _restoreInProgress=false;
+function setSaveState(state,label,detail=''){
   const status=$('save-state');
-  if(status){status.dataset.state=state;status.textContent=label;}
+  if(status){status.dataset.state=state;status.textContent=label;status.title=detail;status.setAttribute('aria-label',detail?label+'. '+detail:label);}
 }
 function persistDraft(snapshot=false){
   if(!uploadedFile||!analysisResult)return Promise.resolve(true);
@@ -534,7 +535,7 @@ function persistDraft(snapshot=false){
   extractedText=text;
   // Capture text before any asynchronous work. Queue cloud writes in edit order.
   const task=async()=>{
-    let cloud=false,versionSaved=!snapshot;
+    let cloud=false,versionSaved=!snapshot,saveError='Sign in again before saving to cloud.';
     setSaveState('saving','Saving…');
     await Storage.whenReady();
     if(Storage.userId&&Storage.userId===userId){
@@ -545,9 +546,16 @@ function persistDraft(snapshot=false){
         _savedText=text;
         try{localStorage.setItem('ml_last_open',JSON.stringify({manuscriptId:Storage._currentManuscriptId}));}catch(_){}
         if(snapshot){await Storage.saveVersion(Storage._currentManuscriptId,result,text,'manual');versionSaved=true;}
-      }catch(error){console.warn('Cloud save failed:',error.message);if(cloud)_showSaveToast('Draft saved, but snapshot failed. Try again.');}
+      }catch(error){
+        saveError=error.message||'The cloud service could not complete the save.';
+        console.warn('Cloud save failed:',saveError);
+        if(cloud)_showSaveToast('Draft saved, but snapshot failed: '+saveError,8000);
+      }
     }
-    if(!cloud){setSaveState('error','Not saved');_showSaveToast('Cloud save failed. Keep this tab open, retry Save, or export your draft.');}
+    if(!cloud){
+      const detail=saveError+' Keep this tab open and export your draft before reloading.';
+      setSaveState('error','Not saved',detail);_showSaveToast(detail,10000);
+    }
     else{
       const clean=extractTextFromEditor()===text;
       setSaveState(clean?'saved':'dirty',clean?'Saved to cloud':'Unsaved changes');
@@ -2382,11 +2390,11 @@ $('export-btn')?.addEventListener('click',()=>{
 });
 
 // SAVE / LOAD
-function _showSaveToast(msg){
+function _showSaveToast(msg,duration=2000){
   let toast=document.getElementById('save-toast');
-  if(!toast){toast=document.createElement('div');toast.id='save-toast';toast.style.cssText='position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:#1e1812;border:1px solid rgba(200,149,108,.3);color:var(--gold-l);padding:.4rem 1rem;border-radius:6px;font-size:.78rem;z-index:999;opacity:0;transition:opacity .3s;font-family:Inter,sans-serif';document.body.appendChild(toast)}
+  if(!toast){toast=document.createElement('div');toast.id='save-toast';toast.setAttribute('role','status');toast.setAttribute('aria-live','polite');toast.style.cssText='position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:#1e1812;border:1px solid rgba(200,149,108,.3);color:var(--gold-l);padding:.6rem 1rem;border-radius:6px;font-size:.78rem;line-height:1.5;max-width:min(36rem,calc(100vw - 2rem));width:max-content;box-sizing:border-box;overflow-wrap:anywhere;z-index:999;opacity:0;transition:opacity .3s;font-family:Inter,sans-serif';document.body.appendChild(toast)}
   toast.textContent=msg;toast.style.opacity='1';
-  clearTimeout(toast._t);toast._t=setTimeout(()=>{toast.style.opacity='0'},2000);
+  clearTimeout(toast._t);toast._t=setTimeout(()=>{toast.style.opacity='0'},duration);
 }
 async function saveAnalysis(){
   return persistDraft(true);
@@ -3356,18 +3364,44 @@ window.AuthorScrollsEditor={
   getText:()=>uploadedFile?extractTextFromEditor():extractedText,
   getAnalysis:()=>analysisResult,
   async restoreVersion(id,versionId){
+    if(_restoreInProgress)throw new Error('A restore is already in progress. Please wait.');
     if(id!==Storage._currentManuscriptId)throw new Error('Open this manuscript before restoring it');
+    const view=$('editor-view'),wasInert=view.inert;
+    const previousFocus=document.activeElement;
+    _restoreInProgress=true;view.inert=true;view.setAttribute('aria-busy','true');
     clearTimeout(autoSaveTimer);clearTimeout(_reanalyzeTimer);_analyzeVersion++;
-    await pendingSave;
-    extractedText=await Storage.restoreVersion(id,versionId,analysisResult,extractTextFromEditor());
-    analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
-    _undoStack.length=0;_redoStack.length=0;renderAll();
-    await persistDraft();
+    _analysisRunner.cancel();
+    // This recovery control stays outside the inert editor. If the network
+    // stalls, the author can still export the working draft before closing.
+    const notice=document.createElement('div');
+    notice.id='restore-progress';notice.setAttribute('role','status');
+    notice.style.cssText='position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:1002;background:#1e1812;color:#f3e4ce;border:1px solid #c8956c;border-radius:6px;padding:.75rem 1rem;width:max-content;max-width:calc(100vw - 2rem);box-sizing:border-box;font-size:.85rem;line-height:1.5';
+    const message=document.createElement('p');message.textContent='Restoring snapshot. Keep this tab open; editing will resume when it finishes.';message.style.margin='0 0 .5rem';
+    const recovery=document.createElement('button');recovery.type='button';recovery.textContent='Export current draft';
+    recovery.style.cssText='padding:.5rem .75rem;background:#d2b081;color:#211b14;border:0;border-radius:4px;cursor:pointer';
+    recovery.addEventListener('click',()=>$('export-btn').click());
+    notice.append(message,recovery);document.body.appendChild(notice);
+    recovery.focus();
+    try{
+      await pendingSave;
+      extractedText=await Storage.restoreVersion(id,versionId,analysisResult,extractTextFromEditor());
+      analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
+      _undoStack.length=0;_redoStack.length=0;renderAll();
+      if(!await persistDraft())throw new Error('Restored text is open, but its latest save could not be confirmed. Keep this tab open and export it.');
+      _showSaveToast('Snapshot restored. Your previous text is in the safety snapshot.');
+    }catch(error){
+      _showSaveToast(error.message,10000);
+      throw error;
+    }finally{
+      notice.remove();
+      _restoreInProgress=false;view.inert=wasInert;view.removeAttribute('aria-busy');
+      if(previousFocus?.isConnected&&!previousFocus.disabled)previousFocus.focus();
+    }
   }
 };
 window.addEventListener('beforeunload',e=>{
   if(!uploadedFile)return;
-  if(extractTextFromEditor()!==_savedText){e.preventDefault();e.returnValue='';}
+  if(_restoreInProgress||extractTextFromEditor()!==_savedText){e.preventDefault();e.returnValue='';}
 });
 
 })();

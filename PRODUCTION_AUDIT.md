@@ -4,7 +4,7 @@ Updated September 18, 2026. Scope: header redesign, independent engine-claim ver
 
 ## Release decision
 
-**Suitable for code/design review and isolated staging acceptance. NOT cleared for production.**
+**Suitable for code/design review and controlled acceptance testing. NOT cleared for production.**
 
 Passing synthetic tests establishes repeatability and the exercised control flows, not literary accuracy, provider quality, complete manuscript comprehension, or live integration correctness. Do not merge or promote this branch solely because its build is green.
 
@@ -25,12 +25,12 @@ Source inspection additionally found a missing classifier signal yielding non-fi
 | Nonfiction intelligence | Author-selected genre wins over heuristics. Added concepts, attributed claims, personal evidence, reflection questions, actions and recommendations with chapter provenance. Blank lines after headings no longer suppress recommendations. | Synthetic extraction and browser Concepts/Evidence navigation pass. These are detected signals, not claim verification or a complete semantic model. |
 | Whole-book understanding | Opening, middle and ending samples across up to 24 structural units, plus relevant passages, enter a bounded context packet. Smart Scan gets context surrounding the actual flagged issue, even late in a book. | 30-chapter / 76,963-word synthetic coverage test; complete packet budget assertions. Explicitly sampled, NOT every word or every chapter. |
 | AI separated from deterministic scores | Removed score blending and AI calibration invocation. Grammar advice is stored separately. Smart Scan supplies optional suggestions without changing scores. Nonfiction fiction-only dimensions remain N/A. | Exact before/after browser score equality, static mutation guards, repeatability tests. Heuristic score validity remains unproven. |
-| Storage integrity | Retained generation publication, serialized writes, stale-device rejection, snapshot safety copies and strict part/length checks. Added incomplete-state and legacy length rejection. Failed saves block Library navigation and sign-out. | Fixture/browser checks plus real local Firestore multi-part, competing-client, offline and deletion-conflict tests. No cryptographic digest; same-length corruption and actual device interruptions remain open. |
+| Storage integrity | Schema 4 adds SHA-256 checks for new drafts and snapshots, including same-length corruption detection. Restore and snapshot writes share the manuscript queue. Uncommitted snapshots are rejected; failed-generation cleanup requires server confirmation that the generation is unpublished. | Node regressions and real local Firebase corruption tests pass. Schema-less and schema 1–3 drafts remain readable but are not retroactively digest-verified. Hashes detect accidental corruption, not malicious replacement of both content and digest. Actual device interruptions remain open. |
 | Browser manuscript privacy | No new manuscript-body or AI-result local/session storage writes in reviewed app paths. Removed title/chapter excerpt session telemetry. Cache is tab memory only. | Browser inspection and source guards. Preferences, document ID and operational metrics remain locally stored. Cloud manuscripts still intentionally persist. |
 | Legacy privacy migration | Same-owner older drafts get an explicit recovery-archive download/removal dialog. Unknown-owner data is quarantined, not imported/exported. No automatic startup purge of a sole old draft. | Browser owned-recovery flow passes. “Leave untouched” deliberately retains older data pending a decision; the app does not promise that all historical local data vanishes automatically. |
 | Security and grammar | Grammar uses authenticated proxy only; removed dormant direct provider fallback. AI requests now read current access and deletion state without stale caching; invalid tiers fail closed. | Unit and real local Auth/Rules tests pass. Deployed IAM/Rules, Google OAuth, real email and provider configuration remain unverified. |
 | Stripe and entitlement handling | Preserved merged plan validation, signed raw-body webhook handling, subscription metadata, idempotency, older-event handling and deletion tombstones. | Mocked API lifecycle regressions pass. No real checkout, webhook delivery or Billing Portal acceptance performed. |
-| Editor reliability | Cancellable worker with timeout/retry cleanup; stale results invalidated on edits and genre changes; undo captures pre-input state and avoids full analysis clones. Removed pagination text from saved content. Immediate saves mark analysis metadata pending rather than saving old scores as current. | Real browser typing undo/redo, immediate export, genre round trip and exact no-edit source/save comparison; worker isolation tests. Rich formatting remains presentation-only in plain-text cloud storage. |
+| Editor reliability | Cancellable worker, pre-input undo, exact source preservation and pending analysis metadata retained. Restores temporarily lock editing and duplicate restores, release on failure/success, and retain an accessible export control while waiting. Save failures expose their reason and export guidance. Storage no longer performs duplicate analysis on restore. Old context/answers clear on manuscript changes; late Writer's Room results are discarded. | Browser tests cover restore lock/release, stalled-restore export, unchanged text on failure, late-answer rejection even with identical text, and mobile failure guidance. Rich formatting remains presentation-only in plain-text cloud storage. |
 | Permanent audit | This document and `QA_INVENTORY.md` are committed engineering artifacts. | They supersede claims that PR 46 remains an open draft. |
 
 ## Header and product direction
@@ -46,8 +46,8 @@ Source inspection additionally found a missing classifier signal yielding non-fi
 | Check | Result | Boundary |
 |---|---|---|
 | Syntax | 65 JavaScript files; zero failures | Application, API, functions, tests and tooling |
-| Node suite | 51 passing test results; zero failures | Includes existing file-level suites; not 51 exhaustive feature certifications |
-| Firebase integration suite | 10 passing checks against real local Auth/Firestore emulators | Repository Rules, actual Storage/Admin/API code and browser-matched Firebase 10.12.0 SDK; no live project or provider |
+| Node suite | 58 passing test results; zero failures | Includes existing file-level suites; not 58 exhaustive feature certifications |
+| Firebase integration suite | 11 passing checks against real local Auth/Firestore emulators | Repository Rules, actual Storage/Admin/API code and browser-matched Firebase 10.12.0 SDK; no live project or provider |
 | Chromium workflow suite | Passed; zero uncaught page exceptions | Actual parsers, worker and DOM; mocked auth, Firestore and paid providers |
 | Long-book browser path | 76,963 words / 30 chapters; exact text and cloud-fixture round trip | About 1.2 seconds on this sandbox in the final run; not a production SLA or representative literary benchmark |
 | Whole-book retrieval | Beginning/middle/ending anchors and bounded context pass | Synthetic text, not a claim of exhaustive understanding |
@@ -64,17 +64,23 @@ The optional `scripts/build-review-preview.js` creates an explicitly labeled Com
 
 ## Outstanding priorities
 
-### Staging continuation: billing excluded
+### Local reliability continuation: billing excluded
 
 The isolated suite in `scripts/emulator` now verifies email/password sign-in and reset, revocation/disabled-user rejection, owner isolation and protected profile fields, multi-part Unicode saves, snapshot safety restore, independent-client conflicts, missing-chunk rejection, offline stale-save protection and deletion-versus-stale-save protection. It is a separate CI job, with a pinned test-only dependency package rather than new production dependencies.
 
 The suite reproduced stale AI authorization after profile deletion. Removed the cache; each request now reads current access and the account-deletion tombstone, including privileged accounts. Unavailable access authority returns retryable 503 without a stale grant. Unknown or prototype-named tiers fail closed instead of causing an uncaught routing exception.
 
-Live acceptance is still blocked by tooling/access/environment identification: Firebase connected successfully, but a read-only probe of a deliberately synthetic document path failed inside the connector with `TypeError: admin.app is not a function`. This is not evidence of a Firestore permission failure or a completed cloud read. The connected Vercel identity cannot access team `mekado11s-projects`; reauthorization was requested. The repository identifies only Firebase project `writers-manuscript`, not an isolated staging project. No real account/manuscript was created there. No live provider request was made. Billing code and live billing validation were deliberately left untouched in this continuation; existing mocked billing regressions remain in the normal CI suite.
+Live acceptance remains unverified: Firebase connected successfully, but a read-only probe of a deliberately synthetic document path failed inside the connector with `TypeError: admin.app is not a function`. This is not evidence of a Firestore permission failure or a completed cloud read. The connected Vercel identity cannot access team `mekado11s-projects`; reauthorization was requested. A separate Firebase project is NOT mandatory, and the user declined creating one. Work continues locally; any later use of the existing project needs explicit authorization for narrowly scoped synthetic-account tests, confirmed configuration and cleanup boundaries. No real account/manuscript was created, no cloud configuration changed and no live provider request was made. Billing remains excluded; existing mocked billing regressions remain in normal CI.
+
+### Storage compatibility and rollout
+
+New writes use schema 4 and Web Crypto SHA-256 in a secure browser context. Earlier supported drafts remain readable and upgrade only when explicitly saved. There is no live migration in this PR. Reload older open clients before rollout: a schema-3 client may retain an old digest when updating a schema-4 record, causing newer readers to correctly reject the mismatch rather than guess which text is valid. Browser script versions are bumped. Validate rollback/migration on copies, not the only manuscript copy.
+
+Seven added Node cases cover equal-length corruption, missing schema-4 digests, queued restore ordering without storage-side analysis, failed-generation cleanup, ambiguous commit acknowledgements, uncommitted snapshots and pending restored scores. Older schema-less draft compatibility is also asserted. A real-emulator case independently corrupts equal-length draft and snapshot text and verifies rejection. Cleanup is limited to the current failed draft generation; historical orphans and failed unpublished snapshot parts still need a bounded maintenance policy.
 
 ### P0: release gates before promotion
 
-- **Staging identity and authorization:** local emulator gates pass; still verify deployed IAM/Rules, real email delivery, Google OAuth and production-style signed-token verification in a confirmed isolated project.
+- **Live identity and authorization:** local emulator gates pass; still verify deployed IAM/Rules, real email delivery, Google OAuth and production-style signed-token verification in an explicitly approved environment. A separate Firebase project is optional, not a prerequisite for continuing development.
 - **Provider environment:** verify configured models, real grounded responses, provider outages and production fail-closed rate limiting using isolated test accounts.
 - **Billing environment:** deferred at the user's request, not certified or removed as a release gate.
 - **Data safety and rollback:** emulator clients pass concurrent/offline/deletion conflicts and snapshot recovery. Still rehearse legacy migration on copies, browser/device-level interruptions, failed chunk publication and rollback. A failed cloud save leaves text only in the current tab; closing it can lose unsaved work. Export is the explicit fallback.
@@ -93,7 +99,7 @@ These are mandatory uncompleted acceptance checks, not claims that all these liv
 
 - Extract editor state, cloud library, AI orchestration and renderer incrementally from the still-large `app.js`; move remaining synchronous open/restore/genre analysis onto the worker without losing state.
 - Unify duplicate revision-summary and cloud-snapshot interfaces; remove dormant calibration and legacy-only branches after migration acceptance.
-- Add cryptographic content digests, bounded snapshot retention and safe orphan-generation cleanup. Preserve backward compatibility and user-recoverable failure messages.
+- Add bounded snapshot retention and safe historical-orphan cleanup. New-save digests, conservative failed-generation cleanup and user-recoverable messages are now implemented; do not bulk-delete old snapshots without an approved policy.
 - Establish privacy-safe monitoring, backup restore drills, support reconciliation and clear deletion-tombstone retention policy.
 - Replace heuristic entity/concept extraction gradually with evaluated, source-grounded components, not one unsupported whole-app rewrite.
 
@@ -106,8 +112,8 @@ These are mandatory uncompleted acceptance checks, not claims that all these liv
 ## Merge checklist
 
 - [ ] Review this PR and its green independent CI result; do not merge automatically.
-- [ ] Accept the header in the review preview and actual authenticated staging.
-- [ ] Complete P0 staging gates with recorded evidence and rollback ownership.
+- [ ] Accept the header in the review preview and actual authenticated environment.
+- [ ] Complete P0 live acceptance gates with recorded evidence and rollback ownership.
 - [ ] Approve a representative scoring/provider benchmark and honest product claims.
 - [ ] Confirm normal production build does not contain review fixture entry files.
 - [ ] Authorize merge separately from production promotion.

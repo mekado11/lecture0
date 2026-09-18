@@ -162,6 +162,8 @@ test('actual Storage + Auth + Firestore: multi-part Unicode round-trip, versions
   assert.equal(saved.text,text);
   assert.ok(saved.partCount>1);
   assert.equal(saved.analysisState,'pending');
+  assert.equal(saved.schemaVersion,4);
+  assert.match(saved.contentHash,/^[a-f0-9]{64}$/);
   const version = await author.storage.saveVersion(id,analysis,text);
   await author.storage.updateManuscript(id,'Chapter 1\nNew synthetic draft',analysis);
   assert.equal(await author.storage.restoreVersion(id,version,analysis,'Unsaved synthetic edit'),text);
@@ -216,6 +218,18 @@ test('offline stale save cannot replace the newer draft when connectivity return
   // Both outcomes are safe; silently publishing the stale edit is not.
   assert.match(result.error.message,/another device|offline|unavailable/i);
   assert.equal((await author.storage.getManuscript(id)).text,'New online draft');
+});
+
+test('same-length corruption is detected by actual Storage for both drafts and snapshots', async () => {
+  const id = await author.storage.saveManuscript('digest.txt','Original',analysis);
+  const snapshot = await author.storage.saveVersion(id,analysis,'Original');
+  const ref = admin.firestore().doc(`users/${author.uid}/manuscripts/${id}`);
+  const draftParts = await ref.collection('chapters').get();
+  const snapshotParts = await ref.collection('versions').doc(snapshot).collection('parts').get();
+  await draftParts.docs[0].ref.update({text:'Tampered'});
+  await snapshotParts.docs[0].ref.update({text:'Tampered'});
+  await assert.rejects(author.storage.getManuscript(id),/integrity/i);
+  await assert.rejects(author.storage.getVersion(id,snapshot),/integrity/i);
 });
 
 test('a device cannot resurrect a deleted manuscript with a stale save', async () => {

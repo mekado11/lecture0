@@ -26,7 +26,7 @@ The dedicated `firebase-emulators` CI job runs the same commands. It needs no Gi
 - Firebase shuts down the emulators after the run. A 90-second test-process deadline prevents hung clients from leaving acceptance checks running indefinitely.
 - Rules-denied operations intentionally produce `PERMISSION_DENIED` log messages; their assertions must pass.
 
-## Ten integration checks
+## Eleven integration checks
 
 - Email/password sign-in, bad-password rejection, token verification and sign-out.
 - Password reset through emulator out-of-band codes, changed credentials and single-use reset codes.
@@ -35,6 +35,7 @@ The dedicated `firebase-emulators` CI job runs the same commands. It needs no Gi
 - Exact multi-part Unicode source round-trip and snapshot restore with an unsaved-text safety copy.
 - Competing saves from separate authenticated SDK clients publish only one winner.
 - Missing manuscript/snapshot parts are rejected rather than opened as partial text.
+- Same-length manuscript and snapshot corruption is rejected by schema-4 SHA-256 integrity checks.
 - Offline edits cannot silently overwrite a newer online draft after reconnect.
 - Stale edits cannot resurrect an already deleted manuscript.
 - AI access removal is immediate, missing providers fail closed, and deletion tombstones apply to Admin-backed AI access.
@@ -49,8 +50,8 @@ The offline case accepts either a pending write that later conflicts or an SDK-l
 
 The Rules checks assert that billing-related profile fields cannot be forged by clients; they do not exercise billing. Stripe implementation and live billing acceptance are out of scope for this continuation.
 
-## Live staging prerequisites
+## Live acceptance prerequisites
 
 The repository currently names `writers-manuscript` as its only Firebase project. A Vercel preview is not evidence of a separate data environment.
 
-Before real-service acceptance, identify a separate Firebase staging project and confirm frontend config, server Admin credentials, authorized Auth domains and deployed Rules all belong to that project. Obtain Vercel access to `mekado11s-projects`, use disposable staging accounts and synthetic manuscripts, and verify provider/rate-limit configuration without exposing secret values. Google sign-in, real reset delivery, account revocation, save/reload on two browsers and grounded provider responses remain live acceptance gates.
+A separate Firebase project is optional; the user declined creating one. Before real-service acceptance, confirm frontend config, server Admin credentials, authorized Auth domains and deployed Rules belong to the explicitly approved project. Obtain Vercel access to `mekado11s-projects` and authorization for narrowly scoped disposable accounts and synthetic manuscripts, with clear cleanup boundaries. Verify provider/rate-limit configuration without exposing secret values. Google sign-in, real reset delivery, account revocation, save/reload on two browsers and grounded provider responses remain live acceptance gates. This emulator suite never targets the existing cloud project.
