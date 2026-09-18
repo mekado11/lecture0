@@ -28,13 +28,13 @@ const ManuscriptParser = (() => {
       if(kind){
         if(kind==='review' && maxMainChapter>0){nested={max:maxMainChapter,seenMax:false,reason:'review'};headings.push({title:value,start:offset,kind:'review'});}
         else if(kind==='chapter' && nested){
-          if(num!=null && num<=nested.max){
-            if(num===nested.max) nested.seenMax=true;
-            // This is a recap/toolkit subsection, not a new top-level manuscript chapter.
-          } else {
+          if(nested.seenMax || num==null || num>nested.max){
             nested=null;
             headings.push({title:value,start:offset,kind:'chapter'});
             if(num!=null) maxMainChapter=Math.max(maxMainChapter,num);
+          } else {
+            if(num===nested.max) nested.seenMax=true;
+            // This is a recap/toolkit subsection, not a new top-level manuscript chapter.
           }
         } else {
           headings.push({title:value,start:offset,kind});
