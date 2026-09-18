@@ -36,7 +36,15 @@ const Storage = {
   },
 
   _buildBookIntelligence(parsed, analysisResult = null) {
-    if (typeof BookIntelligence !== 'undefined' && BookIntelligence.build) {\n      const base = BookIntelligence.build(parsed, analysisResult);\n      const story = (typeof StoryIntelligence !== 'undefined' && StoryIntelligence.enrich) ? StoryIntelligence.enrich(parsed, base) : base;\n      const continuity = (typeof ContinuityIntelligence !== 'undefined' && ContinuityIntelligence.enrich) ? ContinuityIntelligence.enrich(parsed, story) : story;\n      const timeline = (typeof TimelineIntelligence !== 'undefined' && TimelineIntelligence.enrich) ? TimelineIntelligence.enrich(parsed, continuity) : continuity;\n      const momentum = (typeof NarrativeMomentum !== 'undefined' && NarrativeMomentum.enrich) ? NarrativeMomentum.enrich(timeline) : timeline;\n      const relationships = (typeof RelationshipIntelligence !== 'undefined' && RelationshipIntelligence.enrich) ? RelationshipIntelligence.enrich(parsed, momentum) : momentum;\n      return (typeof CharacterLedger !== 'undefined' && CharacterLedger.enrich) ? CharacterLedger.enrich(relationships) : relationships;\n    }
+    if (typeof BookIntelligence !== 'undefined' && BookIntelligence.build) {
+      const base = BookIntelligence.build(parsed, analysisResult);
+      const story = (typeof StoryIntelligence !== 'undefined' && StoryIntelligence.enrich) ? StoryIntelligence.enrich(parsed, base) : base;
+      const continuity = (typeof ContinuityIntelligence !== 'undefined' && ContinuityIntelligence.enrich) ? ContinuityIntelligence.enrich(parsed, story) : story;
+      const timeline = (typeof TimelineIntelligence !== 'undefined' && TimelineIntelligence.enrich) ? TimelineIntelligence.enrich(parsed, continuity) : continuity;
+      const momentum = (typeof NarrativeMomentum !== 'undefined' && NarrativeMomentum.enrich) ? NarrativeMomentum.enrich(timeline) : timeline;
+      const relationships = (typeof RelationshipIntelligence !== 'undefined' && RelationshipIntelligence.enrich) ? RelationshipIntelligence.enrich(parsed, momentum) : momentum;
+      return (typeof CharacterLedger !== 'undefined' && CharacterLedger.enrich) ? CharacterLedger.enrich(relationships) : relationships;
+    }
     return null;
   },
 
@@ -229,3 +237,36 @@ const Storage = {
     await this.updateManuscript(manuscriptId,snapshot.text,analysisResult);
     return snapshot.text;
   },
+
+  // ========================
+  // USER PREFERENCES
+  // ========================
+  async savePreferences(prefs) {
+    const ref=this._userDoc(); if(!ref)return;
+    await ref.set({preferences:prefs,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+  },
+
+  async getPreferences() {
+    const ref=this._userDoc(); if(!ref)return {};
+    const doc=await ref.get();
+    return doc.exists?(doc.data().preferences||{}):{};
+  },
+
+  // ========================
+  // AUTO-SAVE
+  // ========================
+  _autoSaveTimer:null,
+  _currentManuscriptId:null,
+
+  autoSave(text, analysisResult) {
+    clearTimeout(this._autoSaveTimer);
+    this._autoSaveTimer=setTimeout(async()=>{
+      if(!this.userId)return;
+      try{
+        if(this._currentManuscriptId)await this.updateManuscript(this._currentManuscriptId,text,analysisResult);
+        const safe=analysisResult?(()=>{const {rawIssues,...rest}=analysisResult;return rest;})():analysisResult;
+        localStorage.setItem('ml_autosave',JSON.stringify({text,result:safe,manuscriptId:this._currentManuscriptId,savedAt:new Date().toISOString()}));
+      }catch(e){console.warn('Auto-save failed:',e.message);}
+    },5000);
+  }
+};
