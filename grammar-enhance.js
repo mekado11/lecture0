@@ -1,5 +1,5 @@
 // LanguageTool Grammar Enhancement
-// Calls LanguageTool API (via server proxy, with direct fallback) to supplement
+// Calls LanguageTool API through the authenticated AuthorScrolls server proxy to supplement
 // the local regex grammar checker with 2000+ linguistic rules: comma splices,
 // run-ons, dangling modifiers, pronoun agreement, parallel structure, etc.
 //
@@ -9,10 +9,8 @@
 
 const GrammarEnhance = {
   PROXY_URL: '/api/grammar',
-  DIRECT_URL: 'https://api.languagetool.org/v2/check',
   MAX_CHARS: 15000,
   _cache: new Map(),
-  _useProxy: true,
 
   async check(text) {
     if (!text || text.length < 50) return [];
@@ -64,45 +62,21 @@ const GrammarEnhance = {
   },
 
   async _callAPI(text) {
-    if (this._useProxy) {
-      try {
-        return await this._callProxy(text);
-      } catch (e) {
-        console.warn('[GrammarEnhance] Proxy failed, trying direct:', e.message);
-        this._useProxy = false;
-      }
-    }
-    return await this._callDirect(text);
+    return this._callProxy(text);
   },
 
   async _callProxy(text) {
+    const user = typeof firebase !== 'undefined' ? firebase.auth().currentUser : null;
+    if (!user) throw new Error('Sign in required for enhanced grammar');
+    const token = await user.getIdToken();
     const response = await fetch(this.PROXY_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
       body: JSON.stringify({ text: text, language: 'en-US' })
     });
-    if (!response.ok) throw new Error('Proxy returned ' + response.status);
+    if (!response.ok) throw new Error('Grammar service returned ' + response.status);
     const data = await response.json();
     if (data.error) throw new Error(data.error);
-    return data.matches || [];
-  },
-
-  async _callDirect(text) {
-    const params = new URLSearchParams({
-      text: text,
-      language: 'en-US',
-      disabledCategories: 'CASING,REDUNDANCY,STYLE,TYPOGRAPHY',
-      disabledRules: 'WHITESPACE_RULE,EN_QUOTES,DASH_RULE,WORD_CONTAINS_UNDERSCORE,COMMA_PARENTHESIS_WHITESPACE,UNLIKELY_OPENING_PUNCTUATION',
-      level: 'default'
-    });
-
-    const response = await fetch(this.DIRECT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString()
-    });
-    if (!response.ok) throw new Error('LanguageTool returned ' + response.status);
-    const data = await response.json();
     return data.matches || [];
   },
 
