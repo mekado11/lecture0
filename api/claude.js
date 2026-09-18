@@ -68,7 +68,7 @@ module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', 'https://authorscrolls.com');
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, X-Model, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, X-Model, X-Feature, Authorization');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
   // GET = health check (C-1 fix: no config details exposed publicly)
@@ -110,7 +110,7 @@ module.exports = async (req, res) => {
   const userTier = await getUserTier(userId, userEmail);
   const limit = LIMITS[userTier] || LIMITS.free;\n\n  // The server owns model authorization. Client routing is only a request hint.
   const ALLOWED_ROUTES = new Set(['claude','claude-premium','openai-fast','openai-nano','openai-premium']);
-  const requestedModel = req.headers['x-model'] || 'openai-fast';
+  const requestedModel = req.headers['x-model'] || 'openai-fast';\n  const requestedFeature = String(req.headers['x-feature'] || 'unknown').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
   if (!ALLOWED_ROUTES.has(requestedModel)) {
     res.status(400).json({ error: { message: 'Invalid model route' } }); return;
   }
@@ -143,7 +143,7 @@ module.exports = async (req, res) => {
     system,
     messages,
     max_tokens: Math.min(Math.max(Number(body.max_tokens) || 2048, 64), 2048)
-  };
+  };\n  // Feature identity is metadata only; authorization remains server-owned.\n  res.setHeader('X-AuthorScrolls-Feature', requestedFeature);
 
   // Count only authenticated, authorized, structurally valid requests.
   const used = await checkAndIncrement(userId, today);
