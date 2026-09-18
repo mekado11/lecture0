@@ -2906,21 +2906,7 @@ Storage.whenReady().then(async user=>{
     }catch(e){console.warn('Could not restore last manuscript:',e.message)}
   }
 
-  // Attempt 2: autosave — only if it matches a known manuscript in library
-  if(autosave?.text&&autosave?.result&&autosave.manuscriptId){
-    const match=manuscripts.find(m=>m.id===autosave.manuscriptId);
-    if(match){
-      extractedText=autosave.text;
-      analysisResult=autosave.result;
-      uploadedFile={name:autosave.fileName||'Untitled',size:0};
-      Storage._currentManuscriptId=autosave.manuscriptId;
-      $('upload-view').classList.add('hidden');
-      $('editor-view').classList.remove('hidden');
-      document.body.classList.remove('lib-mode');
-      renderAll();
-      return;
-    }
-  }
+  // Legacy local manuscript autosaves are intentionally ignored; Firestore is the manuscript source of truth.
 
   // Attempt 3: any manuscript in Firestore (pick most recent)
   if(manuscripts.length>0){
