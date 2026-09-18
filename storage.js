@@ -163,14 +163,16 @@ const Storage = {
   async getManuscripts() {
     const ref=this._userDoc(); if(!ref)return [];
     const snap=await ref.collection('manuscripts').orderBy('updatedAt','desc').limit(20).get();
-    return snap.docs.map(d=>({...d.data(),id:d.id}));
+    return snap.docs.map(d=>({...d.data(),id:d.id})).filter(m=>m.saveState==='ready'||!m.saveState);
   },
 
   async getManuscript(id) {
     const ref=this._userDoc(); if(!ref)return null;
     const manuscriptRef=ref.collection('manuscripts').doc(id),doc=await manuscriptRef.get();
     if(!doc.exists)return null;const data={...doc.data(),id:doc.id};
+    if(data.saveState && data.saveState!=='ready')throw new Error('MANUSCRIPT_NOT_READY');
     if(data.schemaVersion>=2&&data.text==null)data.text=await this._readChapterText(manuscriptRef);
+    if(data.text!=null&&Number.isFinite(data.textLength)&&data.text.length!==data.textLength)throw new Error('MANUSCRIPT_INTEGRITY_MISMATCH');
     return data;
   },
 
@@ -206,7 +208,7 @@ const Storage = {
     const snapshotRef=manuscriptRef.collection('versions').doc();
     const parts=this._splitChapterText(text);
     await snapshotRef.set({
-      schemaVersion:2, reason, textLength:text.length, wordCount:parsed.wordCount,
+      schemaVersion:2, saveState:'writing', reason, textLength:text.length, wordCount:parsed.wordCount,
       chapterCount:parsed.chapterCount, partCount:parts.length,
       overall:analysisResult?.overall||0, scores:analysisResult?.scores||{},
       issueCount:analysisResult?.issues?.length||0, genre:analysisResult?.genre?.label||'',
@@ -218,6 +220,7 @@ const Storage = {
       parts.slice(start,start+400).forEach((part,i)=>batch.set(snapshotRef.collection('parts').doc('part-'+String(start+i+1).padStart(4,'0')),{index:start+i,text:part}));
       await batch.commit();
     }
+    await snapshotRef.set({saveState:'ready'},{merge:true});
     return snapshotRef.id;
   },
 
@@ -226,9 +229,13 @@ const Storage = {
     const versionRef=ref.collection('manuscripts').doc(manuscriptId).collection('versions').doc(versionId);
     const doc=await versionRef.get(); if(!doc.exists)return null;
     const data={...doc.data(),id:doc.id};
+    if(data.saveState && data.saveState!=='ready')throw new Error('VERSION_NOT_READY');
     if(data.schemaVersion>=2){
       const parts=await versionRef.collection('parts').get();
-      data.text=parts.docs.map(d=>d.data()).sort((a,b)=>a.index-b.index).map(p=>p.text||'').join('');
+      const rows=parts.docs.map(d=>d.data()).sort((a,b)=>a.index-b.index);
+      if(Number.isFinite(data.partCount)&&rows.length!==data.partCount)throw new Error('VERSION_INTEGRITY_MISMATCH');
+      data.text=rows.map(p=>p.text||'').join('');
+      if(Number.isFinite(data.textLength)&&data.text.length!==data.textLength)throw new Error('VERSION_INTEGRITY_MISMATCH');
     }
     return data;
   },
