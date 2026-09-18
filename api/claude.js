@@ -198,7 +198,8 @@ function callClaude(body, res) {
         resolve();
       });
     });
-    proxyReq.on('error', err => { res.status(500).json({ error: { message: err.message } }); resolve(); });
+    proxyReq.setTimeout(45000, () => proxyReq.destroy(new Error('AI provider timeout')));
+    proxyReq.on('error', err => { res.status(502).json({ error: { message: 'AI provider unavailable', code: 'PROVIDER_ERROR' } }); resolve(); });
     proxyReq.write(payload); proxyReq.end();
   });
 }
@@ -206,8 +207,8 @@ function callClaude(body, res) {
 function callOpenAI(body, model, res) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    // Fallback to Claude if no OpenAI key
-    return callClaude(convertToClaude(body), res);
+    res.status(503).json({ error: { message: 'Requested AI provider is unavailable', code: 'PROVIDER_UNAVAILABLE' } });
+    return Promise.resolve();
   }
 
   // Map our model names to OpenAI models
@@ -269,7 +270,8 @@ function callOpenAI(body, model, res) {
         resolve();
       });
     });
-    proxyReq.on('error', err => { res.status(500).json({ error: { message: err.message } }); resolve(); });
+    proxyReq.setTimeout(45000, () => proxyReq.destroy(new Error('AI provider timeout')));
+    proxyReq.on('error', err => { res.status(502).json({ error: { message: 'AI provider unavailable', code: 'PROVIDER_ERROR' } }); resolve(); });
     proxyReq.write(payload); proxyReq.end();
   });
 }
