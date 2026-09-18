@@ -5,7 +5,7 @@ const cards=CL.build(intel);
 assert.strictEqual(cards.length,1);
 assert.strictEqual(cards[0].name,'Mara');
 assert.strictEqual(cards[0].facts.length,1);
-assert.strictEqual(cards[0].associations.length,1);
+assert.strictEqual(cards[0].relationships.length,1);
 assert.strictEqual(cards[0].threads.length,1);
 assert.strictEqual(cards[0].lastSeenChapterId,'chapter-004');
 console.log('character-ledger tests passed');
