@@ -15,7 +15,7 @@ service cloud.firestore {
       allow update: if signedInAs(userId)
         && !request.resource.data.diff(resource.data).affectedKeys()
           .hasAny(['tier','tierUpdatedAt','subscriptionStatus','stripeCustomerId','stripeSubscriptionId']);
-      allow delete: if signedInAs(userId);
+      allow delete: if false; // account/profile deletion must be handled by a trusted server workflow
 
       match /{document=**} {
         allow read, write: if signedInAs(userId);
@@ -23,7 +23,9 @@ service cloud.firestore {
     }
 
     match /betaCodes/{code} {
-      allow read: if request.auth != null;
+      // Redemption/validation belongs on the trusted server; exposing the collection
+      // lets any signed-in client enumerate or probe beta codes.
+      allow read, write: if false;
     }
     match /pushSubscriptions/{userId} {
       allow read, write: if signedInAs(userId);
