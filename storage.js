@@ -30,6 +30,33 @@ const Storage = {
   // ========================
   // MANUSCRIPTS
   // ========================
+  _parseManuscript(text) {
+    if (typeof ManuscriptParser !== 'undefined' && ManuscriptParser.parse) return ManuscriptParser.parse(text);
+    return { version: 0, textLength: text.length, wordCount: (text.match(/\\b\\w+\\b/g) || []).length, chapterCount: 1, chapters: [{ id: 'chapter-001', index: 0, number: 1, title: 'Manuscript', heading: null, start: 0, end: text.length, wordCount: (text.match(/\\b\\w+\\b/g) || []).length, text, body: text }], warnings: ['PARSER_NOT_LOADED'] };
+  },
+
+  async _writeChapters(manuscriptRef, parsed) {
+    // Firestore batches are capped, so commit in conservative groups.
+    const chunks = parsed.chapters || [];
+    for (let start = 0; start < chunks.length; start += 400) {
+      const batch = this.db.batch();
+      chunks.slice(start, start + 400).forEach(chapter => {
+        batch.set(manuscriptRef.collection('chapters').doc(chapter.id), {
+          index: chapter.index, number: chapter.number, title: chapter.title,
+          heading: chapter.heading || null, start: chapter.start, end: chapter.end,
+          wordCount: chapter.wordCount, text: chapter.text,
+          intelligenceVersion: 0,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      });
+      await batch.commit();
+    }
+  },
+
+  async _readChapterText(manuscriptRef) {
+    const snap = await manuscriptRef.collection('chapters').orderBy('index', 'asc').get();
+    return snap.docs.map(d => d.data().text || '').join('');
+  },
   async saveManuscript(fileName, text, analysisResult) {
     const ref = this._userDoc();
     if (!ref) return null;
@@ -47,7 +74,9 @@ const Storage = {
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
-    await ref.collection('manuscripts').doc(id).set(doc);
+    const manuscriptRef = ref.collection('manuscripts').doc(id);
+    await manuscriptRef.set(doc);
+    await this._writeChapters(manuscriptRef, parsed);
     return id;
   },
 
@@ -64,7 +93,9 @@ const Storage = {
       issueCount: analysisResult?.issues?.length || 0,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
-    await ref.collection('manuscripts').doc(id).update(update);
+    const manuscriptRef = ref.collection('manuscripts').doc(id);
+    await manuscriptRef.update(update);
+    await this._writeChapters(manuscriptRef, parsed);
   },
 
   async getManuscripts() {
@@ -80,8 +111,14 @@ const Storage = {
   async getManuscript(id) {
     const ref = this._userDoc();
     if (!ref) return null;
-    const doc = await ref.collection('manuscripts').doc(id).get();
-    return doc.exists ? { ...doc.data(), id: doc.id } : null;
+    const manuscriptRef = ref.collection('manuscripts').doc(id);
+    const doc = await manuscriptRef.get();
+    if (!doc.exists) return null;
+    const data = { ...doc.data(), id: doc.id };
+    // Backward compatible: v1 documents still read their inline text; v2 long
+    // manuscripts reconstruct exact text from ordered chapter documents.
+    if (!data.text && data.schemaVersion >= 2) data.text = await this._readChapterText(manuscriptRef);
+    return data;
   },
 
   async deleteManuscript(id) {
