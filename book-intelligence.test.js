@@ -34,4 +34,5 @@ const contradictory = BI.buildScoreEvidence({
   issues: []
 });
 assert.strictEqual(BI.findScoreConflicts(contradictory)[0].reason, 'Large opening/engagement divergence');
-\nconsole.log('book-intelligence tests passed');
+
+console.log('book-intelligence tests passed');
