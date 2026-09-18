@@ -1,4 +1,16 @@
 /* Mobile overrides — additive only, never affect desktop */
+.chapter-nav{display:none}
+html[data-editor-theme="light"]{--bg:#ede9df;--bg2:#f5f1e8;--surface:#fffaf1;--surface2:#ebe5d9;--text:#302a22;--muted:#665e52;--dim:#766b5b;--border:#d0c5b4;--gold-l:#714b2a;--gold-d:#825a35}
+.center-panel{min-width:0}
+.intel-window,.intel-askbox{background:var(--bg2)}
+.left-panel.panel-collapsed>:not(.lp-head),.right-panel.panel-collapsed>:not(.rp-head){display:none}
+.workspace-nav-tabs{display:flex;flex-wrap:wrap}
+.ws-nav,.workspace-nav-hint,.ws-item small,.workspace-context p,.workspace-context small{font-size:.75rem}
+.ws-item b{font-size:.8rem}
+.ws-nav{min-height:34px}
+.intel-body article,.intel-answer{font-size:.875rem;line-height:1.6}
+.intel-summary span,.intel-sub{font-size:.75rem}
+.intel-close{min-width:44px;min-height:44px}
 
 @media (max-width: 700px) {
   /* Touch targets — WCAG AA minimum 44×44px */
@@ -36,4 +48,29 @@
   /* Collapse multi-column grids on narrow phones */
   .rdr-grid, .beta-grid, .comp-grid { grid-template-columns: 1fr; }
   .stats { grid-template-columns: 1fr; gap: .5rem; }
+}
+
+@media(max-width:700px){
+  body:not(.lib-mode){overflow:auto}
+  .editor-view{height:auto;min-height:100dvh}
+  .topbar{display:block;position:sticky;top:0;z-index:40;background:var(--bg2)}
+  .topbar-l{padding:.4rem 0}
+  .topbar-r{flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding:.2rem 0 .4rem}
+  .topbar-r>*{flex-shrink:0}
+  .topbar-r .live-score,.topbar-r .wc{display:none}
+  .panels{display:flex;flex-direction:column;overflow:visible;min-height:0}
+  .left-panel,.right-panel,.left-panel.panel-collapsed,.right-panel.panel-collapsed{width:100%!important;max-height:50vh;min-width:0!important;flex:none}
+  .left-panel.panel-collapsed,.right-panel.panel-collapsed{max-height:48px;overflow:hidden}
+  .left-panel.panel-collapsed .lp-title,.right-panel.panel-collapsed .rp-title{display:block}
+  .lp-head,.rp-head{min-height:48px;display:flex;align-items:center;justify-content:space-between}
+  .lp-collapse,.rp-collapse{min-width:48px;min-height:44px;font-size:.8rem}
+  .center-panel{flex:none;width:100%;height:calc(100dvh - 156px);min-height:420px}
+  .center-toolbar{flex-wrap:nowrap;overflow-x:auto;flex-shrink:0;min-height:48px}
+  .fmt-icons{flex-wrap:nowrap}
+  .fmt-group{flex-shrink:0}
+  .manuscript-scroll{padding:0!important;min-width:0}
+  .ms-page{width:100%!important;min-width:0!important;margin:0!important;padding:1.5rem!important}
+  .ms-workspace{min-height:0}
+  .center-bottom{flex-shrink:0}
+  .bottom-tabs{flex-wrap:nowrap;overflow-x:auto}
 }

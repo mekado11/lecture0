@@ -1,1 +1,16 @@
-const assert=require('assert');\nconst Parser=require('./manuscript-parser');\nconst BI=require('./book-intelligence');\nconst SI=require('./story-intelligence');\nconst TI=require('./timeline-intelligence');\nconst MR=require('./manuscript-retrieval');\nconst text=['Chapter 1','Mara found the necklace beneath the stairs. Mara hid it.','', 'Chapter 2','Daniel arrived at the station. He questioned the guard.','', 'Chapter 3','The next morning, Mara told Daniel about the necklace.'].join('\n');\nconst parsed=Parser.parse(text);\nlet intel=SI.enrich(parsed,BI.build(parsed));\nintel=TI.enrich(parsed,intel);\nconst packet=MR.contextPacket('What happened with Mara and the necklace?',parsed,intel,2);\nassert(packet.chapters.length>0);\nassert(packet.chapters.some(c=>c.chapterId==='chapter-001'));\nassert(packet.characters.some(c=>c.canonicalName==='Mara'));\nassert(packet.chapters.every(c=>c.text.length<=5500));\nconsole.log('manuscript-retrieval tests passed');\n
+const assert=require('assert');
+const Parser=require('./manuscript-parser');
+const BI=require('./book-intelligence');
+const SI=require('./story-intelligence');
+const TI=require('./timeline-intelligence');
+const MR=require('./manuscript-retrieval');
+const text=['Chapter 1','Mara found the necklace beneath the stairs. Mara hid it.','', 'Chapter 2','Daniel arrived at the station. He questioned the guard.','', 'Chapter 3','The next morning, Mara told Daniel about the necklace.'].join('\n');
+const parsed=Parser.parse(text);
+let intel=SI.enrich(parsed,BI.build(parsed));
+intel=TI.enrich(parsed,intel);
+const packet=MR.contextPacket('What happened with Mara and the necklace?',parsed,intel,2);
+assert(packet.chapters.length>0);
+assert(packet.chapters.some(c=>c.chapterId==='chapter-001'));
+assert(packet.characters.some(c=>c.canonicalName==='Mara'));
+assert(packet.chapters.every(c=>c.text.length<=5500));
+console.log('manuscript-retrieval tests passed');

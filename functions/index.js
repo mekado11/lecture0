@@ -1,305 +1,80 @@
-// ManuscriptLens - Firebase Cloud Functions
-// Deploy: firebase deploy --only functions
+'use strict';
+// Reminders only. Model authorization and quotas live in Vercel's api/ directory.
+const {onRequest}=require('firebase-functions/v2/https');
+const {onSchedule}=require('firebase-functions/v2/scheduler');
+const {defineSecret}=require('firebase-functions/params');
+const {initializeApp}=require('firebase-admin/app');
+const {getAuth}=require('firebase-admin/auth');
+const {getFirestore,FieldPath}=require('firebase-admin/firestore');
+const {eligible,verifiedRecipient,pushPayload,emailHtml}=require('./reminder-policy');
+initializeApp();
+const db=getFirestore();
+const vapidPublic=defineSecret('VAPID_PUBLIC_KEY'),vapidPrivate=defineSecret('VAPID_PRIVATE_KEY');
+const smtpHost=defineSecret('SMTP_HOST'),smtpUser=defineSecret('SMTP_USER'),smtpPass=defineSecret('SMTP_PASS');
 
-const { onRequest } = require("firebase-functions/v2/https");
-const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { defineSecret } = require("firebase-functions/params");
-const admin = require("firebase-admin");
-const https = require("https");
+// Keep the old export to replace an already-deployed endpoint without a second
+// provider implementation or a destructive function deletion during migration.
+exports.claude=onRequest({maxInstances:1},(_req,res)=>{
+  res.status(410).json({error:{message:'This legacy API is retired. Use AuthorScrolls on its primary domain.'}});
+});
 
-admin.initializeApp();
-const db = admin.firestore();
-
-const LIMITS = { dev: 9999, beta: 5, premium: 5, starter: 1, free: 0 };
-const DEV_UIDS = new Set([]);
-const tierCache = new Map();
-const TIER_CACHE_TTL = 60000;
-
-// Persistent rate limiting via Firestore atomic increment — survives cold starts and scales across instances
-async function checkAndIncrementFirestore(uid, today) {
-  const key = uid + ":" + today;
-  const ref = db.collection("rateLimits").doc(key);
-  const result = await db.runTransaction(async (tx) => {
-    const doc = await tx.get(ref);
-    const current = doc.exists ? (doc.data().count || 0) : 0;
-    tx.set(ref, { count: current + 1, uid, date: today }, { merge: true });
-    return current + 1;
+async function eachPage(collection,processPage){
+  let cursor=null;
+  while(true){
+    let query=db.collection(collection).orderBy(FieldPath.documentId()).limit(100);
+    if(cursor)query=query.startAfter(cursor);
+    const page=await query.get();
+    if(page.empty)return;
+    await processPage(page.docs);
+    if(page.size<100)return;
+    cursor=page.docs[page.docs.length-1];
+  }
+}
+exports.sendPushReminders=onSchedule({
+  schedule:'every 6 hours',secrets:[vapidPublic,vapidPrivate],memory:'256MiB',timeoutSeconds:120,
+},async()=>{
+  const webpush=require('web-push');
+  webpush.setVapidDetails('mailto:support@authorscrolls.com',vapidPublic.value(),vapidPrivate.value());
+  await eachPage('pushSubscriptions',async docs=>{
+    for(const doc of docs){
+      // The document owner is the identity. Never trust a client-written uid.
+      const uid=doc.id;
+      const [session,profile]=await Promise.all([
+        db.collection('userSessions').doc(uid).get(),db.collection('users').doc(uid).get(),
+      ]);
+      if(!eligible('push',session.data(),profile.data(),Date.now()))continue;
+      try{
+        await webpush.sendNotification(doc.data().subscription,JSON.stringify(pushPayload()),{timeout:10000});
+        await session.ref.update({lastReminderTier:2});
+      }catch(error){
+        if([404,410].includes(error.statusCode))await doc.ref.delete();
+        else console.error('Push delivery failed',error.statusCode||'transport');
+      }
+    }
   });
-  // Set TTL via a scheduled cleanup (or just let old docs accumulate — they're small)
-  return result;
-}
-
-async function getUserTier(uid) {
-  if (DEV_UIDS.has(uid)) return 'dev';
-  const cached = tierCache.get(uid);
-  if (cached && Date.now() - cached.ts < TIER_CACHE_TTL) return cached.tier;
-  try {
-    const doc = await db.collection('users').doc(uid).get();
-    const tier = doc.exists ? (doc.data().tier || 'free') : 'free';
-    tierCache.set(uid, { tier, ts: Date.now() });
-    return tier;
-  } catch (e) { return 'free'; }
-}
-
-// API key stored as Firebase secret (never in code)
-const claudeApiKey = defineSecret("CLAUDE_API_KEY");
-const vapidPublicKey = defineSecret("VAPID_PUBLIC_KEY");
-const vapidPrivateKey = defineSecret("VAPID_PRIVATE_KEY");
-const smtpHost = defineSecret("SMTP_HOST");
-const smtpUser = defineSecret("SMTP_USER");
-const smtpPass = defineSecret("SMTP_PASS");
-
-// ── Claude proxy (existing) ────────────────────────────────
-const ALLOWED_ORIGINS = ["https://authorscrolls.com", "https://www.authorscrolls.com"];
-
-exports.claude = onRequest(
-  {
-    cors: ALLOWED_ORIGINS,
-    secrets: [claudeApiKey],
-    memory: "256MiB",
-    timeoutSeconds: 120,
-    maxInstances: 10,
-  },
-  async (req, res) => {
-    if (req.method !== "POST") {
-      res.status(405).json({ error: { message: "Method not allowed" } });
-      return;
-    }
-    if (!req.body.model || !req.body.messages) {
-      res.status(400).json({ error: { message: "Missing model or messages" } });
-      return;
-    }
-
-    // Verify Firebase ID token
-    const authHeader = req.headers.authorization || "";
-    if (!authHeader.startsWith("Bearer ")) {
-      res.status(401).json({ error: { message: "Authentication required", code: "UNAUTHENTICATED" } });
-      return;
-    }
-    let decoded;
-    try {
-      decoded = await admin.auth().verifyIdToken(authHeader.slice(7));
-    } catch (e) {
-      res.status(401).json({ error: { message: "Invalid or expired token", code: "UNAUTHENTICATED" } });
-      return;
-    }
-
-    // Tier-based rate limiting — Firestore-backed for persistence across cold starts and instances
-    const uid = decoded.uid;
-    const today = new Date().toISOString().split("T")[0];
-    const userTier = await getUserTier(uid);
-    const limit = LIMITS[userTier] ?? LIMITS.free;
-    const used = await checkAndIncrementFirestore(uid, today);
-    if (used > limit) {
-      res.status(429).json({
-        error: {
-          message: userTier === "free"
-            ? "AI features require a subscription. Upgrade to Starter ($5/mo)."
-            : "Daily AI limit reached (" + limit + "/day). Resets at midnight UTC.",
-          code: "RATE_LIMITED", limit, used: used - 1, tier: userTier
-        }
-      });
-      return;
-    }
-
-    const body = {
-      system: req.body.system || [],
-      messages: req.body.messages || [],
-      max_tokens: Math.min(parseInt(req.body.max_tokens, 10) || 1024, 2048),
-      model: "claude-sonnet-4-20250514"
-    };
-    const payload = JSON.stringify(body);
-    const apiKey = claudeApiKey.value();
-    const options = {
-      hostname: "api.anthropic.com",
-      path: "/v1/messages",
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "prompt-caching-2024-07-31",
-        "Content-Length": Buffer.byteLength(payload),
-      },
-    };
-    return new Promise((resolve) => {
-      const proxyReq = https.request(options, (proxyRes) => {
-        let data = "";
-        proxyRes.on("data", (chunk) => (data += chunk));
-        proxyRes.on("end", () => {
-          try {
-            res.status(proxyRes.statusCode).json(JSON.parse(data));
-          } catch (e) {
-            res.status(502).json({ error: { message: "Invalid upstream response" } });
-          }
-          resolve();
+});
+exports.sendEmailReminders=onSchedule({
+  schedule:'every day 09:00',secrets:[smtpHost,smtpUser,smtpPass],memory:'256MiB',timeoutSeconds:120,
+},async()=>{
+  const transporter=require('nodemailer').createTransport({
+    host:smtpHost.value(),port:587,secure:false,requireTLS:true,
+    auth:{user:smtpUser.value(),pass:smtpPass.value()},
+    connectionTimeout:10000,socketTimeout:15000,
+  });
+  await eachPage('userSessions',async docs=>{
+    for(const doc of docs){
+      const profile=await db.collection('users').doc(doc.id).get();
+      if(!eligible('email',doc.data(),profile.data(),Date.now()))continue;
+      try{
+        // A writable session.email must never turn this into an email relay.
+        const recipient=verifiedRecipient(await getAuth().getUser(doc.id));
+        if(!recipient)continue;
+        await transporter.sendMail({
+          from:'"AuthorScrolls" <noreply@authorscrolls.com>',to:recipient,
+          subject:'Your writing workspace is waiting',html:emailHtml(),
         });
-      });
-      proxyReq.on("error", (err) => {
-        res.status(500).json({ error: { message: err.message } });
-        resolve();
-      });
-      proxyReq.write(payload);
-      proxyReq.end();
-    });
-  }
-);
-
-// ── Helper: build push notification copy ───────────────────
-function buildPushPayload(session) {
-  const { manuscript, lastChapter, lastActionType, lastScore } = session;
-  const title = "AuthorScrolls";
-  let body;
-
-  if (lastChapter && lastActionType === "editing") {
-    body = `You stopped editing "${lastChapter}" in ${manuscript}. The story is still mid-sentence.`;
-  } else if (lastChapter && lastActionType === "analyzing") {
-    body = `Your analysis of "${lastChapter}" is waiting. Score: ${lastScore}/100.`;
-  } else if (lastChapter) {
-    body = `"${lastChapter}" — you left ${manuscript} open. Ready to continue?`;
-  } else if (lastScore) {
-    body = `${manuscript} scored ${lastScore}/100. A few edits could change everything.`;
-  } else {
-    body = `${manuscript} is waiting for you. Jump back in.`;
-  }
-
-  return JSON.stringify({ title, body, url: "/app.html" });
-}
-
-// ── Helper: build email HTML ───────────────────────────────
-function escHtml(s) { return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
-
-function buildEmailHtml(session) {
-  const { manuscript, lastChapter, lastScore } = session;
-  return `<!DOCTYPE html><html><body style="font-family:Georgia,serif;background:#0a0705;color:#e8dfd4;max-width:600px;margin:0 auto;padding:2rem">
-<h1 style="color:#dbb08a;font-size:1.5rem">&#127807; AuthorScrolls</h1>
-<p style="color:#9c9085;font-size:.9rem">Hi,</p>
-<p style="color:#e8dfd4;font-size:1rem;line-height:1.7">It's been a few days since you opened <strong style="color:#dbb08a">${escHtml(manuscript)}</strong>${lastChapter ? ` — specifically <em style="color:#c8956c">${escHtml(lastChapter)}</em>` : ""}.</p>
-${lastScore ? `<p style="color:#9c9085;font-size:.9rem">Last analysis score: <strong style="color:#dbb08a">${lastScore}/100</strong>. There's room to push it higher.</p>` : ""}
-<p style="color:#9c9085;font-size:.9rem;line-height:1.7">Every manuscript gets better with another pass. Yours is waiting exactly where you left it.</p>
-<a href="https://authorscrolls.com/app.html" style="display:inline-block;margin:1.5rem 0;padding:.7rem 2rem;background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:.95rem">Open My Manuscript</a>
-</body></html>`;
-}
-
-// ── CRON: Push notifications (every 6 hours) ───────────────
-// Fires for users inactive 24–48 hours who haven't been notified yet
-exports.sendPushReminders = onSchedule(
-  {
-    schedule: "every 6 hours",
-    secrets: [vapidPublicKey, vapidPrivateKey],
-    memory: "256MiB",
-    timeoutSeconds: 120,
-  },
-  async () => {
-    const webpush = require("web-push");
-    webpush.setVapidDetails(
-      "mailto:support@authorscrolls.com",
-      vapidPublicKey.value(),
-      vapidPrivateKey.value()
-    );
-
-    const now = Date.now();
-    const MIN_INACTIVE = 24 * 60 * 60 * 1000;
-    const MAX_INACTIVE = 48 * 60 * 60 * 1000;
-
-    let sent = 0, skipped = 0;
-    const BATCH_SIZE = 100;
-    let lastDoc = null;
-
-    // Paginate to avoid loading entire collection into memory
-    while (true) {
-      let query = db.collection("pushSubscriptions").limit(BATCH_SIZE);
-      if (lastDoc) query = query.startAfter(lastDoc);
-      const subs = await query.get();
-      if (subs.empty) break;
-
-      // Batch-read sessions in parallel instead of sequential Firestore calls
-      const uidList = subs.docs.map(d => d.data().uid).filter(Boolean);
-      const sessionDocs = await Promise.all(uidList.map(uid => db.collection("userSessions").doc(uid).get()));
-      const sessionMap = {};
-      sessionDocs.forEach(sd => { if (sd.exists) sessionMap[sd.id] = sd.data(); });
-
-      for (const doc of subs.docs) {
-        const { uid, subscription } = doc.data();
-        const session = sessionMap[uid];
-        if (!session) { skipped++; continue; }
-        const inactive = now - (session.lastSessionTime || 0);
-        if (inactive < MIN_INACTIVE || inactive > MAX_INACTIVE) { skipped++; continue; }
-        if ((session.lastReminderTier || 0) >= 2) { skipped++; continue; }
-        try {
-          await webpush.sendNotification(subscription, buildPushPayload(session));
-          await db.collection("userSessions").doc(uid).update({ lastReminderTier: 2 });
-          sent++;
-        } catch (err) {
-          if (err.statusCode === 410 || err.statusCode === 404) {
-            await db.collection("pushSubscriptions").doc(uid).delete();
-          }
-        }
-      }
-      lastDoc = subs.docs[subs.docs.length - 1];
-      if (subs.docs.length < BATCH_SIZE) break;
+        await doc.ref.update({lastReminderTier:3});
+      }catch(error){console.error('Email delivery failed',error.code||'transport');}
     }
-
-    console.log(`Push reminders: sent=${sent}, skipped=${skipped}`);
-  }
-);
-
-// ── CRON: Email reminders (daily at 9am UTC, opt-in only) ──
-exports.sendEmailReminders = onSchedule(
-  {
-    schedule: "every day 09:00",
-    secrets: [smtpHost, smtpUser, smtpPass],
-    memory: "256MiB",
-    timeoutSeconds: 120,
-  },
-  async () => {
-    const nodemailer = require("nodemailer");
-    const transporter = nodemailer.createTransport({
-      host: smtpHost.value(),
-      port: 587,
-      secure: false,
-      auth: { user: smtpUser.value(), pass: smtpPass.value() },
-    });
-
-    const now = Date.now();
-    const MIN_INACTIVE = 72 * 60 * 60 * 1000;
-
-    let sent = 0, skipped = 0;
-    const BATCH_SIZE = 100;
-    let lastDoc = null;
-
-    // Paginate to avoid loading entire opt-in list into memory
-    while (true) {
-      let query = db.collection("userSessions")
-        .where("emailReminders", "==", true)
-        .limit(BATCH_SIZE);
-      if (lastDoc) query = query.startAfter(lastDoc);
-      const sessions = await query.get();
-      if (sessions.empty) break;
-
-      for (const doc of sessions.docs) {
-        const session = doc.data();
-        const inactive = now - (session.lastSessionTime || 0);
-        if (inactive < MIN_INACTIVE) { skipped++; continue; }
-        if ((session.lastReminderTier || 0) >= 3) { skipped++; continue; }
-        if (!session.email) { skipped++; continue; }
-        try {
-          await transporter.sendMail({
-            from: '"AuthorScrolls" <noreply@authorscrolls.com>',
-            to: session.email,
-            subject: `Your manuscript is waiting — ${session.manuscript || "AuthorScrolls"}`,
-            html: buildEmailHtml(session),
-          });
-          await db.collection("userSessions").doc(doc.id).update({ lastReminderTier: 3 });
-          sent++;
-        } catch (err) {
-          console.error("Email send error:", err.message);
-        }
-      }
-      lastDoc = sessions.docs[sessions.docs.length - 1];
-      if (sessions.docs.length < BATCH_SIZE) break;
-    }
-
-    console.log(`Email reminders: sent=${sent}, skipped=${skipped}`);
-  }
-);
+  });
+});
