@@ -1,6 +1,7 @@
 // Server-side proxy for LanguageTool API
 // Avoids CORS issues and prevents abuse of the public API
 const https = require('https');
+const { verifyToken } = require('./_auth');
 
 module.exports = async (req, res) => {
   const origin = req.headers.origin || '';
@@ -11,9 +12,12 @@ module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', 'https://authorscrolls.com');
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+
+  const auth = await verifyToken(req);
+  if (!auth.user) { res.status(401).json({ error: 'Authentication required' }); return; }
 
   const text = req.body?.text;
   if (!text || typeof text !== 'string') {
@@ -56,8 +60,9 @@ module.exports = async (req, res) => {
         resolve();
       });
     });
+    proxyReq.setTimeout(12000, () => proxyReq.destroy(new Error('Grammar provider timeout')));
     proxyReq.on('error', err => {
-      res.status(502).json({ error: 'LanguageTool unavailable: ' + err.message });
+      res.status(502).json({ error: 'LanguageTool unavailable' });
       resolve();
     });
     proxyReq.write(postData);
