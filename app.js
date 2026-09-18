@@ -180,10 +180,11 @@ const _undoStack=[];
 const _redoStack=[];
 const MAX_UNDO=50;
 let _lastSnapshotText='';
+function _undoState(page){return {html:page.innerHTML,text:extractedText};}
 function pushUndo(){
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult?structuredClone(analysisResult):null});
+  _undoStack.push(_undoState(page));
   if(_undoStack.length>MAX_UNDO)_undoStack.shift();
   _redoStack.length=0;
   _lastSnapshotText=extractedText;
@@ -193,7 +194,7 @@ function _pushTypingSnapshot(){
   if(extractedText===_lastSnapshotText)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult?structuredClone(analysisResult):null});
+  _undoStack.push(_undoState(page));
   if(_undoStack.length>MAX_UNDO)_undoStack.shift();
   _redoStack.length=0;
   _lastSnapshotText=extractedText;
@@ -202,11 +203,10 @@ function undoLastFix(){
   if(_undoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _redoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult?structuredClone(analysisResult):null});
+  _redoStack.push(_undoState(page));
   const state=_undoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
-  if(state.analysis){analysisResult=state.analysis;updateScoresOnly(analysisResult)}
   _lastSnapshotText=extractedText;
   scheduleReanalyze();
   _updateUndoBtn();
@@ -215,11 +215,10 @@ function redoLastFix(){
   if(_redoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText,analysis:analysisResult?structuredClone(analysisResult):null});
+  _undoStack.push(_undoState(page));
   const state=_redoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
-  if(state.analysis){analysisResult=state.analysis;updateScoresOnly(analysisResult)}
   _lastSnapshotText=extractedText;
   scheduleReanalyze();
   _updateUndoBtn();
