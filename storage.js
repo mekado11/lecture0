@@ -76,71 +76,39 @@ const Storage = {
     await this._replaceCollection(root.collection('characters'), intelligence.characterLedger?.characters||[], (x,i)=>x.id||('character-'+String(i+1).padStart(4,'0')));
   },
 
-  async _writeChapters(manuscriptRef, parsed, intelligence = null) {
-    // Firestore batches are capped, so commit in conservative groups.
-    const chunks = parsed.chapters || [];
-    for (let start = 0; start < chunks.length; start += 400) {
-      const batch = this.db.batch();
-      chunks.slice(start, start + 400).forEach(chapter => {
-        const chapterIntel = intelligence?.chapters?.find(c => c.id === chapter.id);
-        batch.set(manuscriptRef.collection('chapters').doc(chapter.id), {
-          index: chapter.index, number: chapter.number, title: chapter.title,
-          heading: chapter.heading || null, start: chapter.start, end: chapter.end,
-          wordCount: chapter.wordCount, text: chapter.text,
-          intelligenceVersion: chapterIntel ? intelligence.version : 0,
-          ...(chapterIntel ? { pov: chapterIntel.pov, characterCandidates: chapterIntel.characterCandidates } : {}),
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-      });
-      await batch.commit();
+  _splitChapterText(text, maxChars = 300000) {
+    text=String(text||''); if(text.length<=maxChars)return [text];
+    const parts=[]; let start=0;
+    while(start<text.length){
+      let end=Math.min(text.length,start+maxChars);
+      if(end<text.length){
+        const floor=start+Math.floor(maxChars*.7);
+        const para=text.lastIndexOf('\n\n',end);
+        const sentence=Math.max(text.lastIndexOf('. ',end),text.lastIndexOf('? ',end),text.lastIndexOf('! ',end));
+        const cut=para>=floor?para+2:(sentence>=floor?sentence+2:end);
+        end=cut;
+      }
+      parts.push(text.slice(start,end)); start=end;
     }
+    return parts;
   },
 
-  async _readChapterText(manuscriptRef) {
-    const snap = await manuscriptRef.collection('chapters').orderBy('index', 'asc').get();
-    return snap.docs.map(d => d.data().text || '').join('');
+  async _writeChapters(manuscriptRef, parsed, intelligence = null) {
+    const rows=[];
+    for(const chapter of parsed.chapters||[]){
+      const chapterIntel=intelligence?.chapters?.find(c=>c.id===chapter.id);
+      const parts=this._splitChapterText(chapter.text);
+      parts.forEach((text,partIndex)=>rows.push({
+        id:parts.length===1?chapter.id:(chapter.id+'-part-'+String(partIndex+1).padStart(3,'0')),
+        chapterId:chapter.id, partIndex, partCount:parts.length, text,
+        index:chapter.index, number:chapter.number, title:chapter.title, heading:chapter.heading||null,
+        start:chapter.start, end:chapter.end, wordCount:chapter.wordCount,
+        intelligenceVersion:chapterIntel?intelligence.version:0,
+        ...(chapterIntel&&partIndex===0?{pov:chapterIntel.pov,characterCandidates:chapterIntel.characterCandidates}: {})
+      }));
+    }
+    const collection=manuscriptRef.collection('chapters');
+    const existing=await collection.get();
+    for(let start=0;start<existing.docs.length;start+=400){const batch=this.db.batch();existing.docs.slice(start,start+400).forEach(d=>batch.delete(d.ref));await batch.commit();}
+    for(let start=0;start<rows.length;start+=400){const batch=this.db.batch();rows.slice(start,start+400).forEach(row=>batch.set(collection.doc(row.id),{...row,updatedAt:firebase.firestore.FieldValue.serverTimestamp()}));await batch.commit();}
   },
-  async saveManuscript(fileName, text, analysisResult) {
-    const ref = this._userDoc();
-    if (!ref) return null;
-    const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-    const parsed = this._parseManuscript(text);
-    const intelligence = this._buildBookIntelligence(parsed, analysisResult);
-    const inlineText = text.length <= 450000 ? text : null;
-    const doc = {
-      id, fileName, schemaVersion: 2, parserVersion: parsed.version || 1,
-      textLength: text.length, chapterCount: parsed.chapterCount, wordCount: parsed.wordCount,
-      ...(inlineText !== null ? { text: inlineText } : {}),
-      genre: analysisResult?.genre?.label || 'Unknown',
-      genrePrimary: analysisResult?.genre?.primary || '', overall: analysisResult?.overall || 0,
-      scores: analysisResult?.scores || {}, issueCount: analysisResult?.issues?.length || 0,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-    const manuscriptRef = ref.collection('manuscripts').doc(id);
-    await manuscriptRef.set(doc);
-    await this._writeChapters(manuscriptRef, parsed, intelligence);
-    await this._writeBookIntelligence(manuscriptRef, intelligence);
-    return id;
-  },
-
-  async updateManuscript(id, text, analysisResult) {
-    const ref = this._userDoc();
-    if (!ref) return;
-    const parsed = this._parseManuscript(text);
-    const intelligence = this._buildBookIntelligence(parsed, analysisResult);
-    const inlineText = text.length <= 450000 ? text : null;
-    const update = {
-      schemaVersion: 2, parserVersion: parsed.version || 1, textLength: text.length,
-      chapterCount: parsed.chapterCount, wordCount: parsed.wordCount,
-      text: inlineText === null ? firebase.firestore.FieldValue.delete() : inlineText,
-      overall: analysisResult?.overall || 0, scores: analysisResult?.scores || {},
-      genre: analysisResult?.genre?.label || 'Unknown', genrePrimary: analysisResult?.genre?.primary || '',
-      issueCount: analysisResult?.issues?.length || 0, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-    const manuscriptRef = ref.collection('manuscripts').doc(id);
-    await manuscriptRef.update(update);
-    await this._writeChapters(manuscriptRef, parsed, intelligence);
-    await this._writeBookIntelligence(manuscriptRef, intelligence);
-  },
-
