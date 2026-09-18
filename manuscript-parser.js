@@ -54,7 +54,7 @@ const ManuscriptParser = (() => {
 
   function parse(text) {
     const source=normalizeNewlines(text);
-    if(!source.trim())return{version:3,textLength:0,wordCount:0,chapterCount:0,unitCount:0,chapters:[],warnings:['EMPTY_MANUSCRIPT']};
+    if(!source.trim())return{version:3,textLength:0,wordCount:0,chapterCount:0,unitCount:0,chapterNumbers:[],chapters:[],warnings:['EMPTY_MANUSCRIPT']};
     const headings=scanHeadings(source), chapters=[];
     if(!headings.length)chapters.push(buildUnit(source,null,0,source.length,0,'opening'));
     else {
