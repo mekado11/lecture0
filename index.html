@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#127807;</text></svg>">
-<title>AuthorScrolls - Writing, Engineered.</title>
+<title>AuthorScrolls — Your Book, Understood.</title>
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -28,14 +28,14 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,7,5,.88);
 .ua{width:26px;height:26px;border-radius:50%;background:#8a6548;display:flex;align-items:center;justify-content:center;font-size:.65rem;color:#fff;font-weight:700}
 
 /* SCROLL */
-.scroll-wrap{position:relative;z-index:1;max-width:800px;margin:90px auto 40px;padding:0 1.5rem}
+.scroll-wrap{position:relative;z-index:1;max-width:920px;margin:94px auto 48px;padding:0 1.5rem}
 
 /* BRAND ABOVE ROLLER */
 .top-brand{text-align:center;margin-bottom:1rem;font-family:'Lora',serif;font-size:1.3rem;font-weight:700;color:#dbb08a}
 .top-brand span{font-size:1.5rem;vertical-align:middle}
 
 /* ROLLER */
-.roller{position:relative;height:52px;z-index:5;border-radius:6px;
+.roller{position:relative;height:48px;z-index:5;border-radius:999px;
   background:linear-gradient(180deg,#d4b896 0%,#c4a47a 8%,#a0804a 18%,#7a6038 28%,#b89860 38%,#d4b896 48%,#c4a87e 55%,#a0804a 65%,#8a6840 75%,#b89860 88%,#d4b896 100%);
   box-shadow:0 8px 30px rgba(0,0,0,.6),0 2px 4px rgba(0,0,0,.3),inset 0 1px 2px rgba(255,255,255,.2)}
 .roller::before{content:'';position:absolute;top:6px;left:30px;right:30px;height:3px;background:linear-gradient(90deg,transparent 0%,rgba(255,240,210,.25) 30%,rgba(255,240,210,.15) 70%,transparent 100%);border-radius:2px}
@@ -53,7 +53,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,7,5,.88);
 /* PARCHMENT */
 .parch{position:relative;
   background:linear-gradient(180deg,#e8d5b0,#f0e2c4 15%,#e5d4b0 30%,#f2e6c8 50%,#e0ccaa 70%,#ecdcc0 85%,#e5d0b0);
-  padding:4.5rem 3.5rem;color:#2c1810;
+  padding:5rem 5rem;color:#2c1810;border-left:1px solid rgba(112,75,40,.18);border-right:1px solid rgba(112,75,40,.18);
   box-shadow:inset 4px 0 12px rgba(0,0,0,.06),inset -4px 0 12px rgba(0,0,0,.06),inset 0 6px 15px rgba(0,0,0,.04),inset 0 -6px 15px rgba(0,0,0,.04),0 30px 80px rgba(0,0,0,.5)}
 .parch::before{content:'';position:absolute;inset:0;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='p'%3E%3CfeTurbulence baseFrequency='.5' numOctaves='5' type='fractalNoise'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23p)' opacity='.07'/%3E%3C/svg%3E");pointer-events:none;z-index:0}
 .parch::after{content:'';position:absolute;inset:0;
@@ -62,8 +62,8 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,7,5,.88);
 .parch>*{position:relative;z-index:1}
 
 /* TYPOGRAPHY */
-h1{font-size:2.6rem;font-weight:700;line-height:1.15;margin-bottom:.8rem;text-align:center;color:#2c1810}
-.sub{font-size:1.05rem;text-align:center;color:#5a4830;font-style:italic;margin-bottom:2rem;line-height:1.6}
+h1{font-size:3.15rem;font-weight:700;line-height:1.08;margin-bottom:1rem;text-align:center;color:#2c1810;letter-spacing:-.035em}
+.sub{font-size:1.08rem;text-align:center;color:#5a4830;margin:0 auto 2rem;line-height:1.7;max-width:680px}
 .tagb{font-size:1.5rem;font-weight:700;text-align:center;color:#2c1810;line-height:1.4}
 .tags{font-size:1.2rem;text-align:center;color:#6b5840;margin-top:.4rem;font-weight:600}
 
@@ -125,7 +125,7 @@ h1{font-size:2.6rem;font-weight:700;line-height:1.15;margin-bottom:.8rem;text-al
 .ae{color:#c45c4a;font-size:.78rem;margin-top:.5rem;display:none}
 .ax{position:absolute;top:.8rem;right:1rem;background:none;border:none;color:#9c9085;font-size:1.2rem;cursor:pointer}
 
-@media(max-width:650px){.parch{padding:2.5rem 1.5rem}h1{font-size:1.8rem}.feats{grid-template-columns:1fr}.ss-b{grid-template-columns:1fr}.btns{flex-direction:column;align-items:center}}
+@media(max-width:650px){.scroll-wrap{padding:0 .7rem;margin-top:78px}.parch{padding:3rem 1.35rem}.finial{width:32px}.finial.l{left:-4px}.finial.r{right:-4px}h1{font-size:2.15rem}.feats{grid-template-columns:1fr}.ss-b{grid-template-columns:1fr}.btns{flex-direction:column;align-items:center}}
 </style>
 </head>
 <body>
@@ -140,24 +140,24 @@ h1{font-size:2.6rem;font-weight:700;line-height:1.15;margin-bottom:.8rem;text-al
   <div class="top-brand"><span>&#127807;</span> AuthorScrolls</div>
   <div class="roller"><div class="finial l"></div><div class="finial r"></div></div>
   <div class="parch">
-    <div class="rv"><h1>Know What&rsquo;s Wrong<br>Before Your Editor Does.</h1><p class="sub">AuthorScrolls is a manuscript diagnostic for authors &mdash; fiction, nonfiction, and everything in between.<br>Upload your draft. See exactly where it breaks &mdash; and why.</p>
-    <div class="btns"><button class="bg1" id="hero-cta">Diagnose Your Manuscript</button><button class="bo1" id="hero-how">See What It Checks</button></div></div>
+    <div class="rv"><h1>Your Book.<br>Understood.</h1><p class="sub">Write, revise, and perfect your manuscript with an AI editor that understands your characters, story, structure, and voice.</p>
+    <div class="btns"><button class="bg1" id="hero-cta">Open Your Manuscript</button><button class="bo1" id="hero-how">See How It Works</button></div></div>
     <div class="div"></div>
-    <div class="rv" id="how"><p class="tagb">This is not a spell-checker.<br>It&rsquo;s not a grammar tool.<br>It&rsquo;s not a line editor.</p><div class="div"></div><p class="tags">It&rsquo;s the diagnostic you run before all of those.</p></div>
+    <div class="rv" id="how"><p class="tagb">More than a score.<br>A living understanding of your story.</p><div class="div"></div><p class="tags">AuthorScrolls follows the manuscript with you, from rough draft to publication-ready.</p></div>
     <div class="ss rv">
-      <div class="ss-t"><span>&#127807; AuthorScrolls &mdash; Manuscript Intelligence</span><span>LIVE SCORE: <b style="color:#dbb08a">52</b> &middot; 12 issues found</span></div>
+      <div class="ss-t"><span>&#127807; AuthorScrolls &mdash; Book Intelligence</span><span>CHAPTER 8 &middot; STORY MAP</span></div>
       <div class="ss-b">
-        <div class="sc"><div style="display:flex;align-items:center;gap:.35rem"><div class="sn" style="color:#c45c4a">72%</div><div><h4>DNF Risk</h4><div style="font-size:.55rem;color:#9c9085">Readers likely stop at Ch. 3</div></div></div><div class="sb"><div class="sf" style="width:72%;background:#c45c4a"></div></div></div>
-        <div class="sc"><div style="display:flex;align-items:center;gap:.35rem"><div class="sn" style="color:#d4a855">41</div><div><h4>Hook Strength</h4><div style="font-size:.55rem;color:#9c9085">No tension in opening</div></div></div><div class="sb"><div class="sf" style="width:41%;background:#d4a855"></div></div></div>
-        <div class="sc"><div style="display:flex;align-items:center;gap:.35rem"><div class="sn" style="color:#5dba7d">78</div><div><h4>Dialogue</h4><div style="font-size:.55rem;color:#9c9085">Natural, well-paced</div></div></div><div class="sb"><div class="sf" style="width:78%;background:#5dba7d"></div></div></div>
-        <div class="sc"><div style="display:flex;align-items:center;gap:.35rem"><div class="sn" style="color:#c45c4a">23</div><div><h4>Grammar</h4><div style="font-size:.55rem;color:#9c9085">8 agreement errors</div></div></div><div class="sb"><div class="sf" style="width:23%;background:#c45c4a"></div></div></div>
+        <div class="sc"><h4>CHARACTER</h4><div style="font-size:.9rem;font-weight:700;color:#e8dfd4">Mara</div><div style="font-size:.6rem;color:#9c9085;margin-top:.2rem">Last seen hiding the necklace from Daniel.</div></div>
+        <div class="sc"><h4>OPEN THREAD</h4><div style="font-size:.9rem;font-weight:700;color:#e8dfd4">The missing necklace</div><div style="font-size:.6rem;color:#9c9085;margin-top:.2rem">Introduced Ch. 2 &middot; pressure building</div></div>
+        <div class="sc"><h4>CONTINUITY</h4><div style="font-size:.9rem;font-weight:700;color:#e8dfd4">1 item to review</div><div style="font-size:.6rem;color:#9c9085;margin-top:.2rem">Evidence linked to the manuscript.</div></div>
+        <div class="sc"><h4>ASK YOUR BOOK</h4><div style="font-size:.78rem;color:#e8dfd4">&ldquo;What has Mara promised Daniel?&rdquo;</div><div style="font-size:.6rem;color:#9c9085;margin-top:.2rem">Grounded across relevant chapters.</div></div>
       </div>
     </div>
     <div class="div"></div>
     <div class="feats">
-      <div class="ft rv"><div class="ft-i">&#128683;</div><h3>Where Readers Quit</h3><p>The DNF engine scores your manuscript on hook strength, forward motion, clarity, and pacing &mdash; and tells you which section loses readers first.</p></div>
-      <div class="ft rv"><div class="ft-i">&#128202;</div><h3>Structural Diagnosis</h3><p>Plot arc, pacing heatmap, tension curve, dialogue function, POV consistency. The things a developmental editor charges $2,000&ndash;5,000 to tell you.</p></div>
-      <div class="ft rv"><div class="ft-i">&#128065;</div><h3>Specific, Not Generic</h3><p>Not &ldquo;too many adverbs.&rdquo; Specific: &ldquo;&lsquo;said softly&rsquo; &rarr; try &lsquo;murmured&rsquo;.&rdquo; Every issue has a concrete suggestion, not a rule.</p></div>
+      <div class="ft rv"><div class="ft-i">&#128214;</div><h3>It Knows Your Book</h3><p>Characters, relationships, story facts, chapters, and unresolved threads become a living map you can return to while you write.</p></div>
+      <div class="ft rv"><div class="ft-i">&#129504;</div><h3>Ask the Manuscript</h3><p>Ask questions across the book and get answers grounded in the chapters that matter, instead of generic writing advice.</p></div>
+      <div class="ft rv"><div class="ft-i">&#9998;</div><h3>Revise Without Losing Your Voice</h3><p>Find weak passages, continuity problems, pacing issues, and revision opportunities while keeping the author in control.</p></div>
     </div>
     <div class="div"></div>
     <div class="rv" style="padding:1rem 0">
@@ -170,21 +170,21 @@ h1{font-size:2.6rem;font-weight:700;line-height:1.15;margin-bottom:.8rem;text-al
     </div>
     <div class="div"></div>
     <div class="rv" style="padding:1rem 0">
-      <p class="tags" style="margin-bottom:.5rem">What it doesn&rsquo;t do</p>
-      <p style="text-align:center;color:#6b5840;font-size:.88rem;margin-bottom:1.5rem;line-height:1.7">AuthorScrolls won&rsquo;t rewrite your sentences or replace your editor.<br>A copy editor, line editor, and proofreader are still part of getting published.<br>We&rsquo;re the step <em>before</em> that &mdash; so when you do hire one, you&rsquo;re not paying them to find the obvious problems.</p>
+      <p class="tags" style="margin-bottom:.5rem">Your voice stays yours</p>
+      <p style="text-align:center;color:#6b5840;font-size:.88rem;margin-bottom:1.5rem;line-height:1.7">AuthorScrolls can explain, critique, and help rewrite when you ask it to.<br>It does not decide what your story should become. You stay the author.</p>
       <div class="feats">
         <div class="ft rv"><div class="ft-i">&#9889;</div><h3>Deep Critique</h3><p>Narrative analysis, comparable titles, query letter draft, beta reader simulation, market readiness, chapter breakdown. For when you&rsquo;re close to querying.</p></div>
         <div class="ft rv"><div class="ft-i">&#128214;</div><h3>Pitch Materials</h3><p>Five blurb variations built from your actual story beats. Query letter scaffolding. Not a template &mdash; drawn from what&rsquo;s in your manuscript.</p></div>
         <div class="ft rv"><div class="ft-i">&#128302;</div><h3>Opening Diagnosis</h3><p>Your first pages scored on six dimensions agents care about. Weak hooks identified with specific reasons, not just a score.</p></div>
       </div>
     </div>
-    <div class="cta rv"><button class="bg1" id="bottom-cta" style="font-size:1.05rem;padding:.85rem 2.5rem">Diagnose Your Manuscript Free &#8250;</button></div>
+    <div class="cta rv"><button class="bg1" id="bottom-cta" style="font-size:1.05rem;padding:.85rem 2.5rem">Start Writing Free &#8250;</button></div>
   </div>
   <div class="roller"><div class="finial l"></div><div class="finial r"></div></div>
 </div>
 
 <div class="foot">
-  <p>AuthorScrolls &middot; Author's Best Buddy &middot; &copy; 2026</p>
+  <p>AuthorScrolls &middot; Your book, understood. &middot; &copy; 2026</p>
   <p style="margin-top:.3rem"><a href="pricing.html">Pricing</a> &middot; <a href="faq.html">Resources</a> &middot; <a href="legal.html#terms">Terms</a> &middot; <a href="legal.html#privacy">Privacy</a> &middot; <a href="legal.html#cookies">Cookies</a> &middot; <a href="legal.html#ai">AI Disclaimer</a> &middot; <a href="legal.html#contact">Contact</a></p>
 </div>
 
