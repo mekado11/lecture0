@@ -57,8 +57,12 @@ module.exports = async (req, res) => {
     const tier = data.tier || 'beta';
     await db.runTransaction(async (t) => {
       const fresh = await t.get(codeRef);
-      const freshUsed = fresh.data().usedBy || [];
-      if (freshUsed.length >= maxUses) throw new Error('Code fully used');
+      if (!fresh.exists) throw new Error('Code invalid');
+      const freshData = fresh.data() || {};
+      const freshUsed = freshData.usedBy || [];
+      const freshMaxUses = freshData.maxUses || 1;
+      if (freshUsed.includes(uid)) throw new Error('Code already redeemed');
+      if (freshUsed.length >= freshMaxUses) throw new Error('Code fully used');
       t.update(codeRef, { usedBy: [...freshUsed, uid] });
       t.set(db.collection('users').doc(uid), {
         tier,
@@ -71,8 +75,13 @@ module.exports = async (req, res) => {
   } catch (e) {
     if (e.message === 'Code fully used') {
       res.status(410).json({ error: 'This invite code has been fully used' });
+    } else if (e.message === 'Code already redeemed') {
+      res.status(400).json({ error: 'You already redeemed this code' });
+    } else if (e.message === 'Code invalid') {
+      res.status(404).json({ error: 'Invalid invite code' });
     } else {
-      res.status(500).json({ error: 'Redemption failed: ' + e.message });
+      console.error('Redemption failed:', e.message);
+      res.status(500).json({ error: 'Redemption failed' });
     }
   }
 };
