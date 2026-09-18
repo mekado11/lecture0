@@ -82,7 +82,7 @@ const AIEngine = {
       let intel = BookIntelligence.build(parsed, analysis);
       if (typeof StoryIntelligence !== 'undefined') intel = StoryIntelligence.enrich(parsed, intel);
       if (typeof ContinuityIntelligence !== 'undefined') intel = ContinuityIntelligence.enrich(parsed, intel);
-      if (typeof TimelineIntelligence !== 'undefined') intel = TimelineIntelligence.enrich(parsed, intel);\n    if (typeof NarrativeMomentum !== 'undefined') intel = NarrativeMomentum.enrich(parsed, intel);\n    if (typeof RelationshipIntelligence !== 'undefined') intel = RelationshipIntelligence.enrich(parsed, intel);\n    if (typeof CharacterLedger !== 'undefined') intel = CharacterLedger.enrich(parsed, intel);
+      if (typeof TimelineIntelligence !== 'undefined') intel = TimelineIntelligence.enrich(parsed, intel);\n    if (typeof NarrativeMomentum !== 'undefined') intel = NarrativeMomentum.enrich(intel);\n    if (typeof RelationshipIntelligence !== 'undefined') intel = RelationshipIntelligence.enrich(parsed, intel);\n    if (typeof CharacterLedger !== 'undefined') intel = CharacterLedger.enrich(intel);
       built = { parsed, intel };
       this._bookContextCache.clear();
       this._bookContextCache.set(key, built);
