@@ -50,10 +50,17 @@ const IntelligenceWindow = (() => {
     const cached = cachedBuild();
     if (cached) { onReady(cached); return; }
     const token = ++buildToken;
-    requestAnimationFrame(() => setTimeout(() => {
+    const text = currentText();
+    if (!text.trim()) { onReady(null); return; }
+    const analysis = window.AuthorScrollsEditor?.getAnalysis();
+    // Off the main thread when a worker is available (IntelligencePipeline.buildAsync
+    // falls back to the synchronous build otherwise), so typing, scrolling and the
+    // close button keep responding while a large manuscript is being read.
+    IntelligencePipeline.buildAsync(text, analysis).then(result => {
       if (token !== buildToken) return; // superseded by a newer request — discard
-      onReady(build());
-    }, 0));
+      latest = { ...result, analysis, sig: analysisSignature(analysis) };
+      onReady(latest);
+    }).catch(() => { if (token === buildToken) onReady(build()); });
   }
   const empty = text => `<p class="workspace-nav-hint">${esc(text)}</p>`;
   const evidence = rows => rows.map(row => `<small>${esc(row.chapterId || '')} · ${esc(row.text || row.evidence || '')}</small>`).join('');
@@ -212,18 +219,55 @@ const IntelligenceWindow = (() => {
     } catch(error){if(token===answerId)out.textContent=error.message||'The answer could not be loaded.';}
     finally{if(token===answerId)button.disabled=false;}
   }
-  function open() {previousFocus=document.activeElement;$('intel-window')?.classList.add('open');$('intel-window')?.removeAttribute('inert');render();$('intel-close')?.focus();}
-  function close() {$('intel-window')?.classList.remove('open');$('intel-window')?.setAttribute('inert','');previousFocus?.focus();}
+  // The panel is a floating card: closed = `hidden` attribute (so it cannot render
+  // even if the stylesheet fails to load — the failure mode that produced a full-width
+  // strip that could not be dismissed), open = `.open` for the scale/fade transition.
+  let closeTimer = null;
+  const isOpen = () => !!$('intel-window')?.classList.contains('open');
+  const TRIGGERS = ['intel-open','workspace-intel-open'];
+  function open() {
+    const win = $('intel-window'); if (!win) return;
+    if (isOpen()) { close(); return; } // the Intelligence button toggles
+    clearTimeout(closeTimer);
+    previousFocus = document.activeElement;
+    win.hidden = false; win.removeAttribute('inert');
+    void win.offsetWidth; // commit the un-hidden state before animating
+    win.classList.add('open');
+    render();
+    $('intel-close')?.focus();
+  }
+  function close() {
+    const win = $('intel-window'); if (!win || !isOpen()) return;
+    win.classList.remove('open');
+    win.setAttribute('inert', '');
+    clearTimeout(closeTimer);
+    closeTimer = setTimeout(() => { if (!isOpen()) win.hidden = true; }, 320);
+    if (previousFocus && previousFocus.isConnected) previousFocus.focus();
+  }
+  // Popover behaviour, not a modal: no page-dimming scrim (it would also sit over the
+  // header and swallow the Intelligence button's own toggle click). Any pointer press
+  // outside the card or its trigger buttons closes it.
+  function onOutsidePress(e) {
+    if (!isOpen()) return;
+    const t = e.target;
+    if ($('intel-window')?.contains(t)) return;
+    if (TRIGGERS.some(id => $(id)?.contains(t))) return;
+    close();
+  }
   function init() {
-    $('intel-window')?.setAttribute('inert','');
-    ['intel-open','workspace-intel-open'].forEach(id=>$(id)?.addEventListener('click',open));
+    const win = $('intel-window');
+    if (win) { win.setAttribute('inert', ''); win.hidden = true; }
+    document.addEventListener('pointerdown', onOutsidePress, true);
+    TRIGGERS.forEach(id=>$(id)?.addEventListener('click',open));
     $('intel-close')?.addEventListener('click',close);
     $('intel-ask')?.addEventListener('click',ask);
     $('intel-question')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();ask();}});
-    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('intel-window')?.classList.contains('open'))close();});
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&isOpen())close();});
     document.querySelectorAll('.ws-nav').forEach(b=>b.addEventListener('click',()=>renderNavigator(b.dataset.wsnav)));
     let timer;
-    $('ed-annotated')?.addEventListener('input',()=>{invalidateContext();clearTimeout(timer);timer=setTimeout(()=>{latest=null;renderNavigator();},800);});
+    // Refresh the navigator after typing settles. 2s (was 800ms): the chapter outline
+    // rarely changes mid-sentence, and each refresh is a full pipeline pass.
+    $('ed-annotated')?.addEventListener('input',()=>{invalidateContext();clearTimeout(timer);timer=setTimeout(()=>{latest=null;renderNavigator();},2000);});
     window.addEventListener('manuscript:changed',()=>{invalidateContext();latest=null;renderNavigator();if($('intel-window')?.classList.contains('open'))render();});
     renderNavigator();
   }
