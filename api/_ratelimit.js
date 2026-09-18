@@ -30,6 +30,7 @@ function getRedis() {
 async function checkAndIncrement(userId, today) {
   const key = 'rl:' + userId + ':' + today;
   const r = getRedis();
+  if(!r&&(process.env.VERCEL||process.env.NODE_ENV==='production'))throw new Error('Persistent rate limiter unavailable');
 
   if (r) {
     const count = await r.incr(key);
@@ -51,6 +52,7 @@ async function checkAndIncrement(userId, today) {
 async function getCount(userId, today) {
   const key = 'rl:' + userId + ':' + today;
   const r = getRedis();
+  if(!r&&(process.env.VERCEL||process.env.NODE_ENV==='production'))throw new Error('Persistent rate limiter unavailable');
 
   if (r) {
     return parseInt(await r.get(key), 10) || 0;

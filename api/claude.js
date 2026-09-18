@@ -3,59 +3,27 @@
 // Rate limited per user per day
 const https = require('https');
 const { verifyToken, getAdmin } = require('./_auth');
-const { checkAndIncrement, getCount } = require('./_ratelimit');
+const { checkAndIncrement } = require('./_ratelimit');
 
 const LIMITS = { dev: 9999, beta: 50, premium: 75, starter: 25, free: 0 };
 
-// Developer admin UIDs (your Firebase UID — unlimited access)
-const DEV_UIDS = new Set([
-  // Add your Firebase UID here after first sign-in
-]);
-
-// Admin emails — always dev tier, no rate limiting
-const ADMIN_EMAILS = new Set(['admin@authorscrolls.com']);
-
-// Brief in-memory tier cache to avoid hitting Firestore on every request
-const tierCache = new Map();
-const TIER_CACHE_TTL = 60000; // 1 minute
-
-async function getUserTier(userId, email) {
-  if (DEV_UIDS.has(userId)) return 'dev';
-  if (email && ADMIN_EMAILS.has(email.toLowerCase())) return 'dev';
-
-  const cached = tierCache.get(userId);
-
+async function getUserTier(userId) {
   const fb = getAdmin();
   if (fb) {
     try {
-      // Always read if no cache, or cache has expired.
-      // Also re-read if the Firestore tierUpdatedAt is newer than our cached snapshot —
-      // this ensures a downgrade (subscription cancelled) takes effect immediately rather
-      // than persisting for up to TIER_CACHE_TTL across all running instances.
-      let needsRead = !cached || Date.now() - cached.ts >= TIER_CACHE_TTL;
-      if (!needsRead && cached) {
-        const doc = await fb.firestore().collection('users').doc(userId).get();
-        if (doc.exists) {
-          const updatedAt = doc.data().tierUpdatedAt;
-          const updatedMs = updatedAt ? updatedAt.toMillis() : 0;
-          if (updatedMs > cached.ts) {
-            const tier = doc.data().tier || 'free';
-            tierCache.set(userId, { tier, ts: Date.now() });
-            return tier;
-          }
-        }
-        return cached.tier;
-      }
-      if (needsRead) {
-        const doc = await fb.firestore().collection('users').doc(userId).get();
-        const tier = doc.exists ? (doc.data().tier || 'free') : 'free';
-        tierCache.set(userId, { tier, ts: Date.now() });
-        return tier;
-      }
-      return cached.tier;
-    } catch (e) { /* Firestore unavailable — fall through to cached or free */ }
+      // Admin reads bypass Rules. Check the same deletion boundary explicitly,
+      // including privileged accounts, and never reuse stale authorization.
+      const db = fb.firestore();
+      const [profile, deletion] = await db.getAll(
+        db.collection('users').doc(userId),
+        db.collection('accountDeletions').doc(userId)
+      );
+      if (deletion.exists) return 'free';
+      if ((process.env.ADMIN_UIDS||'').split(',').map(s=>s.trim()).includes(userId)) return 'dev';
+      const tier = profile.exists ? profile.data().tier : 'free';
+      return typeof tier === 'string' && Object.hasOwn(LIMITS,tier) ? tier : 'free';
+    } catch (_) { return null; } // Unavailable authority is not a cached grant.
   }
-  if (cached) return cached.tier;
   return 'free';
 }
 
@@ -68,7 +36,7 @@ module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', 'https://authorscrolls.com');
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, X-Model, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, X-Model, X-Feature, Authorization');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
   // GET = health check (C-1 fix: no config details exposed publicly)
@@ -104,38 +72,69 @@ module.exports = async (req, res) => {
 
   const decoded = auth.user;
   const userId = decoded.uid;
-  const userEmail = (decoded.email || '').toLowerCase();
   const today = new Date().toISOString().split('T')[0];
 
-  const userTier = await getUserTier(userId, userEmail);
-  const limit = LIMITS[userTier] || LIMITS.free;
-  const used = await checkAndIncrement(userId, today);
-
-  if (used > limit) {
-    res.status(429).json({
-      error: {
-        message: userTier === 'free'
-          ? 'AI features require a subscription. Upgrade to Starter ($5/mo) for 1 AI analysis per day.'
-          : 'Daily AI limit reached (' + limit + '/day). Upgrade for more, or wait until midnight UTC.',
-        code: 'RATE_LIMITED', limit, used: used - 1, tier: userTier
-      }
-    });
+  const userTier = await getUserTier(userId);
+  if (userTier === null) {
+    res.status(503).json({error:{message:'Access verification unavailable. Please try again.',code:'ACCESS_UNAVAILABLE'}});
     return;
   }
+  const limit = LIMITS[userTier] || LIMITS.free;
 
-  // Determine which model/provider to use
+  // The server owns model authorization. Client routing is only a request hint.
   const ALLOWED_ROUTES = new Set(['claude','claude-premium','openai-fast','openai-nano','openai-premium']);
   const requestedModel = req.headers['x-model'] || 'openai-fast';
+  const requestedFeature = String(req.headers['x-feature'] || 'unknown').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
   if (!ALLOWED_ROUTES.has(requestedModel)) {
     res.status(400).json({ error: { message: 'Invalid model route' } }); return;
   }
-
-  // Extract only allowed fields — never forward arbitrary client payload
-  const sanitized = {
-    system: req.body.system || [],
-    messages: req.body.messages || [],
-    max_tokens: Math.min(Number(req.body.max_tokens) || 2048, 2048)
+  const ROUTES_BY_TIER = {
+    free: new Set(),
+    starter: new Set(['openai-fast','openai-nano']),
+    beta: new Set(['openai-fast','openai-nano','claude']),
+    premium: new Set(['openai-fast','openai-nano','openai-premium','claude','claude-premium']),
+    dev: ALLOWED_ROUTES
   };
+  const permittedRoutes = ROUTES_BY_TIER[userTier] || ROUTES_BY_TIER.free;
+  if (!permittedRoutes.has(requestedModel)) {
+    res.status(403).json({ error: { message: 'This AI route is not available for your subscription tier', code: 'MODEL_NOT_ALLOWED', tier: userTier } }); return;
+  }
+
+  // Extract only allowed fields — never forward arbitrary client payload.
+  // Bound prompt size at the server even if a modified client bypasses UI/retrieval budgets.
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const system = Array.isArray(body.system) ? body.system : [];
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const promptChars = JSON.stringify({ system, messages }).length;
+  const MAX_PROMPT_CHARS = 120000;
+  if (promptChars > MAX_PROMPT_CHARS) {
+    res.status(413).json({ error: { message: 'AI request context is too large', code: 'PROMPT_TOO_LARGE', maxChars: MAX_PROMPT_CHARS } }); return;
+  }
+  if (!messages.length || messages.length > 12) {
+    res.status(400).json({ error: { message: 'Invalid AI message payload', code: 'INVALID_MESSAGES' } }); return;
+  }
+  const sanitized = {
+    system,
+    messages,
+    max_tokens: Math.min(Math.max(Number(body.max_tokens) || 2048, 64), 2048)
+  };
+  // Feature identity is metadata only; authorization remains server-owned.
+  res.setHeader('X-AuthorScrolls-Feature', requestedFeature);
+
+  // Count only authenticated, authorized, structurally valid requests.
+  const needsClaude=requestedModel==='claude'||requestedModel==='claude-premium';
+  if(!(needsClaude?process.env.CLAUDE_API_KEY:process.env.OPENAI_API_KEY))return res.status(503).json({error:{message:'Requested provider is unavailable'}});
+  let used;
+  try{used=await checkAndIncrement(userId,today);}
+  catch(_){return res.status(503).json({error:{message:'Usage verification unavailable. Please try again.'}});}
+  if (used > limit) {
+    res.status(429).json({
+      error: {
+        message: userTier === 'free' ? 'AI features require a subscription.' : 'Daily AI limit reached (' + limit + '/day). Try again after the daily reset.',
+        code: 'RATE_LIMITED', limit, used: used - 1, tier: userTier
+      }
+    }); return;
+  }
 
   if (requestedModel === 'claude' || requestedModel === 'claude-premium') {
     return callClaude(sanitized, res);
@@ -175,6 +174,7 @@ function callClaude(body, res) {
       });
     });
     proxyReq.on('error', err => { res.status(500).json({ error: { message: err.message } }); resolve(); });
+    proxyReq.setTimeout(30000,()=>proxyReq.destroy(new Error('Provider request timed out')));
     proxyReq.write(payload); proxyReq.end();
   });
 }
@@ -182,8 +182,8 @@ function callClaude(body, res) {
 function callOpenAI(body, model, res) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    // Fallback to Claude if no OpenAI key
-    return callClaude(convertToClaude(body), res);
+    res.status(503).json({error:{message:'Requested provider is unavailable'}});
+    return Promise.resolve();
   }
 
   // Map our model names to OpenAI models
@@ -246,11 +246,7 @@ function callOpenAI(body, model, res) {
       });
     });
     proxyReq.on('error', err => { res.status(500).json({ error: { message: err.message } }); resolve(); });
+    proxyReq.setTimeout(30000,()=>proxyReq.destroy(new Error('Provider request timed out')));
     proxyReq.write(payload); proxyReq.end();
   });
-}
-
-function convertToClaude(body) {
-  // Body is already in Claude format, just return it
-  return body;
 }

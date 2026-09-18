@@ -1,8 +1,12 @@
 firebase.initializeApp(FIREBASE_CONFIG);
 const auth=firebase.auth();
 
-auth.onAuthStateChanged(user=>{
+auth.onAuthStateChanged(async user=>{
   if(!user){document.getElementById('login-gate').style.display='flex';document.getElementById('profile-content').style.display='none';return}
+  if(localStorage.getItem('ml_storage_owner')!==user.uid){
+    Object.keys(localStorage).filter(k=>/^(ml_|aic_|scan:|fixes:)/.test(k)).forEach(k=>localStorage.removeItem(k));
+    localStorage.setItem('ml_storage_owner',user.uid);
+  }
   document.getElementById('login-gate').style.display='none';
   document.getElementById('profile-content').style.display='block';
 
@@ -27,9 +31,21 @@ auth.onAuthStateChanged(user=>{
   const totalWords=versions.reduce((s,v)=>s+(v.wordCount||0),0);
   document.getElementById('stat-words').textContent=totalWords>1000?(totalWords/1000).toFixed(1)+'k':totalWords;
   document.getElementById('stat-fixes').textContent=localStorage.getItem('ml_fixes_count')||'0';
+  firebase.firestore().collection('users').doc(user.uid).collection('manuscripts').get().then(snap=>{
+    document.getElementById('stat-manuscripts').textContent=snap.size;
+    document.getElementById('stat-words').textContent=snap.docs.reduce((sum,d)=>sum+(d.data().wordCount||0),0).toLocaleString();
+  }).catch(()=>{document.getElementById('stat-manuscripts').textContent='Unavailable';});
 
   // Load preferences
-  const prefs=(()=>{try{return JSON.parse(localStorage.getItem('ml_prefs')||'{}')}catch(e){return{}}})();
+  let prefs=(()=>{try{return JSON.parse(localStorage.getItem('ml_prefs')||'{}')}catch(e){return{}}})();
+  try{
+    const profile=await firebase.firestore().collection('users').doc(user.uid).get();
+    if(auth.currentUser?.uid!==user.uid)return;
+    if(profile.data()?.preferences){
+      prefs=profile.data().preferences;
+      localStorage.setItem('ml_prefs',JSON.stringify(prefs));
+    }
+  }catch(error){console.warn('Cloud preferences unavailable:',error.message);}
   document.getElementById('pref-autosave').checked=prefs.autosave!==false;
   document.getElementById('pref-cookies').checked=prefs.showCookies||false;
   document.getElementById('pref-theme').checked=prefs.darkTheme!==false;
@@ -53,11 +69,16 @@ auth.onAuthStateChanged(user=>{
       badge.textContent='STARTER';badge.className='tier-badge tier-starter';
       document.getElementById('beta-section').style.display='none';
     }
+    if(['starter','premium'].includes(tier)){
+      document.getElementById('sub-status').textContent='Your current plan: '+tier+'.';
+      document.getElementById('manage-billing').hidden=false;
+    }
   }).catch(e=>{console.warn('Tier fetch failed:',e.message)});
 });
 
 // Save profile
 document.getElementById('save-profile').addEventListener('click',async()=>{
+  try{
   const user=auth.currentUser;if(!user)return;
   const newName=document.getElementById('edit-name').value.trim();
   if(newName){await user.updateProfile({displayName:newName});document.getElementById('profile-name').textContent=newName;document.getElementById('avatar-letter').textContent=newName[0].toUpperCase()}
@@ -73,43 +94,48 @@ document.getElementById('save-profile').addEventListener('click',async()=>{
     emailReminders:emailOn
   };
   localStorage.setItem('ml_prefs',JSON.stringify(prefs));
+  if(prefs.showCookies)localStorage.removeItem('cookie_consent');
+  await firebase.firestore().collection('users').doc(user.uid).set({preferences:prefs},{merge:true});
 
   // Handle push subscription change — write directly to Firestore
   const fsDb=firebase.firestore();
   if(pushOn&&'serviceWorker' in navigator&&'PushManager' in window){
-    navigator.serviceWorker.register('/sw.js').then(async reg=>{
+    await navigator.serviceWorker.register('/sw.js').then(async reg=>{
       await navigator.serviceWorker.ready;
       const existing=await reg.pushManager.getSubscription();
-      if(!existing){
+      let subscription=existing;
+      if(!subscription){
         const perm=await Notification.requestPermission();
         if(perm==='granted'){
           const VAPID_PUBLIC='BIExireuGYmZMRI4Ou3bUI0k4BaAJP1pxczO9WCmb58JvUiSqROFYRPcTFcrHcWUWtoF2aGTmBc6uudgqfkFpf8';
           function urlB64ToUint8Array(b){const p='='.repeat((4-b.length%4)%4);const d=atob((b+p).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from([...d].map(c=>c.charCodeAt(0)))}
-          const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64ToUint8Array(VAPID_PUBLIC)});
-          await fsDb.collection('pushSubscriptions').doc(user.uid).set({
-            uid:user.uid,email:user.email||'',subscription:sub.toJSON(),
-            updatedAt:firebase.firestore.FieldValue.serverTimestamp()
-          });
-          localStorage.setItem('ml_push_subscribed','1');
-        }
+          subscription=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64ToUint8Array(VAPID_PUBLIC)});
+        }else throw new Error('Push permission was not granted. Your other preferences were saved.');
       }
-    }).catch(()=>{});
+      await fsDb.collection('pushSubscriptions').doc(user.uid).set({
+        uid:user.uid,subscription:subscription.toJSON(),
+        updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+      });
+      localStorage.setItem('ml_push_subscribed','1');
+    });
   }else if(!pushOn&&'serviceWorker' in navigator){
-    navigator.serviceWorker.getRegistration('/sw.js').then(async reg=>{
+    await navigator.serviceWorker.getRegistration('/sw.js').then(async reg=>{
       const sub=await reg?.pushManager.getSubscription();
       if(sub)await sub.unsubscribe();
-      await fsDb.collection('pushSubscriptions').doc(user.uid).delete().catch(()=>{});
+      await fsDb.collection('pushSubscriptions').doc(user.uid).delete();
       localStorage.removeItem('ml_push_subscribed');
-    }).catch(()=>{});
+    });
+  }else if(pushOn){
+    throw new Error('This browser does not support push reminders. Your other preferences were saved.');
   }
 
   // Sync email preference directly to Firestore
-  const session=JSON.parse(localStorage.getItem('ml_session')||'{}');
-  fsDb.collection('userSessions').doc(user.uid).set(
+  await fsDb.collection('userSessions').doc(user.uid).set(
     {emailReminders:emailOn,email:user.email||''},{merge:true}
-  ).catch(e=>{console.warn('Email pref sync failed:',e.message)});
+  );
 
   alert('Profile saved!');
+  }catch(error){alert('Profile could not be saved: '+error.message);}
 });
 
 document.getElementById('reset-profile').addEventListener('click',()=>{
@@ -134,7 +160,8 @@ document.getElementById('avatar-input').addEventListener('change',e=>{
 
 // Sign out
 document.getElementById('signout-btn').addEventListener('click',()=>{
-  auth.signOut();window.location.href='index.html';
+  Object.keys(localStorage).filter(k=>/^(ml_|aic_|scan:|fixes:)/.test(k)).forEach(k=>localStorage.removeItem(k));
+  sessionStorage.clear();auth.signOut().then(()=>window.location.href='index.html');
 });
 
 // Clear data
@@ -178,7 +205,11 @@ document.getElementById('delete-account-btn').addEventListener('click',()=>{
   goBtn.addEventListener('click',async()=>{
     if(input.value.trim().toLowerCase()!=='permanently delete')return;
     goBtn.textContent='Deleting...';goBtn.style.pointerEvents='none';
-    try{await auth.currentUser.delete();localStorage.clear();sessionStorage.clear();window.location.href='index.html'}
+    try{
+      const response=await fetch('/api/account',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+await auth.currentUser.getIdToken(true)},body:JSON.stringify({action:'delete',confirmation:input.value.trim().toLowerCase()})});
+      const result=await response.json();if(!response.ok)throw new Error(result.error);
+      localStorage.clear();sessionStorage.clear();await auth.signOut();window.location.href='index.html';
+    }
     catch(e){
       if(e.code==='auth/requires-recent-login'){
         overlay.remove();
@@ -207,35 +238,9 @@ document.getElementById('redeem-btn').addEventListener('click',async()=>{
   msg.className='beta-msg';msg.removeAttribute('style');
 
   try{
-    const db=firebase.firestore();
-    const codeDoc=await db.collection('betaCodes').doc(code).get();
-    if(!codeDoc.exists){
-      msg.textContent='Invalid invite code.';msg.className='beta-msg err';
-      btn.textContent='Activate';btn.disabled=false;
-      return;
-    }
-    const data=codeDoc.data();
-    const usedBy=data.usedBy||[];
-    const maxUses=data.maxUses||1;
-    if(usedBy.includes(user.uid)){
-      msg.textContent='You already redeemed this code.';msg.className='beta-msg err';
-      btn.textContent='Activate';btn.disabled=false;
-      return;
-    }
-    if(usedBy.length>=maxUses){
-      msg.textContent='This invite code has been fully used.';msg.className='beta-msg err';
-      btn.textContent='Activate';btn.disabled=false;
-      return;
-    }
-    const tier=data.tier||'beta';
-    await db.collection('users').doc(user.uid).set({
-      tier:tier,
-      betaCode:code,
-      tierUpdatedAt:firebase.firestore.FieldValue.serverTimestamp()
-    },{merge:true});
-    await db.collection('betaCodes').doc(code).update({
-      usedBy:firebase.firestore.FieldValue.arrayUnion(user.uid)
-    });
+    const response=await fetch('/api/redeem',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+await user.getIdToken()},body:JSON.stringify({code})});
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error||'Invite could not be redeemed');
     msg.textContent='Beta access activated! AI features are now unlocked. Refreshing...';
     msg.className='beta-msg ok';
     setTimeout(()=>window.location.reload(),1500);
@@ -243,4 +248,11 @@ document.getElementById('redeem-btn').addEventListener('click',async()=>{
     msg.textContent='Error: '+e.message;msg.className='beta-msg err';
   }
   btn.textContent='Activate';btn.disabled=false;
+});
+document.getElementById('manage-billing').addEventListener('click',async()=>{
+  try{
+    const response=await fetch('/api/account',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+await auth.currentUser.getIdToken()},body:JSON.stringify({action:'billing'})});
+    const result=await response.json();if(!response.ok)throw new Error(result.error);
+    window.location.href=result.url;
+  }catch(error){alert(error.message);}
 });

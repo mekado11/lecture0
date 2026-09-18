@@ -1,0 +1,43 @@
+name: Verify
+on:
+  pull_request:
+  push:
+    branches: [gh-pages]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix functions
+      - run: node -e "require('./functions/index')"
+      - run: npm audit --audit-level=high && npm audit --prefix functions --audit-level=high
+      - run: npm run build
+      - run: npm run verify
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+  firebase-emulators:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            scripts/emulator/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm ci --prefix scripts/emulator
+      - run: npm test --prefix scripts/emulator

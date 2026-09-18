@@ -1,7 +1,7 @@
 // Shared Firebase Admin token verification for API routes.
 // Prefers FIREBASE_SERVICE_ACCOUNT (full service account JSON string).
-// Falls back to FIREBASE_PROJECT_ID alone — verifyIdToken() only needs the
-// project ID; it fetches Google's public keys automatically at runtime.
+// FIREBASE_PROJECT_ID also works with Application Default Credentials.
+// Revocation checks require Auth admin access, not just a public project ID.
 // If neither is configured, requests are rejected — fail-closed.
 
 let admin;
@@ -20,18 +20,23 @@ function getAdmin() {
       return null;
     }
 
-    admin = require('firebase-admin');
-    if (!admin.apps.length) {
+    const {getApps,initializeApp,cert}=require('firebase-admin/app');
+    const {getAuth}=require('firebase-admin/auth');
+    const {getFirestore,FieldValue}=require('firebase-admin/firestore');
+    if (!getApps().length) {
       if (sa) {
         initMode = 'service_account';
-        admin.initializeApp({ credential: admin.credential.cert(JSON.parse(sa)) });
+        initializeApp({ credential: cert(JSON.parse(sa)) });
       } else {
         initMode = 'project_id';
-        admin.initializeApp({ projectId });
+        initializeApp({ projectId });
       }
     }
+    // Narrow adapter keeps endpoint code stable across the modular Admin SDK.
+    admin={auth:getAuth,firestore:Object.assign(()=>getFirestore(),{FieldValue})};
     return admin;
   } catch (e) {
+    admin = null;
     console.error('Firebase Admin init failed:', e.message);
     initMode = 'init_error';
     return null;
@@ -45,7 +50,7 @@ async function verifyToken(req) {
   const fb = getAdmin();
   if (!fb) return { user: null, reason: 'admin_not_configured', initMode };
   try {
-    const decoded = await fb.auth().verifyIdToken(token);
+    const decoded = await fb.auth().verifyIdToken(token, true);
     return { user: decoded, reason: 'ok' };
   } catch (e) {
     return { user: null, reason: 'token_invalid', detail: e.code || e.message };

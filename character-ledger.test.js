@@ -1,0 +1,12 @@
+const assert=require('assert');
+const CL=require('./character-ledger');
+const intel={characters:[{canonicalName:'Mara',aliases:[],mentions:8,chapterIds:['chapter-001','chapter-004']}],facts:[{subject:'Mara',predicate:'wants',object:'the truth',chapterId:'chapter-001'}],relationshipIntelligence:{relationships:[{characters:['Mara','Daniel'],chapterIds:['chapter-004']}]},timeline:{events:[{characters:['Mara'],chapterId:'chapter-004'}]},continuity:[],narrativeMomentum:{arcs:[{characters:['Mara'],id:'arc-001'}]}};
+const cards=CL.build(intel);
+assert.strictEqual(cards.length,1);
+assert.strictEqual(cards[0].name,'Mara');
+assert.strictEqual(cards[0].facts.length,1);
+assert.strictEqual(cards[0].relationships.length,1);
+assert.strictEqual(cards[0].threads.length,1);
+assert.strictEqual(cards[0].lastSeenChapterId,'chapter-004');
+console.log('character-ledger tests passed');
+assert.strictEqual(CL.build({characters:intel.characters,relationships:[{characters:['Mara','Daniel']} ]})[0].relationships.length,0,'co-occurrence alone is not an established relationship');

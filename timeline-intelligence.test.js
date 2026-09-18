@@ -1,0 +1,11 @@
+const assert=require('assert');
+const Parser=require('./manuscript-parser');
+const TI=require('./timeline-intelligence');
+const text=['Chapter 1','Mara left the house. Three years ago, Daniel had vanished.','', 'Chapter 2','The next morning, Mara called Daniel. Later, she drove north.'].join('\n');
+const parsed=Parser.parse(text);
+const timeline=TI.enrich(parsed,{characters:[{canonicalName:'Mara',aliases:[]},{canonicalName:'Daniel',aliases:[]}] }).timeline;
+assert.strictEqual(timeline.eventCount,3);
+assert.strictEqual(timeline.events[0].transition,'backward');
+assert.strictEqual(timeline.events[1].transition,'forward');
+assert(timeline.events.every(e=>e.chapterId&&e.evidence));
+console.log('timeline-intelligence tests passed');

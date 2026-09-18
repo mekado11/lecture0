@@ -31,9 +31,9 @@ function _authDiagnosticMessage(msg) {
 // Web Worker for off-main-thread analysis
 // Note: no global onmessage handler here — each caller adds its own per-request handler
 // to avoid double-processing the same result (global + per-request both firing).
-let _analyzerWorker=null;
 let _analyzeVersion=0;
-try{_analyzerWorker=new Worker('analyzer-worker.js')}catch(e){console.warn('Worker init failed, using main thread:',e.message)}
+let _analysisSource='';
+const _analysisRunner=new AnalysisRunner(()=>new Worker('analyzer-worker.js'));
 
 // UPLOAD
 const dz=$('drop-zone'),fi=$('file-input');
@@ -43,7 +43,17 @@ dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files.length)hf(e.dataTransfer.files[0])});
 fi.addEventListener('change',e=>{if(e.target.files.length)hf(e.target.files[0])});
 $('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('genre-select-wrap')?.classList.add('hidden');$('analyze-btn').classList.add('hidden');if($('genre-select'))$('genre-select').value='';fi.value=''});
-function hf(f){if(!['docx','pdf','txt'].includes(f.name.split('.').pop().toLowerCase())){alert('Upload .docx, .pdf, or .txt');return}if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden');_updateAnalyzeBtnVisibility()}
+function hf(f){
+  if(!['docx','pdf','txt'].includes(f.name.split('.').pop().toLowerCase())){alert('Upload .docx, .pdf, or .txt');return}
+  if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}
+  uploadedFile=f;
+  $('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';
+  $('file-info').classList.remove('hidden');
+  $('genre-select-wrap')?.classList.remove('hidden');
+  const genre=$('genre-select'),preferred=safeLocalJSON('ml_prefs',{}).defaultGenre;
+  if(genre&&!genre.value&&preferred&&[...genre.options].some(option=>option.value===preferred))genre.value=preferred;
+  _updateAnalyzeBtnVisibility();
+}
 // Genre is required before analysis. Show the Analyze button only when both a file and a genre are selected.
 function _updateAnalyzeBtnVisibility(){
   const sel=$('genre-select');
@@ -52,7 +62,40 @@ function _updateAnalyzeBtnVisibility(){
   else $('analyze-btn').classList.add('hidden');
 }
 $('genre-select')?.addEventListener('change',_updateAnalyzeBtnVisibility);
-async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const content=await(await p.getPage(i)).getTextContent();const items=content.items;let pageLines=[];let curLine='';let prevY=null,prevX=null,prevW=0;for(const item of items){if(!item.str)continue;const ix=item.transform[4],iy=item.transform[5];if(prevY!==null&&Math.abs(iy-prevY)>3){if(curLine.trim())pageLines.push(curLine.trim());curLine='';prevX=null;prevW=0;}if(prevX!==null&&ix-(prevX+prevW)>1)curLine+=' ';curLine+=item.str;prevY=iy;prevX=ix;prevW=item.width||0;}if(curLine.trim())pageLines.push(curLine.trim());t+=pageLines.join('\n')+'\n\n';}return t}}
+async function ext(file){
+  const extension=file.name.split('.').pop().toLowerCase();
+  if(extension==='txt')return file.text();
+  if(extension==='docx'){
+    $('loader-text').textContent='Extracting Word...';
+    return (await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()})).value;
+  }
+  if(extension==='pdf'){
+    $('loader-text').textContent='Extracting PDF...';
+    const pdfjs=await import('./assets/pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc=new URL('./assets/pdf.worker.min.mjs',window.location.href).href;
+    const loadingTask=pdfjs.getDocument({data:await file.arrayBuffer(),isEvalSupported:false});
+    const document=await loadingTask.promise;
+    let text='';
+    try{
+      for(let number=1;number<=document.numPages;number++){
+        const content=await(await document.getPage(number)).getTextContent();
+        const lines=[];let line='',previousY=null,previousX=null,previousWidth=0;
+        for(const item of content.items){
+          if(!item.str)continue;
+          const x=item.transform[4],y=item.transform[5];
+          if(previousY!==null&&Math.abs(y-previousY)>3){if(line.trim())lines.push(line.trim());line='';previousX=null;previousWidth=0;}
+          if(previousX!==null&&x-(previousX+previousWidth)>1)line+=' ';
+          line+=item.str;previousY=y;previousX=x;previousWidth=item.width||0;
+        }
+        if(line.trim())lines.push(line.trim());
+        text+=lines.join('\n\n')+'\n\n';
+      }
+    }finally{await loadingTask.destroy();}
+    if(!text.trim())throw new Error('This PDF has no extractable text. Use a text-based PDF, DOCX, or TXT file; scanned pages need OCR first.');
+    return text;
+  }
+  throw new Error('Unsupported file type');
+}
 $('analyze-btn').addEventListener('click',async()=>{
   if(!uploadedFile)return;
   // Genre is required — defense in depth (the button shouldn't even be visible without one)
@@ -69,47 +112,23 @@ $('analyze-btn').addEventListener('click',async()=>{
     extractedText=await ext(uploadedFile);
     _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;_readerSimDone=false;_readerSimHTML=null;
     $('loader-text').textContent='Analyzing...';
-    if(_analyzerWorker){
-      _analyzeVersion++;
-      const v=_analyzeVersion;
-      analysisResult=await new Promise((resolve,reject)=>{
-        let timer=setTimeout(()=>{_analyzerWorker.removeEventListener('message',handler);reject(new Error('Analysis timed out — please try again'))},30000);
-        const handler=function(e){
-          if(e.data.version===v){
-            clearTimeout(timer);
-            _analyzerWorker.removeEventListener('message',handler);
-            if(e.data.type==='result')resolve(e.data.data);
-            else reject(new Error(e.data.message||'Analysis failed'));
-          }
-        };
-        _analyzerWorker.addEventListener('message',handler);
-        _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v,genreKey:selectedGenre});
-      });
-    }else{
-      await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
-      analysisResult=Analyzer.analyze(extractedText,selectedGenre);
-    }
+    ++_analyzeVersion;
+    analysisResult=await _analysisRunner.analyze(extractedText,selectedGenre);
     if(!analysisResult||analysisResult.error){alert(analysisResult?.error||'Analysis produced no result');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
     // Genre defense: if worker auto-detect disagrees with user's selection, re-analyze with correct genre.
     // This runs on the main thread so genre override is always honored before saving to Firestore.
     {if(analysisResult.genre?.primary!==selectedGenre){try{analysisResult=Analyzer.analyze(extractedText,selectedGenre)}catch(e){console.warn('Genre re-analyze failed:',e.message)}}}
-    // Save immediately to Firestore/localStorage so it appears in library
+    // Save immediately to the authenticated cloud library.
     trackSession('analyzing');
     // Direct save (don't wait for debounced autoSave)
     await Storage.whenReady();
+    Storage._currentManuscriptId=null;_savedText=null;
     if(Storage.userId){
       try{
-        const existing=await Storage.getManuscripts();
-        const match=existing.find(m=>(m.fileName||'').toLowerCase()===uploadedFile.name.toLowerCase());
-        if(match){
-          Storage._currentManuscriptId=match.id;
-          await Storage.updateManuscript(match.id,extractedText,analysisResult);
-        }else{
-          Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
-        }
-      }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Save error:',e.message)}
+        Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
+        _savedText=extractedText;
+      }catch(e){_showSaveToast('Cloud save failed. Keep this tab open or export your draft.');console.warn('Save error:',e.message)}
     }
-    try{const{rawIssues:_raw,...safeResult}=analysisResult||{};localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:safeResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}))}catch(e){if(e.name==='QuotaExceededError')_showSaveToast('Local storage full — cloud save only');console.warn('Autosave to localStorage failed (quota):',e.message)}
     // Close modal and go straight to the editor with the fresh analysis.
     // (Previously this reset state and dumped the user back in the library, forcing them to
     // find the card, click it, and sit through a second full analysis of the same text.)
@@ -126,17 +145,11 @@ $('analyze-btn').addEventListener('click',async()=>{
     $('editor-view').classList.remove('hidden');
     document.body.classList.remove('lib-mode');
     renderAll();
+    // The editor normalizes paragraph spacing; remember its exact saved view.
+    if(_savedText!==null)_savedText=extractTextFromEditor();
+    setSaveState(_savedText===null?'error':'saved',_savedText===null?'Not saved':'Saved to cloud');
   }catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');_updateAnalyzeBtnVisibility()}
 });
-
-// Scoring must only count issues inside the narrative span (front/back matter — copyright
-// pages, disclaimers, ToC — stays highlighted but never damages manuscript scores).
-function _narrativeIssues(r){
-  const seg=r?.segmentation;
-  if(!seg||!Array.isArray(r.issues))return r?.issues||[];
-  return r.issues.filter(i=>i.index>=seg.narrativeStart&&i.index<seg.narrativeEnd);
-}
-function _narrativeWords(r){return r?.segmentation?.narrativeWords||r?.totalWords||1}
 
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function escA(s){return(s||'').replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -181,41 +194,36 @@ let _tipDismissWired=false;
 const _undoStack=[];
 const _redoStack=[];
 const MAX_UNDO=50;
-// Long manuscripts: each snapshot holds the full editor innerHTML (multi-MB at 70k+ words),
-// so cap the stack depth by document size to bound memory.
-function _maxUndo(){return (extractedText&&extractedText.length>180000)?15:MAX_UNDO}
-let _lastSnapshotText='';
-// Snapshots hold html+text ONLY. The old code also structuredClone()d the entire
-// analysisResult (issues, rawIssues, every sub-report) into every snapshot — a
-// main-thread deep clone of megabytes on every settled keystroke. Undo/redo now
-// restore the text and let the 2s reanalyze pipeline re-derive the scores.
+let _lastTypingAt=0;
+function _captureEditState(){return {html:$('ed-annotated').innerHTML,text:extractTextFromEditor()};}
+function _trimHistory(){
+  const bytes=()=>[..._undoStack,..._redoStack].reduce((n,s)=>n+2*(s.html.length+s.text.length),0);
+  while(_undoStack.length>MAX_UNDO||(_undoStack.length>1&&bytes()>8*1024*1024))_undoStack.shift();
+  while(_redoStack.length>1&&bytes()>8*1024*1024)_redoStack.shift();
+}
 function pushUndo(){
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText});
-  while(_undoStack.length>_maxUndo())_undoStack.shift();
+  const state=_captureEditState();
+  if(_undoStack.at(-1)?.html===state.html)return;
+  _undoStack.push(state);
   _redoStack.length=0;
-  _lastSnapshotText=extractedText;
+  _trimHistory();
   _updateUndoBtn();
 }
 function _pushTypingSnapshot(){
-  if(extractedText===_lastSnapshotText)return;
-  const page=$('ed-annotated');
-  if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText});
-  while(_undoStack.length>_maxUndo())_undoStack.shift();
-  _redoStack.length=0;
-  _lastSnapshotText=extractedText;
+  if(Date.now()-_lastTypingAt>800)pushUndo();
+  _lastTypingAt=Date.now();
 }
 function undoLastFix(){
   if(_undoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _redoStack.push({html:page.innerHTML,text:extractedText});
+  _redoStack.push(_captureEditState());
   const state=_undoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
-  _lastSnapshotText=extractedText;
+  _lastTypingAt=0;_trimHistory();
   scheduleReanalyze();
   _updateUndoBtn();
 }
@@ -223,11 +231,11 @@ function redoLastFix(){
   if(_redoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push({html:page.innerHTML,text:extractedText});
+  _undoStack.push(_captureEditState());
   const state=_redoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
-  _lastSnapshotText=extractedText;
+  _lastTypingAt=0;_trimHistory();
   scheduleReanalyze();
   _updateUndoBtn();
 }
@@ -237,6 +245,7 @@ function _updateUndoBtn(){
 }
 // Keyboard shortcuts — we own Ctrl+Z completely
 window.addEventListener('keydown',e=>{
+  if(e.target.closest('input,textarea,select'))return;
   const k=e.key.toLowerCase();
   if((e.ctrlKey||e.metaKey)&&k==='z'&&!e.shiftKey){
     e.preventDefault();e.stopPropagation();
@@ -253,6 +262,8 @@ window.addEventListener('keydown',e=>{
 function renderAll(){
   const r=analysisResult;
   if(!r||!uploadedFile){return}
+  _analyzeVersion++;_analysisRunner.cancel();clearTimeout(_reanalyzeTimer);
+  _analysisSource=extractedText;
   _ltEnhanceDone=false;_smartScanDone=false;_batchFixDone=false;_aiCalibrateDone=false;_readerSimDone=false;
   $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
@@ -312,6 +323,7 @@ function renderAll(){
   // Book preview now renders on-demand when the Preview tab is activated — not here
   renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderBlurbs(r);renderVersions();
   _lastScoresSig=_scoresSig(r); // renderAll rendered directly — keep the skip-signature in sync
+  window.dispatchEvent(new Event('manuscript:changed'));
   // Auto-save
   autoSave();
   // Re-engagement tracking
@@ -321,123 +333,28 @@ function renderAll(){
     setTimeout(maybePromptPush,8000);
   },1000);
   // Smart Scan — one-time AI scan for paid/admin users
-  maybeRunSmartScan(r);
+  // Optional external checks run only after the author's explicit action.
   // Batch Fix — one call per manuscript, cached 24h
-  maybeBatchFix(r);
   // LanguageTool grammar enhancement — runs async after initial render
-  _enhanceGrammar(r);
-  // AI Calibration — reviews borderline regex findings, dismisses false positives,
-  // recalculates affected scores. Paid users only. Runs once per manuscript.
-  _aiCalibrate(r);
   // Reader Simulation — fills the reader view panel async. Paid users only.
-  _runReaderSimulation(r);
 }
 
-let _ltEnhanceDone=false;
+// External advice lives beside deterministic findings, never inside score inputs.
+let _ltEnhanceDone=false, _aiCalibrateDone=false;
+function _isCurrentResult(result,text){
+  return result===analysisResult&&text===extractTextFromEditor();
+}
 async function _enhanceGrammar(r){
   if(_ltEnhanceDone||!r||!extractedText)return;
-  if(typeof GrammarEnhance==='undefined')return;
-  _ltEnhanceDone=true;
+  const source=extractedText;
   try{
-    const ltIssues=await GrammarEnhance.check(extractedText);
-    if(!ltIssues.length)return;
-    const existingPositions=new Set();
-    r.issues.forEach(i=>{if(i.type==='grammar')existingPositions.add(i.index+':'+i.length)});
-    let added=0;
-    for(const lt of ltIssues){
-      const key=lt.index+':'+lt.length;
-      if(existingPositions.has(key))continue;
-      let overlaps=false;
-      for(const ex of r.issues){
-        if(ex.type==='grammar'&&Math.abs(ex.index-lt.index)<5){overlaps=true;break}
-      }
-      if(overlaps)continue;
-      r.issues.push(lt);
-      added++;
-    }
-    if(added>0){
-      r.issueCounts.grammar=(r.issueCounts.grammar||0)+added;
-      const grammarFiltered=_narrativeIssues(r).filter(i=>i.type==='grammar');
-      const grammarPerK=(grammarFiltered.length/Math.max(_narrativeWords(r),1))*1000;
-      r.scores.grammar=Math.min(100,Math.max(0,Math.round(
-        100-Math.min(35,grammarPerK*6)-
-        Math.min(20,grammarFiltered.filter(i=>i.severity==='high').length*3)-
-        Math.min(10,grammarFiltered.filter(i=>i.severity==='medium').length*1)
-      )));
-      r.scores.copy=Analyzer.scoreCopyEditing(_narrativeIssues(r),_narrativeWords(r));
-      r.overall=Analyzer.recalcOverall(r);
-      updateScoresOnly(r);
-      console.log('[GrammarEnhance] +'+added+' issues from LanguageTool (total grammar: '+grammarFiltered.length+')');
-    }
-  }catch(e){console.warn('[GrammarEnhance] skipped:',e.message)}
-}
-
-// AI Calibration — reviews borderline analyzer findings in context, dismisses false positives,
-// then recalculates affected dimension scores. Paid users only (counts against daily AI quota).
-// One openai-fast call per manuscript, cached for the session.
-let _aiCalibrateDone=false;
-async function _aiCalibrate(r){
-  if(_aiCalibrateDone||!r||!extractedText||!_isPaid())return;
-  if(typeof AIEngine==='undefined')return;
-  if(!Array.isArray(r.issues)||r.issues.length===0)return;
-  _aiCalibrateDone=true;
-  try{
-    const verdicts=await AIEngine.calibrateIssues(extractedText,r.issues,r.genre);
-    if(!verdicts||verdicts.length===0)return;
-
-    // Apply verdicts to r.issues. Track changes for telemetry.
-    const dismissedIds=new Set();
-    const downgradedIds=new Set();
-    const sevDown={high:'medium',medium:'low',low:'low'};
-    for(const v of verdicts){
-      if(v.verdict==='dismiss'){dismissedIds.add(v.id)}
-      else if(v.verdict==='downgrade'){downgradedIds.add(v.id)}
-    }
-
-    if(dismissedIds.size===0&&downgradedIds.size===0)return;
-
-    // Apply downgrades in place (preserves indices for the dismissal pass)
-    r.issues.forEach((iss,idx)=>{
-      if(downgradedIds.has(idx)){
-        iss.severity=sevDown[iss.severity]||'low';
-        iss.confidence=(iss.confidence==null?0.85:iss.confidence)*0.5;
-        iss._calibrated='downgrade';
-      }
-    });
-
-    // Drop dismissed issues
-    if(dismissedIds.size>0){
-      r.issues=r.issues.filter((iss,idx)=>!dismissedIds.has(idx));
-    }
-
-    // Recompute issue counts from the filtered list
-    const counts={};
-    r.issues.forEach(iss=>{counts[iss.type]=(counts[iss.type]||0)+1});
-    // Preserve original count fields; only update the types we actually counted
-    Object.keys(r.issueCounts||{}).forEach(k=>{
-      if(counts[k]!==undefined)r.issueCounts[k]=counts[k];
-      else if(['passive','adverb','weak-verb','show-tell','cliche'].includes(k))r.issueCounts[k]=counts[k]||0;
-    });
-
-    // Recompute affected dimension scores
-    r.scores.copy=Analyzer.scoreCopyEditing(_narrativeIssues(r),_narrativeWords(r));
-    // showTell only matters for fiction (nonfiction has it hidden)
-    if(!Analyzer.isNonfiction(r.genre)){
-      const showTellCount=_narrativeIssues(r).filter(i=>i.type==='show-tell').length;
-      const showTellPerK=(showTellCount/Math.max(_narrativeWords(r),1))*1000;
-      r.scores.showTell=Math.max(0,Math.round(100-showTellPerK*2.5));
-    }
-    r.overall=Analyzer.recalcOverall(r);
-
-    updateScoresOnly(r);
-    // Re-render annotated text so dismissed highlights disappear
-    if(typeof renderAnnotated==='function')renderAnnotated(extractedText,r.issues);
-
-    console.log('[AICalibrate] dismissed='+dismissedIds.size+' downgraded='+downgradedIds.size+' remaining='+r.issues.length);
-  }catch(e){
-    _aiCalibrateDone=false; // allow retry on next render
-    console.warn('[AICalibrate] skipped:',e.message);
-  }
+    const issues=await GrammarEnhance.check(source);
+    if(!_isCurrentResult(r,source))return;
+    _ltEnhanceDone=true;
+    r.advisory={...r.advisory,grammar:issues};
+    window.dispatchEvent(new Event('manuscript:changed'));
+    _showSaveToast('Grammar advice ready in Intelligence. Editing scores are unchanged.');
+  }catch(error){_showSaveToast('Grammar check failed: '+error.message);}
 }
 
 // Reader Simulation — generates a grounded, section-by-section reading experience report.
@@ -449,9 +366,11 @@ async function _runReaderSimulation(r){
   if(typeof AIEngine==='undefined')return;
   _readerSimDone=true;
   const el=document.getElementById('reader-sim-result');
-  if(!el)return;
+  if(!el){_readerSimDone=false;return;}
+  const source=extractedText;
   try{
-    const sim=await AIEngine.readerSimulation(null,extractedText,r);
+    const sim=await AIEngine.readerSimulation(null,source,r);
+    if(!_isCurrentResult(r,source))return;
     if(!sim||sim.parseError){el.textContent='Simulation unavailable.';return}
     const engColor=v=>v>=7?'var(--green)':v>=5?'var(--yellow)':'var(--red)';
     let h='';
@@ -491,6 +410,7 @@ async function _runReaderSimulation(r){
     _readerSimHTML=h||'<span style="color:var(--muted)">No simulation data.</span>';
     el.innerHTML=_readerSimHTML;
   }catch(e){
+    if(!_isCurrentResult(r,source))return;
     _readerSimDone=false;
     el.textContent='Simulation unavailable.';
     console.warn('[ReaderSim] skipped:',e.message);
@@ -507,8 +427,10 @@ async function maybeRunSmartScan(r){
   if(!isPaid)return;
   if(!r.issues||r.issues.length===0)return;
 
+  const source=extractedText;
   try{
-    const suggestions=await AIEngine.smartScan(null,extractedText,r.issues);
+    const suggestions=await AIEngine.smartScan(null,source,r.issues,r);
+    if(!_isCurrentResult(r,source))return;
     if(!suggestions||!suggestions.length)return;
     _smartScanDone=true;
 
@@ -527,14 +449,12 @@ async function maybeRunSmartScan(r){
     });
 
     // Re-render both panels so Document Health reflects AI-enhanced suggestions
-    r.scores.copy=Analyzer.scoreCopyEditing(_narrativeIssues(r),_narrativeWords(r));
-    r.overall=Analyzer.recalcOverall(r);
     updateScoresOnly(r);
 
     // Show a subtle toast
     const toast=document.createElement('div');
     toast.style.cssText='position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:#1e3320;border:1px solid #5dba7d;border-radius:8px;padding:.5rem 1rem;color:#5dba7d;font-size:.78rem;z-index:1001;font-family:Inter,sans-serif';
-    toast.textContent='AI scan complete — scores updated';
+    toast.textContent='AI suggestions ready. Your editing scores are unchanged.';
     document.body.appendChild(toast);
     setTimeout(()=>toast.remove(),4000);
   }catch(e){console.warn('SmartScan failed:',e.message)}
@@ -561,9 +481,11 @@ async function maybeBatchFix(r){
   // Cache miss — only call API for paid users
   if(!_isPaid())return;
 
+  const source=extractedText;
   try{
-    const fp=Analyzer.extractStyleFingerprint(extractedText);
-    const result=await AIEngine.batchFixSuggestions(extractedText,r.issues,fp);
+    const fp=Analyzer.extractStyleFingerprint(source);
+    const result=await AIEngine.batchFixSuggestions(source,r.issues,fp);
+    if(!_isCurrentResult(r,source))return;
     if(result&&Object.keys(result.suggestions).length>0){
       _hydrateFromBatchCache(r,result);
       _batchFixDone=true;
@@ -589,41 +511,59 @@ function _hydrateFromBatchCache(r,cached){
   }
 }
 
-// AUTO-SAVE (Firestore + localStorage fallback)
-let _lastAutoSaveKey='';
+// Cloud-only persistence. An unsaved draft remains in this tab, never localStorage.
+let pendingSave=Promise.resolve();
+let _savedText=null;
+let _restoreInProgress=false;
+function setSaveState(state,label,detail=''){
+  const status=$('save-state');
+  if(status){status.dataset.state=state;status.textContent=label;status.title=detail;status.setAttribute('aria-label',detail?label+'. '+detail:label);}
+}
+function persistDraft(snapshot=false){
+  if(!uploadedFile||!analysisResult)return Promise.resolve(true);
+  clearTimeout(autoSaveTimer);
+  const file=uploadedFile,text=extractTextFromEditor();
+  const result=text===_analysisSource?analysisResult:{genre:analysisResult.genre,analysisPending:true};
+  const userId=Storage.userId;
+  extractedText=text;
+  // Capture text before any asynchronous work. Queue cloud writes in edit order.
+  const task=async()=>{
+    let cloud=false,versionSaved=!snapshot,saveError='Sign in again before saving to cloud.';
+    setSaveState('saving','Saving…');
+    await Storage.whenReady();
+    if(Storage.userId&&Storage.userId===userId){
+      try{
+        if(!Storage._currentManuscriptId)Storage._currentManuscriptId=await Storage.saveManuscript(file.name,text,result);
+        else await Storage.updateManuscript(Storage._currentManuscriptId,text,result);
+        cloud=true;
+        _savedText=text;
+        try{localStorage.setItem('ml_last_open',JSON.stringify({manuscriptId:Storage._currentManuscriptId}));}catch(_){}
+        if(snapshot){await Storage.saveVersion(Storage._currentManuscriptId,result,text,'manual');versionSaved=true;}
+      }catch(error){
+        saveError=error.message||'The cloud service could not complete the save.';
+        console.warn('Cloud save failed:',saveError);
+        if(cloud)_showSaveToast('Draft saved, but snapshot failed: '+saveError,8000);
+      }
+    }
+    if(!cloud){
+      const detail=saveError+' Keep this tab open and export your draft before reloading.';
+      setSaveState('error','Not saved',detail);_showSaveToast(detail,10000);
+    }
+    else{
+      const clean=extractTextFromEditor()===text;
+      setSaveState(clean?'saved':'dirty',clean?'Saved to cloud':'Unsaved changes');
+      if(snapshot&&versionSaved)_showSaveToast('Draft and snapshot saved to cloud');
+    }
+    return cloud&&versionSaved;
+  };
+  pendingSave=pendingSave.catch(()=>false).then(task);
+  return pendingSave;
+}
 function autoSave(){
   if(!analysisResult||!uploadedFile)return;
-  // Skip entirely when nothing changed since the last save — the reanalyze loop calls
-  // this on every completion, and each save JSON.stringifies the whole manuscript.
-  const saveKey=extractedText.length+':'+(extractedText?extractedText.substring(0,80):'')+':'+(analysisResult.overall??'')+':'+(analysisResult.issues?analysisResult.issues.length:0);
-  if(saveKey===_lastAutoSaveKey)return;
+  if(safeLocalJSON('ml_prefs',{}).autosave===false)return;
   clearTimeout(autoSaveTimer);
-  autoSaveTimer=setTimeout(async()=>{
-    _lastAutoSaveKey=saveKey;
-    await Storage.whenReady();
-    if(Storage.userId){
-      try{
-        if(!Storage._currentManuscriptId){
-          const existing=await Storage.getManuscripts();
-          const match=existing.find(m=>(m.fileName||'').toLowerCase()===uploadedFile.name.toLowerCase());
-          if(match){
-            Storage._currentManuscriptId=match.id;
-            await Storage.updateManuscript(match.id,extractedText,analysisResult);
-          }else{
-            Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
-          }
-          await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
-        }else{
-          await Storage.updateManuscript(Storage._currentManuscriptId,extractedText,analysisResult);
-          await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
-        }
-      }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Cloud save error:',e.message)}
-    }else if(!_cloudSaveWarned){
-      _cloudSaveWarned=true;
-      _showSaveToast('Not signed in — saving locally only');
-    }
-    try{const{rawIssues:_raw,...safeResult}=analysisResult||{};localStorage.setItem('ml_autosave',JSON.stringify({fileName:uploadedFile.name,text:extractedText,result:safeResult,manuscriptId:Storage._currentManuscriptId,savedAt:new Date().toISOString()}))}catch(e){if(e.name==='QuotaExceededError')_showSaveToast('Local storage full — cloud save only');console.warn('Autosave to localStorage failed (quota):',e.message)}
-  },5000);
+  autoSaveTimer=setTimeout(()=>persistDraft(),1500);
 }
 
 // GOAL PILLS BAR
@@ -774,21 +714,24 @@ let _issuesResolved=0;
 let _initialIssueCount=null;
 
 // Extract text from contenteditable preserving paragraph/heading structure as \n\n
+let _renderedSource='',_renderedPlain='';
 function extractTextFromEditor(){
   const page=$('ed-annotated');
   if(!page)return extractedText||'';
   const parts=[];
-  for(const child of page.children){
-    const tag=child.tagName;
+  for(const child of page.childNodes){
+    if(child.nodeType===1&&child.matches('.ms-page-footer,[data-editor-only]'))continue;
     const txt=(child.textContent||'').trim();
     if(!txt)continue;
     parts.push(txt);
   }
-  return parts.join('\n\n');
+  const plain=parts.join('\n\n');
+  return plain===_renderedPlain?_renderedSource:plain;
 }
 
 function _onAnalysisComplete(newResult){
     if(newResult.error)return;
+    _analysisSource=extractTextFromEditor();
     if(_initialIssueCount===null)_initialIssueCount=newResult.issues.length;
     const prevCount=analysisResult?analysisResult.issues.length:_initialIssueCount;
     const newCount=newResult.issues.length;
@@ -796,32 +739,26 @@ function _onAnalysisComplete(newResult){
     analysisResult=newResult;
     diffHighlights(newResult.issues);
     updateScoresOnly(newResult);
+    autoSave(); // Replace pending metadata only after analysis matches current text.
     document.querySelectorAll('.rsc,.rp-detail,.gauge-wrap').forEach(el=>el.classList.remove('scores-pending'));
 }
 
 function scheduleReanalyze(){
+  const v=++_analyzeVersion; // invalidate immediately, including the debounce gap
+  _analysisRunner.cancel();
   clearTimeout(_reanalyzeTimer);
+  setSaveState('dirty','Unsaved changes');
+  autoSave();
   _reanalyzeTimer=setTimeout(()=>{
     const page=$('ed-annotated');
     if(!page)return;
     extractedText=extractTextFromEditor();
-    _pushTypingSnapshot();
     document.querySelectorAll('.rsc,.gauge-wrap').forEach(el=>el.classList.add('scores-pending'));
-    if(_analyzerWorker){
-      _analyzeVersion++;
-      const v=_analyzeVersion;
-      const handler=function(e){
-        if(e.data.version===v){
-          _analyzerWorker.removeEventListener('message',handler);
-          if(e.data.type==='result')_onAnalysisComplete(e.data.data);
-          else console.warn('Reanalyze worker error:',e.data.message||'unknown error');
-        }
-      };
-      _analyzerWorker.addEventListener('message',handler);
-      _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v,genreKey:_currentGenreKey()});
-    }else{
-      _onAnalysisComplete(Analyzer.analyze(extractedText,_currentGenreKey()));
-    }
+    const source=extractedText;
+    _analysisRunner.analyze(source,_currentGenreKey()).then(result=>{
+      if(v===_analyzeVersion&&source===extractTextFromEditor())_onAnalysisComplete(result);
+    }).catch(error=>{if(error.name!=='AbortError')_showSaveToast(error.message);})
+      .finally(()=>{if(v===_analyzeVersion)document.querySelectorAll('.scores-pending').forEach(el=>el.classList.remove('scores-pending'));});
   },2000);
 }
 
@@ -1411,7 +1348,7 @@ function renderDetailed(r){
       dlRows.push('</div>');
     }
   }
-  h+=sec('Dialogue',r.scores?.dialogue||0,dlRows);
+  if(r.scores?.dialogue!=null)h+=sec('Dialogue',r.scores.dialogue,dlRows);
   // Pacing heatmap
   if(r.pacing){const cols={action:'#c0392b',dialogue:'#2980b9',description:'#27ae60',exposition:'#f39c12',reflection:'#8e44ad'};
   h+='<div class="a-sec"><h3>Pacing Heatmap</h3><div class="hm-wrap">'+r.pacing.segments.map((s,i)=>'<div class="hm-blk" style="background:'+cols[s.type]+'" title="Seg '+(i+1)+': '+s.type+'"></div>').join('')+'</div><div class="hm-leg"><span><span class="hm-dot" style="background:#c0392b"></span>Action</span><span><span class="hm-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="hm-dot" style="background:#27ae60"></span>Description</span><span><span class="hm-dot" style="background:#f39c12"></span>Exposition</span><span><span class="hm-dot" style="background:#8e44ad"></span>Reflection</span></div></div>'}
@@ -2050,6 +1987,11 @@ function renderAnnotatedAsPages(text,issues){
   p.setAttribute('contenteditable','true');
   p.setAttribute('spellcheck','false');
   if(!p._hasInputListener){
+    p.addEventListener('beforeinput',event=>{
+      if(event.inputType==='historyUndo'){event.preventDefault();undoLastFix();return;}
+      if(event.inputType==='historyRedo'){event.preventDefault();redoLastFix();return;}
+      _pushTypingSnapshot();
+    });
     p.addEventListener('input',()=>{scheduleReanalyze();});
     p._hasInputListener=true;
   }
@@ -2098,14 +2040,33 @@ function renderAnnotatedAsPages(text,issues){
       paraBounds.push({start:lastIdx+leadingWS,end:lastIdx+leadingWS+trimmed.length,text:trimmed});
     }
   }
+  // A real chapter heading may have only one newline before its body. Split it
+  // without turning the entire paragraph into an H1 or changing source offsets.
+  for(let i=0;i<paraBounds.length;i++){
+    const pb=paraBounds[i],lines=pb.text.split('\n');
+    if(lines.length===1)continue;
+    const blocks=[];let offset=pb.start,start=pb.start;
+    for(const line of lines){
+      if(ManuscriptParser.isHeading(line.trim())){
+        if(offset>start&&text.slice(start,offset).trim())blocks.push({start,end:offset-1,text:text.slice(start,offset-1)});
+        blocks.push({start:offset,end:offset+line.length,text:line});
+        start=offset+line.length+1;
+      }
+      offset+=line.length+1;
+    }
+    if(blocks.length){
+      if(start<pb.end)blocks.push({start,end:pb.end,text:text.slice(start,pb.end)});
+      paraBounds.splice(i,1,...blocks);i+=blocks.length-1;
+    }
+  }
 
   // Build structured HTML with correct positions
   let structured='';
   for(const pb of paraBounds){
-    if(chapterRe.test(pb.text)){
+    if(ManuscriptParser.isHeading(pb.text)&&pb.text.length<=120){
       structured+='<h1>'+getAnnotatedSlice(text,pb.start,pb.end,noOverlap)+'</h1>';
     }else if(sceneBreakRe.test(pb.text)){
-      structured+='<div class="scene-break">* * *</div>';
+      structured+='<div class="scene-break">'+esc(pb.text)+'</div>';
     }else{
       structured+='<p>'+getAnnotatedSlice(text,pb.start,pb.end,noOverlap)+'</p>';
     }
@@ -2114,9 +2075,11 @@ function renderAnnotatedAsPages(text,issues){
   // Add page number footer
   const wordCount=(text.match(/\S+/g)||[]).length;
   const estPages=Math.max(1,Math.ceil(wordCount/250));
-  structured+='<div class="ms-page-footer">Page 1 of ~'+estPages+'</div>';
+  p.dataset.pagination='Approximately '+estPages+' manuscript pages';
 
   p.innerHTML=structured;
+  _renderedSource=text;
+  _renderedPlain=[...p.childNodes].map(node=>(node.textContent||'').trim()).filter(Boolean).join('\n\n');
 
   // Wire tooltip on highlights
   const tip=$('tip');
@@ -2280,13 +2243,7 @@ async function runAI(key){
     }
     analysisResult._aiResults=ai;
     renderAI(ai);
-    // Blend AI-derived signals back into Document Health scores.
-    // The regex analyzer measures mechanical patterns; the AI reads semantic quality.
-    // Together they produce scores that reflect both.
-    if(AIEngine._applyAIDerivedScores(analysisResult,ai)){
-      analysisResult.overall=Analyzer.recalcOverall(analysisResult);
-      updateScoresOnly(analysisResult);
-    }
+    // AI output remains advisory; only Analyzer.analyze can compute scores.
     st.classList.add('hidden');
     $('ai-results').classList.remove('hidden');
     document.querySelector('.ai-intro')?.classList.add('hidden');
@@ -2421,8 +2378,9 @@ c.innerHTML=h;c.querySelector('#clr-v')?.addEventListener('click',()=>{if(confir
 
 // EXPORT to Word (.doc) with colored issue highlights
 $('export-btn')?.addEventListener('click',()=>{
+  extractedText=extractTextFromEditor();
   if(!analysisResult||!extractedText)return;
-  const r=analysisResult;
+  const r=Analyzer.analyze(extractedText,_currentGenreKey());
   const issueColors={passive:'#FFD700','weak-verb':'#FFA500',adverb:'#87CEEB',cliche:'#FF6347',wordy:'#DDA0DD','show-tell':'#98FB98',repetition:'#F0E68C','sentence-length':'#FFC0CB',grammar:'#FF4444'};
   const issueLabels={passive:'Passive Voice','weak-verb':'Weak Verb',adverb:'Adverb',cliche:'Cliché',wordy:'Wordy','show-tell':'Show vs Tell',repetition:'Repetition','sentence-length':'Long Sentence'};
 
@@ -2465,34 +2423,14 @@ $('export-btn')?.addEventListener('click',()=>{
 });
 
 // SAVE / LOAD
-function _showSaveToast(msg){
+function _showSaveToast(msg,duration=2000){
   let toast=document.getElementById('save-toast');
-  if(!toast){toast=document.createElement('div');toast.id='save-toast';toast.style.cssText='position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:#1e1812;border:1px solid rgba(200,149,108,.3);color:var(--gold-l);padding:.4rem 1rem;border-radius:6px;font-size:.78rem;z-index:999;opacity:0;transition:opacity .3s;font-family:Inter,sans-serif';document.body.appendChild(toast)}
+  if(!toast){toast=document.createElement('div');toast.id='save-toast';toast.setAttribute('role','status');toast.setAttribute('aria-live','polite');toast.style.cssText='position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:#1e1812;border:1px solid rgba(200,149,108,.3);color:var(--gold-l);padding:.6rem 1rem;border-radius:6px;font-size:.78rem;line-height:1.5;max-width:min(36rem,calc(100vw - 2rem));width:max-content;box-sizing:border-box;overflow-wrap:anywhere;z-index:999;opacity:0;transition:opacity .3s;font-family:Inter,sans-serif';document.body.appendChild(toast)}
   toast.textContent=msg;toast.style.opacity='1';
-  clearTimeout(toast._t);toast._t=setTimeout(()=>{toast.style.opacity='0'},2000);
+  clearTimeout(toast._t);toast._t=setTimeout(()=>{toast.style.opacity='0'},duration);
 }
 async function saveAnalysis(){
-  if(!analysisResult||!uploadedFile)return;
-  // Save to Firestore
-  await Storage.whenReady();
-  if(Storage.userId){
-    try{
-      if(!Storage._currentManuscriptId){
-        Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
-      }else{
-        await Storage.updateManuscript(Storage._currentManuscriptId,extractedText,analysisResult);
-      }
-      await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
-      _showSaveToast('Saved to cloud');
-      return;
-    }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Cloud save error:',e.message)}
-  }
-  // Fallback to localStorage
-  const saves=safeLocalJSON('ml_saves',[]);
-  saves.push({fileName:uploadedFile.name,text:extractedText,result:analysisResult,savedAt:new Date().toISOString()});
-  if(saves.length>10)saves.splice(0,saves.length-10);
-  try{localStorage.setItem('ml_saves',JSON.stringify(saves))}catch(e){_showSaveToast('Local save failed — storage full');return}
-  _showSaveToast('Saved locally');
+  return persistDraft(true);
 }
 
 // ============================================================
@@ -2516,18 +2454,10 @@ async function renderLibrary(){
   if(Storage.userId){
     try{manuscripts=await Storage.getManuscripts()}catch(e){_showSaveToast('Could not load manuscripts from cloud');console.warn('Firestore load error:',e.message)}
   }
-  // Fallback to localStorage bookshelf
-  if(manuscripts.length===0){
-    const shelf=safeLocalJSON('ml_bookshelf',[]);
-    const saves=safeLocalJSON('ml_saves',[]);
-    const all=[...shelf,...saves];
-    manuscripts=all.map((s,i)=>({id:null,fileName:s.fileName,overall:s.result?.overall||s.overall||0,wordCount:s.result?.totalWords||s.totalWords||0,genre:s.result?.genre?.label||s.genre||'',updatedAt:{toDate:()=>new Date(s.savedAt||Date.now())},text:s.text,_local:true,_data:s}));
-  }
-
-  // Deduplicate by fileName — keep the most recently updated entry
+  // Cloud identity, not filename: authors may upload two drafts with the same name.
   const seen=new Map();
   for(const m of manuscripts){
-    const key=(m.fileName||'').toLowerCase().trim();
+    const key=m.id||((m.fileName||'')+':'+(m._data?.savedAt||''));
     if(!seen.has(key)){seen.set(key,m)}else{
       const prev=seen.get(key);
       const prevDate=prev.updatedAt?.toDate?prev.updatedAt.toDate():new Date(0);
@@ -2557,6 +2487,7 @@ async function renderLibrary(){
 
   // Status badge
   function statusBadge(m){
+    if(m.analysisState==='pending')return '<span class="lib-card-badge lib-badge-draft">Analysis pending</span>';
     const s=m.overall||0;
     if(s>=70)return '<span class="lib-card-badge lib-badge-analyzed">&#9679; Analyzed</span>';
     if(s>=45)return '<span class="lib-card-badge lib-badge-progress">&#9679; In Progress</span>';
@@ -2574,7 +2505,7 @@ async function renderLibrary(){
   // Build card HTML
   function cardHtml(m,i,isRecent){
     const date=m.updatedAt?.toDate?m.updatedAt.toDate():new Date();
-    const chs=chapterCount(m.text);
+    const chs=m.chapterCount||chapterCount(m.text);
     const chLabel=chs>0?chs+' Chapters':'';
     const name=esc(m.fileName||'Untitled').replace(/\.\w+$/,'');
     return '<div class="lib-card'+(isRecent?' lib-card-recent':'')+'" data-lib-idx="'+i+'">'+
@@ -2790,6 +2721,7 @@ async function _openManuscript(idx){
     $('editor-view').classList.remove('hidden');
     document.body.classList.remove('lib-mode');
     renderAll();
+    _savedText=extractTextFromEditor();setSaveState('saved','Saved to cloud');
     loadEl.remove();
   }catch(err){
     document.getElementById('lib-open-overlay')?.remove();
@@ -2844,7 +2776,6 @@ function _showContextMenu(anchor,idx){
       const lastOpen=safeLocalJSON('ml_last_open',null);
       if(lastOpen?.manuscriptId===m.id){
         localStorage.removeItem('ml_last_open');
-        localStorage.removeItem('ml_autosave');
       }
     }
     renderLibrary();
@@ -2855,6 +2786,21 @@ function _showContextMenu(anchor,idx){
 $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="save-btn">&#128190; Save</button>');
 $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="upgrade-btn" style="color:var(--gold-l);border-color:var(--gold-d)">&#9733; Premium</button>');
 $('save-btn')?.addEventListener('click',saveAnalysis);
+$('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="optional-checks-btn">Optional checks</button>');
+$('optional-checks-btn')?.addEventListener('click',async e=>{
+  if(!analysisResult||!uploadedFile)return;
+  if(!confirm('Run optional checks? Manuscript passages will be sent to our AI and grammar providers. AI checks use your plan allowance.'))return;
+  const button=e.currentTarget;button.disabled=true;
+  const result=analysisResult,source=extractedText;
+  try{
+    // Calibration uses issue indices. Do not mutate that list concurrently.
+    for(const check of [maybeRunSmartScan,maybeBatchFix,_enhanceGrammar,_runReaderSimulation]){
+      if(!_isCurrentResult(result,source))break;
+      await check(result);
+    }
+  }
+  finally{button.disabled=false;}
+});
 // (Help lives in the static "? Help" → faq.html link in the topbar; the old injected
 // duplicate button re-triggered the wizard, which bails for anyone with a manuscript.)
 $('upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
@@ -2897,18 +2843,13 @@ async function maybeShowWizard(){
   if(Storage.userId){
     try{const ms=await Storage.getManuscripts();hasManuscripts=ms.length>0}catch(e){}
   }
-  if(!hasManuscripts){
-    const shelf=safeLocalJSON('ml_bookshelf',[]);
-    const saves=safeLocalJSON('ml_saves',[]);
-    hasManuscripts=shelf.length>0||saves.length>0;
-  }
   if(hasManuscripts){localStorage.setItem('wizard_done','1');return}
   const steps=[
     {title:'Welcome to AuthorScrolls',icon:'&#128214;',text:'A professional manuscript analysis tool that scores your writing across 10+ dimensions and helps you revise with precision.'},
     {title:'Step 1: Upload & Select Genre',icon:'&#128196;',text:'Upload your .docx, .pdf, or .txt file, then <strong>select your genre</strong>. Genre determines which scoring rules apply — nonfiction is scored differently than fiction. This matters for accurate results.'},
     {title:'Step 2: Review Your Scores',icon:'&#128202;',text:'<strong>Document Health</strong> (left panel) shows engagement, clarity, pacing, and readability.<br><strong>Smart Feedback</strong> (right panel) shows copy editing, grammar, style, and structure scores — click any category to see specific issues.'},
     {title:'Step 3: Fix Issues',icon:'&#9998;',text:'Click any highlighted issue in the editor to see the suggestion. Use <strong>Apply Fix</strong> for auto-corrections or <strong>Fix</strong> for AI-powered rewrites. Your scores update live as you edit.'},
-    {title:'Step 4: Run AI Analysis',icon:'&#9889;',text:'For deeper insights, run <strong>AI features</strong> (paid plans): Deep Critique, Editing Roadmap, Reader Simulation, Beta Reader Simulation, and more. These scan your entire manuscript and cache the results.'},
+    {title:'Step 4: Ask for Optional Advice',icon:'&#9889;',text:'AI features use relevant passages and samples across your book, not an exhaustive reading of every word. You choose when to share passages. Advice never changes deterministic editing scores.'},
     {title:'Step 5: Save & Iterate',icon:'&#128190;',text:'Your manuscript <strong>saves automatically to the cloud</strong> when signed in. Click Save (&#128190;) anytime. Re-upload revised versions to track your improvement over time.'},
     {title:'Ready to Start?',icon:'&#9997;',text:'Upload your manuscript and select a genre to begin. Every score you see is computed from your actual text — nothing is hardcoded. A score of 60+ means your manuscript is in good shape.'}
   ];
@@ -2931,13 +2872,10 @@ Storage.whenReady().then(async user=>{
   // Fetch all manuscripts once — used for validation and fallback
   let manuscripts=[];
   try{manuscripts=await Storage.getManuscripts()}catch(e){_showSaveToast('Could not load manuscripts from cloud');console.warn('Could not fetch manuscripts:',e.message)}
-  const shelf=safeLocalJSON('ml_bookshelf',[]);
-  const saves=safeLocalJSON('ml_saves',[]);
-  const hasAnyManuscripts=manuscripts.length>0||shelf.length>0||saves.length>0;
+  const hasAnyManuscripts=manuscripts.length>0;
 
   // If no manuscripts anywhere, clear stale session data and show blank library
   if(!hasAnyManuscripts){
-    localStorage.removeItem('ml_autosave');
     localStorage.removeItem('ml_last_open');
     renderLibrary();
     maybeShowWizard();
@@ -2946,7 +2884,6 @@ Storage.whenReady().then(async user=>{
 
   // Try to restore the last opened manuscript
   const lastOpen=safeLocalJSON('ml_last_open',null);
-  const autosave=safeLocalJSON('ml_autosave',null);
 
   // Attempt 1: last opened manuscript by Firestore ID
   if(lastOpen?.manuscriptId){
@@ -2954,6 +2891,8 @@ Storage.whenReady().then(async user=>{
       const full=await Storage.getManuscript(lastOpen.manuscriptId);
       if(full&&full.text){
         extractedText=full.text;
+        _savedText=full.text;
+        $('genre-override').value=full.genrePrimary||_genreLabelToKey(full.genre)||'';
         uploadedFile={name:full.fileName,size:0};
         try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
         if(!analysisResult){renderLibrary();return}
@@ -2965,22 +2904,6 @@ Storage.whenReady().then(async user=>{
         return;
       }
     }catch(e){console.warn('Could not restore last manuscript:',e.message)}
-  }
-
-  // Attempt 2: autosave — only if it matches a known manuscript in library
-  if(autosave?.text&&autosave?.result&&autosave.manuscriptId){
-    const match=manuscripts.find(m=>m.id===autosave.manuscriptId);
-    if(match){
-      extractedText=autosave.text;
-      analysisResult=autosave.result;
-      uploadedFile={name:autosave.fileName||'Untitled',size:0};
-      Storage._currentManuscriptId=autosave.manuscriptId;
-      $('upload-view').classList.add('hidden');
-      $('editor-view').classList.remove('hidden');
-      document.body.classList.remove('lib-mode');
-      renderAll();
-      return;
-    }
   }
 
   // Attempt 3: any manuscript in Firestore (pick most recent)
@@ -2995,6 +2918,8 @@ Storage.whenReady().then(async user=>{
       const full=await Storage.getManuscript(m.id);
       if(full&&full.text){
         extractedText=full.text;
+        _savedText=full.text;
+        $('genre-override').value=full.genrePrimary||_genreLabelToKey(full.genre)||'';
         uploadedFile={name:full.fileName,size:0};
         try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
         if(!analysisResult){renderLibrary();return}
@@ -3010,7 +2935,6 @@ Storage.whenReady().then(async user=>{
   }
 
   // No manuscript could be loaded — clear stale data, show library
-  localStorage.removeItem('ml_autosave');
   localStorage.removeItem('ml_last_open');
   renderLibrary();
   maybeShowWizard();
@@ -3020,6 +2944,8 @@ Storage.whenReady().then(async user=>{
 // Genre override in editor topbar — re-analyze with new genre
 $('genre-override')?.addEventListener('change',()=>{
   if(!extractedText||!analysisResult)return;
+  _analyzeVersion++;_analysisRunner.cancel();clearTimeout(_reanalyzeTimer);
+  extractedText=extractTextFromEditor();
   // Clear stale AI feature panels — they were generated with the previous genre's context
   // and would mislead the user (e.g. "this is self-help masquerading as dystopian fiction").
   ['ai-deep-critique','ai-opening-analysis','ai-editing-roadmap','ai-comp-titles','ai-query-letter','ai-beta-readers','ai-market-readiness','ai-chapter-breakdown','ai-weakness-result'].forEach(id=>{
@@ -3030,9 +2956,11 @@ $('genre-override')?.addEventListener('change',()=>{
   renderAll();
 });
 
-function goToLibrary(){
+async function goToLibrary(){
+  if(!await persistDraft())return;
   clearTimeout(autoSaveTimer);
   clearTimeout(_reanalyzeTimer);
+  _analyzeVersion++;_analysisRunner.cancel();
   _undoStack.length=0;
   _redoStack.length=0;
   _updateUndoBtn();
@@ -3060,6 +2988,9 @@ document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{
     const cmd=btn.dataset.cmd;
     const ed=$('ed-annotated');
     if(!ed)return;
+    if(cmd==='undo'){undoLastFix();return;}
+    if(cmd==='redo'){redoLastFix();return;}
+    pushUndo();
     ed.focus();
     if(cmd.startsWith('formatBlock:')){
       const tag=cmd.split(':')[1];
@@ -3126,42 +3057,8 @@ $('focus-snooze')?.addEventListener('click',()=>FocusGuard.snooze());
 // Start focus guard when editor loads
 setTimeout(()=>FocusGuard.start(),2000);
 
-// ========================
-// AI CACHING — 24hr cache with change detection
-// ========================
-const AICache={
-  _key(text,feature){return 'aic_'+feature+'_'+(text.length+'_'+text.substring(0,100)).replace(/\W/g,'_').substring(0,80)},
-  get(text,feature){
-    try{
-      const k=this._key(text,feature);
-      const raw=localStorage.getItem(k);
-      if(!raw)return null;
-      const cached=JSON.parse(raw);
-      if(Date.now()-cached.ts>24*60*60*1000){localStorage.removeItem(k);return null}
-      // Verify text hasn't changed significantly
-      if(cached.textLen!==text.length||cached.textHash!==this._hash(text))return null;
-      return cached.data;
-    }catch(e){return null}
-  },
-  set(text,feature,data){
-    try{
-      const k=this._key(text,feature);
-      localStorage.setItem(k,JSON.stringify({data,ts:Date.now(),textLen:text.length,textHash:this._hash(text)}));
-    }catch(e){/* quota */}
-  },
-  _hash(text){let h=0;for(let i=0;i<text.length;i+=100){h=((h<<5)-h)+text.charCodeAt(i);h|=0}return h}
-};
-// Patch AIEngine to use cache
-if(typeof AIEngine!=='undefined'){
-  const origCall=AIEngine._callClaude.bind(AIEngine);
-  AIEngine._callClaude=async function(apiKey,systemPrompt,userPrompt,manuscriptText,feature){
-    const cached=AICache.get(manuscriptText,feature);
-    if(cached)return cached;
-    const result=await origCall(apiKey,systemPrompt,userPrompt,manuscriptText,feature);
-    AICache.set(manuscriptText,feature,result);
-    return result;
-  };
-}
+// AIEngine owns the single session cache. Do not wrap its request method:
+// the old second cache both missed small edits and discarded retrieval options.
 
 // ============================================================
 // RE-ENGAGEMENT SYSTEM (3-layer)
@@ -3172,13 +3069,10 @@ function trackSession(actionType){
   if(!uploadedFile||!analysisResult)return;
   const prev=safeLocalJSON('ml_session',{});
   const text=extractedText||'';
-  const chapters=text.match(/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*)/gim)||[];
-  const lastChapter=chapters.length>0?chapters[chapters.length-1].trim():(prev.lastChapter||null);
-
   const data={
-    manuscript:uploadedFile.name,
+    manuscript:'',
     manuscriptId:Storage._currentManuscriptId||prev.manuscriptId||null,
-    lastChapter,
+    lastChapter:'',
     lastActionType:actionType||prev.lastActionType||'viewing',
     lastScore:analysisResult.overall||prev.lastScore||0,
     lastSessionTime:Date.now(),
@@ -3499,8 +3393,53 @@ function maybePromptPush(){
 }
 
 // Register service worker early (needed for push to work even before prompting)
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('/sw.js').catch(()=>{});
-}
+try{
+  if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}catch(_){/* Optional notifications must never prevent editor initialization. */}
+
+window.AuthorScrollsEditor={
+  save:()=>persistDraft(),
+  getText:()=>uploadedFile?extractTextFromEditor():extractedText,
+  getAnalysis:()=>analysisResult,
+  async restoreVersion(id,versionId){
+    if(_restoreInProgress)throw new Error('A restore is already in progress. Please wait.');
+    if(id!==Storage._currentManuscriptId)throw new Error('Open this manuscript before restoring it');
+    const view=$('editor-view'),wasInert=view.inert;
+    const previousFocus=document.activeElement;
+    _restoreInProgress=true;view.inert=true;view.setAttribute('aria-busy','true');
+    clearTimeout(autoSaveTimer);clearTimeout(_reanalyzeTimer);_analyzeVersion++;
+    _analysisRunner.cancel();
+    // This recovery control stays outside the inert editor. If the network
+    // stalls, the author can still export the working draft before closing.
+    const notice=document.createElement('div');
+    notice.id='restore-progress';notice.setAttribute('role','status');
+    notice.style.cssText='position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:1002;background:#1e1812;color:#f3e4ce;border:1px solid #c8956c;border-radius:6px;padding:.75rem 1rem;width:max-content;max-width:calc(100vw - 2rem);box-sizing:border-box;font-size:.85rem;line-height:1.5';
+    const message=document.createElement('p');message.textContent='Restoring snapshot. Keep this tab open; editing will resume when it finishes.';message.style.margin='0 0 .5rem';
+    const recovery=document.createElement('button');recovery.type='button';recovery.textContent='Export current draft';
+    recovery.style.cssText='padding:.5rem .75rem;background:#d2b081;color:#211b14;border:0;border-radius:4px;cursor:pointer';
+    recovery.addEventListener('click',()=>$('export-btn').click());
+    notice.append(message,recovery);document.body.appendChild(notice);
+    recovery.focus();
+    try{
+      await pendingSave;
+      extractedText=await Storage.restoreVersion(id,versionId,analysisResult,extractTextFromEditor());
+      analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
+      _undoStack.length=0;_redoStack.length=0;renderAll();
+      if(!await persistDraft())throw new Error('Restored text is open, but its latest save could not be confirmed. Keep this tab open and export it.');
+      _showSaveToast('Snapshot restored. Your previous text is in the safety snapshot.');
+    }catch(error){
+      _showSaveToast(error.message,10000);
+      throw error;
+    }finally{
+      notice.remove();
+      _restoreInProgress=false;view.inert=wasInert;view.removeAttribute('aria-busy');
+      if(previousFocus?.isConnected&&!previousFocus.disabled)previousFocus.focus();
+    }
+  }
+};
+window.addEventListener('beforeunload',e=>{
+  if(!uploadedFile)return;
+  if(_restoreInProgress||extractTextFromEditor()!==_savedText){e.preventDefault();e.returnValue='';}
+});
 
 })();

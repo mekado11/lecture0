@@ -1,0 +1,13 @@
+const assert=require('assert');
+const RI=require('./relationship-intelligence');
+const parsed={chapters:[{id:'chapter-001',body:'Mara told Daniel that he was her best friend. Mara and Daniel walked home.'},{id:'chapter-002',body:'Mara told Elena that Daniel was her brother.'}]};
+const chars=[{canonicalName:'Mara',aliases:[]},{canonicalName:'Daniel',aliases:[]},{canonicalName:'Elena',aliases:[]}];
+const evidence=RI.extract(parsed,chars);
+assert(evidence.some(e=>e.type==='friendship'&&e.characters.includes('Mara')&&e.characters.includes('Daniel')));
+assert(!evidence.some(e=>e.evidence.includes('walked home')));
+assert(!evidence.some(e=>e.evidence.includes('Elena')),'three-name sentences must not create ambiguous pair relationships');
+assert.deepStrictEqual(RI.namesIn('Ann met Anna.',[{canonicalName:'Ann',aliases:[]},{canonicalName:'Anna',aliases:[]}]),['Ann','Anna']);
+assert.deepStrictEqual(RI.namesIn('Anna arrived.',[{canonicalName:'Ann',aliases:[]},{canonicalName:'Anna',aliases:[]}]),['Anna'],'name matching must respect boundaries');
+const rels=RI.summarize(evidence);
+assert(rels.every(r=>r.evidence.length>0&&r.requiresAuthorReview));
+console.log('relationship-intelligence tests passed');
