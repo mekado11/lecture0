@@ -3154,6 +3154,31 @@ const Analyzer = {
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const avgSentLen = totalWords / Math.max(sentences.length, 1);
 
+    // Nonfiction needs argument/reader-value signals, not fiction action/dialogue proxies.
+    if (evalMode === 'nonfiction') {
+      const first500 = lower.substring(0, Math.min(lower.length, 2500));
+      const questionOpening = (text.substring(0, 2500).match(/\?/g) || []).length;
+      const promiseOpening = (first500.match(/\b(this (book|chapter)|you|your|we|our|why|how|consider|imagine|the (problem|truth|question|point)|what if)\b/g) || []).length;
+      const transitionWords = (lower.match(/\b(however|therefore|furthermore|because|although|first|second|third|finally|next|also|specifically|for example|in contrast|as a result)\b/g) || []).length;
+      const evidenceWords = (lower.match(/\b(for example|for instance|research|study|studies|data|evidence|according to|statistics|percent|case in point|in fact|demonstrates|illustrates)\b/g) || []).length;
+      const actionWords = (lower.match(/\b(action|exercise|reflect|ask yourself|write down|try this|next step|practice|apply|consider|choose|start|begin|plan|commit)\b/g) || []).length;
+      const vagueWords = (lower.match(/\b(thing|stuff|something|somehow|somewhat|various|kind of|sort of|a lot|very|really|good|bad|great|important)\b/g) || []).length;
+      const passiveCount = (text.match(/\b(was|were|is|are|been|being)\s+(being\s+)?\w+(ed|en)\b/gi) || []).length;
+      const longSentences = sentences.filter(s => s.trim().split(/\s+/).length > 30).length;
+      const sentTexts = sentences.map(s => s.trim().toLowerCase());
+      let nearDupes = 0;
+      for (let i=0;i<sentTexts.length-1;i++){const a=new Set(sentTexts[i].split(/\s+/).filter(w=>w.length>3)),b=new Set(sentTexts[i+1].split(/\s+/).filter(w=>w.length>3));if(a.size<3||b.size<3)continue;let overlap=0;a.forEach(w=>{if(b.has(w))overlap++;});if(overlap/Math.min(a.size,b.size)>0.5)nearDupes++;}
+      const perK = n => n / Math.max(totalWords / 1000, 1);
+      let hook_strength = 3 + Math.min(3, questionOpening * .6) + Math.min(4, promiseOpening * .35);
+      let clarity = 6 - Math.min(2, passiveCount / Math.max(totalWords,1) * 250) - Math.min(2, longSentences / Math.max(sentences.length,1) * 8) + Math.min(3, perK(transitionWords) * .3);
+      let forward_motion = 3 + Math.min(4, perK(transitionWords) * .35) + Math.min(3, perK(actionWords) * .25);
+      let specificity = 4 + Math.min(4, perK(evidenceWords) * .35) - Math.min(3, perK(vagueWords) * .15);
+      let redundancy = 9 - Math.min(8, nearDupes / Math.max(sentences.length,1) * 35);
+      let payoff = 3 + Math.min(4, perK(actionWords) * .35) + Math.min(3, perK(evidenceWords) * .2);
+      const clamp=v=>Math.max(1,Math.min(10,Math.round(v)));
+      return {hook_strength:clamp(hook_strength),clarity:clamp(clarity),forward_motion:clamp(forward_motion),specificity:clamp(specificity),redundancy:clamp(redundancy),payoff:clamp(payoff)};
+    }
+
     // === HOOK STRENGTH (1-10) ===
     const first500 = lower.substring(0, Math.min(lower.length, 2500));
     const tensionOpening = (first500.match(/\b(but|however|suddenly|until|except|never|wrong|strange|secret|dead|blood|lie|couldn't|shouldn't|danger|threat|impossible)\b/g) || []).length;
@@ -3301,6 +3326,14 @@ const Analyzer = {
       payoff: 'No reward — reader doesn\'t feel paid off for continuing'
     };
     const modeReasons = {
+      nonfiction: {
+        hook_strength: 'Opening promise is weak — the reader benefit or central question is unclear',
+        clarity: 'Argument is hard to follow — ideas need clearer sequencing or transitions',
+        forward_motion: 'Argument stalls — ideas repeat without enough progression or application',
+        specificity: 'Support is too abstract — add concrete examples, evidence, or lived experience',
+        redundancy: 'Ideas repeat without adding a new layer',
+        payoff: 'Reader payoff is weak — insight needs a clearer takeaway, reflection, or action'
+      },
       opening: {
         hook_strength: 'Opening lacks curiosity or tension — reader has no reason to continue',
         clarity: 'Opening is confusing — reader can\'t orient themselves',
@@ -3332,7 +3365,11 @@ const Analyzer = {
     }
     // If we don't have 3 yet, add generic observations
     if (reasons.length < 3 && sorted[0][1] <= 7) {
-      const extras = [
+      const extras = evalMode === 'nonfiction' ? [
+        'The argument could progress more clearly from idea to evidence to application',
+        'Some sections may need more concrete support or examples',
+        'Reader takeaway is not consistently explicit'
+      ] : [
         'Exposition slows narrative flow',
         'Narrative direction is temporarily unclear',
         'Scenes lack a clear turning point'
