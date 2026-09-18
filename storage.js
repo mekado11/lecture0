@@ -35,8 +35,8 @@ const Storage = {
     return { version: 0, textLength: text.length, wordCount: (text.match(/\\b\\w+\\b/g) || []).length, chapterCount: 1, chapters: [{ id: 'chapter-001', index: 0, number: 1, title: 'Manuscript', heading: null, start: 0, end: text.length, wordCount: (text.match(/\\b\\w+\\b/g) || []).length, text, body: text }], warnings: ['PARSER_NOT_LOADED'] };
   },
 
-  _buildBookIntelligence(parsed) {
-    if (typeof BookIntelligence !== 'undefined' && BookIntelligence.build) return BookIntelligence.build(parsed);
+  _buildBookIntelligence(parsed, analysisResult = null) {
+    if (typeof BookIntelligence !== 'undefined' && BookIntelligence.build) return BookIntelligence.build(parsed, analysisResult);
     return null;
   },
 
@@ -47,6 +47,8 @@ const Storage = {
       chapterCount: intelligence.chapterCount,
       characters: intelligence.characters,
       pov: intelligence.pov,
+      scoreEvidence: intelligence.scoreEvidence || {},
+      scoreConflicts: intelligence.scoreConflicts || [],
       generatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
   },
@@ -79,7 +81,7 @@ const Storage = {
     const ref = this._userDoc();
     if (!ref) return null;
     const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-    const intelligence = this._buildBookIntelligence(parsed);
+    const intelligence = this._buildBookIntelligence(parsed, analysisResult);
     const doc = {
       id,
       fileName,
