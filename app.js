@@ -785,8 +785,12 @@ function scheduleReanalyze(){
   _reanalyzeTimer=setTimeout(()=>{
     const page=$('ed-annotated');
     if(!page)return;
+    const previousText=extractedText;
     extractedText=extractTextFromEditor();
-    _pushTypingSnapshot();
+    if(extractedText!==previousText){
+      const page=$('ed-annotated');
+      if(page){_undoStack.push({html:page.innerHTML,text:previousText});if(_undoStack.length>MAX_UNDO)_undoStack.shift();_redoStack.length=0;_lastSnapshotText=extractedText;_updateUndoBtn();}
+    }
     document.querySelectorAll('.rsc,.gauge-wrap').forEach(el=>el.classList.add('scores-pending'));
     if(_analyzerWorker){
       _analyzeVersion++;
