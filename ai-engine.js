@@ -99,6 +99,17 @@ const AIEngine = {
     return ManuscriptRetrieval.contextPacket(query, built.parsed, built.intel, 5);
   },
 
+  _wholeBookContext(feature, text, analysis = null) {
+    const packet = this.buildGroundedContext(feature + ' whole manuscript structure themes characters arc ending', text, analysis);
+    if (!packet) return null;
+    return 'GROUNDED WHOLE-BOOK CONTEXT:\n' + this._serializeContextPacket(packet);
+  },
+
+  _wholeBookOptions(feature, text, analysis = null) {
+    const context = this._wholeBookContext(feature, text, analysis);
+    return context ? { contextOverride: context } : {};
+  },
+
   async askManuscript(apiKey, question, manuscriptText, analysis = null) {
     const packet = this.buildGroundedContext(question, manuscriptText, analysis);
     const context = this._serializeContextPacket(packet);
@@ -479,7 +490,7 @@ Return JSON:
   ],
   "priorityFix": "the single most impactful change, citing the specific pattern the analysis found",${dimensionScoresPrompt}
 }`,
-      text, 'deepCritique');
+      text, 'deepCritique', this._wholeBookOptions('deepCritique', text, analysis));
   },
 
   // ========================
@@ -502,7 +513,7 @@ Return JSON:
   "targetAudience": "description of the ideal reader",
   "shelfPlacement": "where this would sit in a bookstore"
 }`,
-      text, 'compTitles');
+      text, 'compTitles', this._wholeBookOptions('compTitles', text, analysis));
   },
 
   // ========================
@@ -522,7 +533,7 @@ Return JSON:
   "wordCountNote": "whether the word count is appropriate for this genre",
   "tips": ["tip for improving the query", "tip 2", "tip 3"]
 }`,
-      text, 'queryLetter');
+      text, 'queryLetter', this._wholeBookOptions('queryLetter', text, analysis));
   },
 
   // ========================
@@ -555,7 +566,7 @@ Return JSON:
   "commonPraise": "What most readers agree is strong",
   "commonCriticism": "What most readers agree needs work — reference the analysis findings"
 }`,
-      text, 'betaReaders');
+      text, 'betaReaders', this._wholeBookOptions('betaReaders', text, analysis));
   },
 
   // ========================
@@ -581,7 +592,7 @@ Return JSON:
   "estimatedRevisions": "how many more revision rounds needed based on current scores",
   "trendAlignment": "how this aligns with current genre trends"
 }`,
-      text, 'marketReadiness');
+      text, 'marketReadiness', this._wholeBookOptions('marketReadiness', text, analysis));
   },
 
   // ========================
@@ -609,7 +620,7 @@ Return JSON:
   "recommendation": "structural recommendation"
 }
 If the text is a single chapter or doesn't have clear chapter breaks, treat major scene breaks as sections.`,
-      text, 'chapterBreakdown');
+      text, 'chapterBreakdown', this._wholeBookOptions('chapterBreakdown', text, analysis));
   },
 
   // ========================
@@ -641,7 +652,7 @@ Return JSON:
   "overallOutlook": "honest 1-2 sentence assessment of revision scope, grounded in the overall score",
   "quickWin": "one small fix (named specifically) that would show immediate improvement in a single pass"
 }`,
-      text, 'editingRoadmap');
+      text, 'editingRoadmap', this._wholeBookOptions('editingRoadmap', text, analysis));
   },
 
   // ========================
