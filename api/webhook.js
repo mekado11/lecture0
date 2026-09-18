@@ -38,15 +38,15 @@ module.exports = async (req, res) => {
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const userId = session.metadata?.userId;
-    const planAmount = session.amount_total;
+    const plan = session.metadata?.plan;
+    const validPlans = new Set(['starter','premium']);
 
-    if (userId) {
+    if (userId && validPlans.has(plan)) {
       const fb = getAdmin();
       if (fb) {
         try {
-          const tier = planAmount >= 1500 ? 'premium' : 'starter';
           await fb.firestore().collection('users').doc(userId).set({
-            tier,
+            tier: plan,
             stripeCustomerId: session.customer || null,
             stripeSubscriptionId: session.subscription || null,
             tierUpdatedAt: fb.firestore.FieldValue.serverTimestamp()
@@ -58,6 +58,23 @@ module.exports = async (req, res) => {
     }
   }
 
+
+  if (event.type === 'customer.subscription.updated') {
+    const sub = event.data.object;
+    const fb = getAdmin();
+    if (fb) {
+      try {
+        const snap = await fb.firestore().collection('users').where('stripeSubscriptionId','==',sub.id).limit(1).get();
+        if (!snap.empty) {
+          const plan = sub.metadata?.plan;
+          const active = sub.status === 'active' || sub.status === 'trialing';
+          const tier = active && (plan === 'starter' || plan === 'premium') ? plan : 'free';
+          await snap.docs[0].ref.set({tier,subscriptionStatus:sub.status||null,tierUpdatedAt:fb.firestore.FieldValue.serverTimestamp()},{merge:true});
+        }
+      } catch (e) { console.error('Webhook subscription update failed:', e.message); }
+    }
+  }
+
   if (event.type === 'customer.subscription.deleted') {
     const sub = event.data.object;
     const fb = getAdmin();
@@ -66,7 +83,7 @@ module.exports = async (req, res) => {
         const snap = await fb.firestore().collection('users')
           .where('stripeSubscriptionId', '==', sub.id).limit(1).get();
         if (!snap.empty) {
-          await snap.docs[0].ref.set({ tier: 'free', tierUpdatedAt: fb.firestore.FieldValue.serverTimestamp() }, { merge: true });
+          await snap.docs[0].ref.set({ tier: 'free', subscriptionStatus:'canceled', tierUpdatedAt: fb.firestore.FieldValue.serverTimestamp() }, { merge: true });
         }
       } catch (e) {
         console.error('Webhook subscription cancel failed:', e.message);
