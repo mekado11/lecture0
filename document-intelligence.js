@@ -119,7 +119,6 @@ const DocumentIntelligence = (() => {
   }
 
   function enrich(parsed, intelligence) {
-    if (parsed && intelligence?.scoreProvenance?.genre?.label) parsed.genreLabel=intelligence.scoreProvenance.genre.label;
     const documentType = classify(parsed);
     return { ...intelligence, documentType, nonfiction: documentType.type === 'nonfiction' ? build(parsed) : null };
   }
