@@ -35,17 +35,35 @@ const Storage = {
     return { version: 0, textLength: text.length, wordCount: (text.match(/\\b\\w+\\b/g) || []).length, chapterCount: 1, chapters: [{ id: 'chapter-001', index: 0, number: 1, title: 'Manuscript', heading: null, start: 0, end: text.length, wordCount: (text.match(/\\b\\w+\\b/g) || []).length, text, body: text }], warnings: ['PARSER_NOT_LOADED'] };
   },
 
-  async _writeChapters(manuscriptRef, parsed) {
+  _buildBookIntelligence(parsed) {
+    if (typeof BookIntelligence !== 'undefined' && BookIntelligence.build) return BookIntelligence.build(parsed);
+    return null;
+  },
+
+  async _writeBookIntelligence(manuscriptRef, intelligence) {
+    if (!intelligence) return;
+    await manuscriptRef.collection('intelligence').doc('book').set({
+      version: intelligence.version,
+      chapterCount: intelligence.chapterCount,
+      characters: intelligence.characters,
+      pov: intelligence.pov,
+      generatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  },
+
+  async _writeChapters(manuscriptRef, parsed, intelligence = null) {
     // Firestore batches are capped, so commit in conservative groups.
     const chunks = parsed.chapters || [];
     for (let start = 0; start < chunks.length; start += 400) {
       const batch = this.db.batch();
       chunks.slice(start, start + 400).forEach(chapter => {
+        const chapterIntel = intelligence?.chapters?.find(c => c.id === chapter.id);
         batch.set(manuscriptRef.collection('chapters').doc(chapter.id), {
           index: chapter.index, number: chapter.number, title: chapter.title,
           heading: chapter.heading || null, start: chapter.start, end: chapter.end,
           wordCount: chapter.wordCount, text: chapter.text,
-          intelligenceVersion: 0,
+          intelligenceVersion: chapterIntel ? intelligence.version : 0,
+          ...(chapterIntel ? { pov: chapterIntel.pov, characterCandidates: chapterIntel.characterCandidates } : {}),
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
       });
@@ -61,6 +79,7 @@ const Storage = {
     const ref = this._userDoc();
     if (!ref) return null;
     const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+    const intelligence = this._buildBookIntelligence(parsed);
     const doc = {
       id,
       fileName,
@@ -76,7 +95,8 @@ const Storage = {
     };
     const manuscriptRef = ref.collection('manuscripts').doc(id);
     await manuscriptRef.set(doc);
-    await this._writeChapters(manuscriptRef, parsed);
+    await this._writeChapters(manuscriptRef, parsed, intelligence);
+    await this._writeBookIntelligence(manuscriptRef, intelligence);
     return id;
   },
 
@@ -95,7 +115,8 @@ const Storage = {
     };
     const manuscriptRef = ref.collection('manuscripts').doc(id);
     await manuscriptRef.update(update);
-    await this._writeChapters(manuscriptRef, parsed);
+    await this._writeChapters(manuscriptRef, parsed, intelligence);
+    await this._writeBookIntelligence(manuscriptRef, intelligence);
   },
 
   async getManuscripts() {
