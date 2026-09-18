@@ -2060,22 +2060,28 @@ const Analyzer = {
     // === CLARITY (is the writing direct and easy to follow?) ===
     let clarityScore = 20;
     const modifierStacks = (text.match(/\b\w+ly\s+\w+ly\b/gi) || []).length;
+    const modifierStackRate = modifierStacks / Math.max(totalWords, 1) * 1000;
     const pronouns = (lower.match(/\b(he|she|it|they|them|this|that)\b/g) || []).length;
     const pronounRatio = pronouns / Math.max(totalWords, 1);
     const weakOpenings = (text.match(/(?:^|\.\s+)(It was|There was|There were|It is|There is)\b/gi) || []).length;
     const overComma = sentences.filter(s => (s.match(/,/g) || []).length >= 4).length;
     const punchySentences = sentences.filter(s => s.trim().split(/\s+/).length <= 6).length;
     const punchyRatio = punchySentences / Math.max(sentences.length, 1);
-    if (modifierStacks === 0) clarityScore += 15; else clarityScore -= modifierStacks * 6;
+    // All penalties below are RATE-based (per 1000 words / per sentence) and individually
+    // capped. A raw-count penalty (e.g. "weakOpenings * 4") is fine on a 2,000-word sample
+    // but catastrophic on a 70,000-word manuscript — 230 weak openings × 4 = -920, which
+    // floors Clarity to 0 regardless of every other signal. Capping each term keeps one
+    // heuristic from being able to zero out the whole score on a long document.
+    if (modifierStackRate < 0.3) clarityScore += 15; else clarityScore -= Math.min(20, (modifierStackRate - 0.3) * 10);
     // Pronoun penalty: "this" and "that" are connective in nonfiction, not unclear references.
     // For nonfiction, only penalize he/she/they/it ambiguity. For fiction, keep full list.
     const _wqProThreshold = isNF ? 0.10 : 0.08;
     const _wqProPenalty = isNF ? 200 : 400;
-    if (pronounRatio < 0.06) clarityScore += 15; else if (pronounRatio < _wqProThreshold) clarityScore += 8; else clarityScore -= (pronounRatio - _wqProThreshold) * _wqProPenalty;
+    if (pronounRatio < 0.06) clarityScore += 15; else if (pronounRatio < _wqProThreshold) clarityScore += 8; else clarityScore -= Math.min(20, (pronounRatio - _wqProThreshold) * _wqProPenalty);
     const weakOpeningRate = weakOpenings / Math.max(sentences.length, 1);
-    if (weakOpeningRate < 0.02) clarityScore += 15; else clarityScore -= weakOpenings * 4;
+    if (weakOpeningRate < 0.02) clarityScore += 15; else clarityScore -= Math.min(20, (weakOpeningRate - 0.02) * 300);
     const overCommaRate = overComma / Math.max(sentences.length, 1);
-    if (overCommaRate < 0.05) clarityScore += 10; else clarityScore -= overComma * 3;
+    if (overCommaRate < 0.05) clarityScore += 10; else clarityScore -= Math.min(15, (overCommaRate - 0.05) * 150);
     if (punchyRatio > 0.15) clarityScore += 15; else if (punchyRatio > 0.08) clarityScore += 8;
 
     let disciplineScore = 15;
@@ -2086,21 +2092,24 @@ const Analyzer = {
     const hedges = (lower.match(/\b(seemed to|appeared to|began to|started to|tried to|managed to|proceeded to|happened to|continued to)\b/g) || []).length;
     const allVerbs = (lower.match(/\b(was|were|is|are|had|has|have|did|does|do|got|get|went|go|came|come|made|make|said|took|take)\b/g) || []).length;
     const strongVerbRatio = 1 - (allVerbs / Math.max(totalWords, 1));
-    if (fillerRate < 3) disciplineScore += 25; else if (fillerRate < 8) disciplineScore += 15; else if (fillerRate < 15) disciplineScore += 5; else disciplineScore -= fillerRate * 2;
-    if (redundants === 0) disciplineScore += 10; else disciplineScore -= redundants * 5;
+    if (fillerRate < 3) disciplineScore += 25; else if (fillerRate < 8) disciplineScore += 15; else if (fillerRate < 15) disciplineScore += 5; else disciplineScore -= Math.min(25, fillerRate * 2);
+    const redundantRate = redundants / Math.max(totalWords, 1) * 1000;
+    if (redundants === 0) disciplineScore += 10; else disciplineScore -= Math.min(15, redundantRate * 20);
     const hedgeRate = hedges / Math.max(totalWords, 1) * 1000;
-    if (hedgeRate < 1) disciplineScore += 15; else if (hedgeRate < 3) disciplineScore += 8; else disciplineScore -= hedges * 3;
+    if (hedgeRate < 1) disciplineScore += 15; else if (hedgeRate < 3) disciplineScore += 8; else disciplineScore -= Math.min(20, hedgeRate * 3);
     if (strongVerbRatio > 0.95) disciplineScore += 20; else if (strongVerbRatio > 0.9) disciplineScore += 12; else if (strongVerbRatio > 0.85) disciplineScore += 5;
 
     let efficiencyScore = 20;
     const wordyCount = issues.filter(i => i.type === 'wordy').length;
     const wordyRate = wordyCount / Math.max(totalWords, 1) * 1000;
     const overExplain = (lower.match(/\b(in other words|that is to say|what this means is|to put it simply|as mentioned before|as we have seen|it should be noted that|it is worth noting)\b/g) || []).length;
+    const overExplainRate = overExplain / Math.max(totalWords, 1) * 1000;
     const stageDir = (lower.match(/\b(he turned and|she turned and|he looked at|she looked at|he walked to|she walked to|he sat down|she sat down|he stood up|she stood up|he reached for|she reached for)\b/g) || []).length;
+    const stageDirRate = stageDir / Math.max(totalWords, 1) * 1000;
     const avgParaWords = totalWords / Math.max(paragraphs.length, 1);
-    if (wordyRate < 1) efficiencyScore += 20; else if (wordyRate < 3) efficiencyScore += 12; else efficiencyScore -= wordyCount * 3;
-    if (overExplain === 0) efficiencyScore += 15; else efficiencyScore -= overExplain * 6;
-    if (stageDir === 0) efficiencyScore += 10; else efficiencyScore -= stageDir * 3;
+    if (wordyRate < 1) efficiencyScore += 20; else if (wordyRate < 3) efficiencyScore += 12; else efficiencyScore -= Math.min(20, wordyRate * 3);
+    if (overExplain === 0) efficiencyScore += 15; else efficiencyScore -= Math.min(15, overExplainRate * 15);
+    if (stageDir === 0) efficiencyScore += 10; else efficiencyScore -= Math.min(15, stageDirRate * 10);
     if (avgParaWords < 80) efficiencyScore += 15; else if (avgParaWords < 120) efficiencyScore += 8; else if (avgParaWords > 180) efficiencyScore -= 15;
 
     let engagementScore = 15;
