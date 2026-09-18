@@ -38,7 +38,44 @@ const BookIntelligence = (() => {
       .map(([name,mentions]) => ({ name, mentions }));
   }
 
-  function build(parsed) {
+  function buildScoreEvidence(analysis) {
+    if (!analysis) return {};
+    const rp = analysis.readerPerspective || {};
+    const scores = analysis.scores || {};
+    const issues = analysis.issues || [];
+    const byType = type => issues.filter(i => i.type === type || i.category === type).length;
+    const metric = (value, source, evidence = []) => ({
+      value: Number.isFinite(value) ? Math.round(value) : null,
+      source,
+      evidence,
+      status: Number.isFinite(value) ? 'measured' : 'not_measured'
+    });
+    return {
+      overall: metric(analysis.overall, 'Analyzer.recalcOverall', ['weighted category scores']),
+      plot: metric(scores.plot, 'Analyzer plot score', [byType('plot') + ' plot issue(s)']),
+      pacing: metric(Number.isFinite(scores.plot) && Number.isFinite(scores.transitions) ? (scores.plot + scores.transitions) / 2 : null, 'plot + transitions composite', ['plot=' + (scores.plot ?? 'N/A'), 'transitions=' + (scores.transitions ?? 'N/A')]),
+      hook: metric(rp.hookStrength, 'Analyzer.analyzeReaderPerspective', [byType('hook') + ' hook issue(s)']),
+      engagement: metric(rp.engagementScore, 'Analyzer.analyzeReaderPerspective', ['reader-perspective heuristic']),
+      clarity: metric(rp.clarityScore, 'Analyzer.analyzeReaderPerspective', [byType('clarity') + ' clarity issue(s)']),
+      dialogue: metric(scores.dialogue, 'Analyzer dialogue score', [byType('dialogue') + ' dialogue issue(s)']),
+      grammar: metric(scores.grammar, 'Analyzer grammar score', [byType('grammar') + ' grammar issue(s)'])
+    };
+  }
+
+  function findScoreConflicts(evidence) {
+    const conflicts = [];
+    const hook = evidence?.hook?.value, engagement = evidence?.engagement?.value;
+    if (hook != null && engagement != null && Math.abs(hook - engagement) >= 45) {
+      conflicts.push({ metrics: ['hook','engagement'], severity: 'review', reason: 'Large opening/engagement divergence', values: { hook, engagement } });
+    }
+    const pacing = evidence?.pacing?.value, plot = evidence?.plot?.value;
+    if (pacing != null && plot != null && Math.abs(pacing - plot) >= 35) {
+      conflicts.push({ metrics: ['pacing','plot'], severity: 'review', reason: 'Pacing composite diverges sharply from plot score', values: { pacing, plot } });
+    }
+    return conflicts;
+  }
+
+  function build(parsed, analysis = null) {
     const chapters = (parsed?.chapters || []).map(chapter => {
       const pov = detectPOV(chapter.body || chapter.text);
       return {
@@ -69,12 +106,15 @@ const BookIntelligence = (() => {
       }
     }
 
+    const scoreEvidence = buildScoreEvidence(analysis);
     return {
       version: 1,
       generatedAt: new Date().toISOString(),
       chapterCount: chapters.length,
       chapters,
       characters: [...aggregate.values()].sort((a,b) => b.mentions - a.mentions),
+      scoreEvidence,
+      scoreConflicts: findScoreConflicts(scoreEvidence),
       pov: {
         modes: [...new Set(povModes)],
         chapterChanges: changes,
@@ -85,7 +125,7 @@ const BookIntelligence = (() => {
     };
   }
 
-  return { build, detectPOV, extractCharacterCandidates };
+  return { build, detectPOV, extractCharacterCandidates, buildScoreEvidence, findScoreConflicts };
 })();
 
 if (typeof window !== 'undefined') window.BookIntelligence = BookIntelligence;
