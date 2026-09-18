@@ -236,7 +236,7 @@ const Storage = {
     if(current?.text!=null)await this.saveVersion(manuscriptId,analysisResult,current.text,'before_restore');
     await this.updateManuscript(manuscriptId,snapshot.text,analysisResult);
     return snapshot.text;
-  ,
+  },
 
   // ========================
   // USER PREFERENCES
