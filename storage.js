@@ -118,7 +118,75 @@ const Storage = {
     const existing=await collection.get();
     for(let start=0;start<existing.docs.length;start+=400){const batch=this.db.batch();existing.docs.slice(start,start+400).forEach(d=>batch.delete(d.ref));await batch.commit();}
     for(let start=0;start<rows.length;start+=400){const batch=this.db.batch();rows.slice(start,start+400).forEach(row=>batch.set(collection.doc(row.id),{...row,updatedAt:firebase.firestore.FieldValue.serverTimestamp()}));await batch.commit();}
-  },  async saveVersion(manuscriptId, analysisResult, text = null, reason = 'manual') {
+  },
+
+  async saveManuscript(fileName, text, analysisResult) {
+    const ref=this._userDoc(); if(!ref)return null;
+    const id=Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+    const manuscriptRef=ref.collection('manuscripts').doc(id);
+    const parsed=this._parseManuscript(text), intelligence=this._buildBookIntelligence(parsed,analysisResult);
+    const meta={id,fileName,schemaVersion:2,parserVersion:parsed.version||0,textLength:text.length,wordCount:parsed.wordCount,chapterCount:parsed.chapterCount,genre:analysisResult?.genre?.label||'Unknown',genrePrimary:analysisResult?.genre?.primary||'',overall:analysisResult?.overall||0,scores:analysisResult?.scores||{},issueCount:analysisResult?.issues?.length||0,saveState:'writing',createdAt:firebase.firestore.FieldValue.serverTimestamp(),updatedAt:firebase.firestore.FieldValue.serverTimestamp()};
+    if(this._utf8Bytes(text)<=700000)meta.text=text;
+    await manuscriptRef.set(meta);
+    try{await this._writeChapters(manuscriptRef,parsed,intelligence);await this._writeBookIntelligence(manuscriptRef,intelligence);await manuscriptRef.set({saveState:'ready',updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});return id;}
+    catch(e){await manuscriptRef.set({saveState:'error',saveErrorAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}).catch(()=>{});throw e;}
+  },
+
+  async updateManuscript(id, text, analysisResult) {
+    const ref=this._userDoc(); if(!ref)return;
+    const manuscriptRef=ref.collection('manuscripts').doc(id);
+    const parsed=this._parseManuscript(text), intelligence=this._buildBookIntelligence(parsed,analysisResult);
+    const update={schemaVersion:2,parserVersion:parsed.version||0,textLength:text.length,wordCount:parsed.wordCount,chapterCount:parsed.chapterCount,genre:analysisResult?.genre?.label||'Unknown',genrePrimary:analysisResult?.genre?.primary||'',overall:analysisResult?.overall||0,scores:analysisResult?.scores||{},issueCount:analysisResult?.issues?.length||0,saveState:'writing',updatedAt:firebase.firestore.FieldValue.serverTimestamp()};
+    if(this._utf8Bytes(text)<=700000)update.text=text;else update.text=firebase.firestore.FieldValue.delete();
+    await manuscriptRef.set(update,{merge:true});
+    try{await this._writeChapters(manuscriptRef,parsed,intelligence);await this._writeBookIntelligence(manuscriptRef,intelligence);await manuscriptRef.set({saveState:'ready',updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});}
+    catch(e){await manuscriptRef.set({saveState:'error',saveErrorAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}).catch(()=>{});throw e;}
+  },
+
+  async _readChapterText(manuscriptRef) {
+    const snap=await manuscriptRef.collection('chapters').get();
+    return snap.docs.map(d=>d.data()).sort((a,b)=>(a.index-b.index)||((a.partIndex||0)-(b.partIndex||0))).map(x=>x.text||'').join('');
+  },
+
+  async getManuscripts() {
+    const ref=this._userDoc(); if(!ref)return [];
+    const snap=await ref.collection('manuscripts').orderBy('updatedAt','desc').limit(20).get();
+    return snap.docs.map(d=>({...d.data(),id:d.id}));
+  },
+
+  async getManuscript(id) {
+    const ref=this._userDoc(); if(!ref)return null;
+    const manuscriptRef=ref.collection('manuscripts').doc(id),doc=await manuscriptRef.get();
+    if(!doc.exists)return null;const data={...doc.data(),id:doc.id};
+    if(data.schemaVersion>=2&&data.text==null)data.text=await this._readChapterText(manuscriptRef);
+    return data;
+  },
+
+  async _deleteCollection(collectionRef) {
+    const snap=await collectionRef.get();
+    for(let start=0;start<snap.docs.length;start+=400){const batch=this.db.batch();snap.docs.slice(start,start+400).forEach(d=>batch.delete(d.ref));await batch.commit();}
+  },
+
+  async deleteManuscript(id) {
+    const ref=this._userDoc(); if(!ref)return;
+    const m=ref.collection('manuscripts').doc(id);
+    const versions=await m.collection('versions').get();
+    for(const v of versions.docs){await this._deleteCollection(v.ref.collection('parts'));await v.ref.delete();}
+    const intel=m.collection('intelligence').doc('book');
+    for(const name of ['facts','relationships','timeline','threads','characters'])await this._deleteCollection(intel.collection(name));
+    await intel.delete().catch(()=>{});
+    for(const name of ['chapters','aiScans'])await this._deleteCollection(m.collection(name));
+    await m.delete();
+    if(this._currentManuscriptId===id)this._currentManuscriptId=null;
+  },
+
+  async getVersions(manuscriptId) {
+    const ref=this._userDoc(); if(!ref)return [];
+    const snap=await ref.collection('manuscripts').doc(manuscriptId).collection('versions').orderBy('timestamp','desc').limit(30).get();
+    return snap.docs.map(d=>({...d.data(),id:d.id}));
+  },
+
+  async saveVersion(manuscriptId, analysisResult, text = null, reason = 'manual') {
     const ref=this._userDoc(); if(!ref)return null;
     const manuscriptRef=ref.collection('manuscripts').doc(manuscriptId);
     if(text==null){const current=await this.getManuscript(manuscriptId);text=current?.text||'';}
