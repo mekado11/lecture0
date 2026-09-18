@@ -102,7 +102,7 @@ $('analyze-btn').addEventListener('click',async()=>{
         }else{
           Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
         }
-      }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Save error:',e.message)}
+      }catch(e){_showSaveToast('Cloud save failed — changes remain open in this tab');console.warn('Save error:',e.message)}
     }
     // Do not persist manuscript bodies or analysis in localStorage. It is synchronous,
     // quota-limited, readable by any same-origin script, and duplicates the Firestore source
@@ -601,10 +601,10 @@ function autoSave(){
         }else{
           await Storage.updateManuscript(Storage._currentManuscriptId,extractedText,analysisResult);
         }
-      }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Cloud save error:',e.message)}
+      }catch(e){_showSaveToast('Cloud save failed — changes remain open in this tab');console.warn('Cloud save error:',e.message)}
     }else if(!_cloudSaveWarned){
       _cloudSaveWarned=true;
-      _showSaveToast('Not signed in — saving locally only');
+      _showSaveToast('Not signed in — changes remain open in this tab');
     }
     // Do not persist manuscript bodies or analysis in localStorage. It is synchronous,
     // quota-limited, readable by any same-origin script, and duplicates the Firestore source
@@ -2429,7 +2429,7 @@ async function saveAnalysis(){
       await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
       _showSaveToast('Saved to cloud');
       return;
-    }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Cloud save error:',e.message)}
+    }catch(e){_showSaveToast('Cloud save failed — changes remain open in this tab');console.warn('Cloud save error:',e.message)}
   }
   // Never place manuscript bodies in browser storage. Keep the editor state in memory
   // and make the failure explicit so the author can retry cloud save or export.
@@ -2826,11 +2826,6 @@ async function maybeShowWizard(){
   let hasManuscripts=false;
   if(Storage.userId){
     try{const ms=await Storage.getManuscripts();hasManuscripts=ms.length>0}catch(e){}
-  }
-  if(!hasManuscripts){
-    const shelf=safeLocalJSON('ml_bookshelf',[]);
-    const saves=safeLocalJSON('ml_saves',[]);
-    hasManuscripts=shelf.length>0||saves.length>0;
   }
   if(hasManuscripts){localStorage.setItem('wizard_done','1');return}
   const steps=[
