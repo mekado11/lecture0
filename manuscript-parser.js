@@ -10,7 +10,7 @@ const ManuscriptParser = (() => {
   function normalizeNewlines(text) { return String(text||'').replace(/\r\n?/g,'\n'); }
   function romanToInt(s){const m={i:1,v:5,x:10,l:50,c:100,d:500,m:1000};let n=0,prev=0;for(const ch of String(s).toLowerCase().split('').reverse()){const v=m[ch]||0;n+=v<prev?-v:v;prev=Math.max(prev,v);}return n||null;}
   function headingNumber(line){const m=String(line||'').match(CHAPTER_RE);if(!m)return null;const raw=m[2].toLowerCase();if(/^\d+$/.test(raw))return Number(raw);if(WORD_NUMBERS[raw])return WORD_NUMBERS[raw];return romanToInt(raw);}
-  function headingKind(line){const s=String(line||'').trim();if(FRONT_RE.test(s))return 'front';if(PART_RE.test(s))return /review/i.test(s)?'review':'part';if(CHAPTER_RE.test(s))return 'chapter';return null;}
+  function headingKind(line){const s=String(line||'').trim();if(FRONT_RE.test(s))return 'front';if(REVIEW_RE.test(s))return 'review';if(PART_RE.test(s))return 'part';if(CHAPTER_RE.test(s))return 'chapter';return null;}
   function isHeading(line){const s=String(line||'').trim();return !!s&&s.length<=120&&!!headingKind(s);}
 
   function buildUnit(text, heading, start, end, index, kind='chapter') {
@@ -23,7 +23,7 @@ const ManuscriptParser = (() => {
     const lines=source.split('\n');
     for(const line of lines){
       const value=line.trim(), kind=value.length<=120?headingKind(value):null, num=kind==='chapter'?headingNumber(value):null;
-      if (/^(bonus toolkit|chapter-by-chapter reflection|mid-book review|review of chapters)/i.test(value) && maxMainChapter>0) nested={max:maxMainChapter,seenMax:false,reason:/toolkit/i.test(value)?'toolkit':'review'};
+      if (/^(bonus toolkit|chapter-by-chapter reflection|(?:part\\s+\\d+\\s*:\\s*)?mid[- ]?chapter review|mid[- ]?book review|review of chapters)/i.test(value) && maxMainChapter>0) nested={max:maxMainChapter,seenMax:false,reason:/toolkit/i.test(value)?'toolkit':'review'};
 
       if(kind){
         if(kind==='review' && maxMainChapter>0){nested={max:maxMainChapter,seenMax:false,reason:'review'};headings.push({title:value,start:offset,kind:'review'});}
@@ -54,7 +54,7 @@ const ManuscriptParser = (() => {
 
   function parse(text) {
     const source=normalizeNewlines(text);
-    if(!source.trim())return{version:2,textLength:0,wordCount:0,chapterCount:0,unitCount:0,chapters:[],warnings:['EMPTY_MANUSCRIPT']};
+    if(!source.trim())return{version:3,textLength:0,wordCount:0,chapterCount:0,unitCount:0,chapters:[],warnings:['EMPTY_MANUSCRIPT']};
     const headings=scanHeadings(source), chapters=[];
     if(!headings.length)chapters.push(buildUnit(source,null,0,source.length,0,'opening'));
     else {
@@ -62,12 +62,13 @@ const ManuscriptParser = (() => {
       if(prefix.trim())chapters.push(buildUnit(source,'Front Matter',0,headings[0].start,chapters.length,'front'));
       headings.forEach((h,i)=>chapters.push(buildUnit(source,h.title,h.start,i+1<headings.length?headings[i+1].start:source.length,chapters.length,h.kind)));
     }
-    const topLevel=chapters.filter(x=>x.kind==='chapter'||x.kind==='front');
+    const topLevel=chapters.filter(x=>x.kind==='chapter');
     const warnings=[];
     if(!headings.length)warnings.push('NO_CHAPTER_HEADINGS_DETECTED');
     const nums=chapters.filter(x=>x.kind==='chapter').map(x=>headingNumber(x.heading)).filter(Number.isFinite);
     for(let i=1;i<nums.length;i++)if(nums[i]<nums[i-1]&&nums[i]!==1){warnings.push('NON_SEQUENTIAL_CHAPTER_NUMBERING');break;}
-    return {version:2,textLength:source.length,wordCount:countWords(source),chapterCount:topLevel.length,unitCount:chapters.length,chapters,warnings};
+    const chapterNumbers=chapters.filter(x=>x.kind==='chapter').map(x=>headingNumber(x.heading));
+    return {version:3,textLength:source.length,wordCount:countWords(source),chapterCount:topLevel.length,unitCount:chapters.length,chapterNumbers,chapters,warnings};
   }
 
   return {parse,isHeading,countWords,headingNumber,headingKind,scanHeadings};
