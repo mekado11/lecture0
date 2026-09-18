@@ -36,7 +36,7 @@ const Storage = {
   },
 
   _buildBookIntelligence(parsed, analysisResult = null) {
-    if (typeof BookIntelligence !== 'undefined' && BookIntelligence.build) {\n      const base = BookIntelligence.build(parsed, analysisResult);\n      const story = (typeof StoryIntelligence !== 'undefined' && StoryIntelligence.enrich) ? StoryIntelligence.enrich(parsed, base) : base;\n      const continuity = (typeof ContinuityIntelligence !== 'undefined' && ContinuityIntelligence.enrich) ? ContinuityIntelligence.enrich(parsed, story) : story;\n      const timeline = (typeof TimelineIntelligence !== 'undefined' && TimelineIntelligence.enrich) ? TimelineIntelligence.enrich(parsed, continuity) : continuity;\n      return (typeof NarrativeMomentum !== 'undefined' && NarrativeMomentum.enrich) ? NarrativeMomentum.enrich(timeline) : timeline;\n    }
+    if (typeof BookIntelligence !== 'undefined' && BookIntelligence.build) {\n      const base = BookIntelligence.build(parsed, analysisResult);\n      const story = (typeof StoryIntelligence !== 'undefined' && StoryIntelligence.enrich) ? StoryIntelligence.enrich(parsed, base) : base;\n      const continuity = (typeof ContinuityIntelligence !== 'undefined' && ContinuityIntelligence.enrich) ? ContinuityIntelligence.enrich(parsed, story) : story;\n      const timeline = (typeof TimelineIntelligence !== 'undefined' && TimelineIntelligence.enrich) ? TimelineIntelligence.enrich(parsed, continuity) : continuity;\n      const momentum = (typeof NarrativeMomentum !== 'undefined' && NarrativeMomentum.enrich) ? NarrativeMomentum.enrich(timeline) : timeline;\n      return (typeof CharacterLedger !== 'undefined' && CharacterLedger.enrich) ? CharacterLedger.enrich(momentum) : momentum;\n    }
     return null;
   },
 
