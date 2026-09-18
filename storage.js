@@ -111,4 +111,46 @@ const Storage = {
     const existing=await collection.get();
     for(let start=0;start<existing.docs.length;start+=400){const batch=this.db.batch();existing.docs.slice(start,start+400).forEach(d=>batch.delete(d.ref));await batch.commit();}
     for(let start=0;start<rows.length;start+=400){const batch=this.db.batch();rows.slice(start,start+400).forEach(row=>batch.set(collection.doc(row.id),{...row,updatedAt:firebase.firestore.FieldValue.serverTimestamp()}));await batch.commit();}
+  },  async saveVersion(manuscriptId, analysisResult, text = null, reason = 'manual') {
+    const ref=this._userDoc(); if(!ref)return null;
+    const manuscriptRef=ref.collection('manuscripts').doc(manuscriptId);
+    if(text==null){const current=await this.getManuscript(manuscriptId);text=current?.text||'';}
+    const parsed=this._parseManuscript(text);
+    const snapshotRef=manuscriptRef.collection('versions').doc();
+    const parts=this._splitChapterText(text);
+    await snapshotRef.set({
+      schemaVersion:2, reason, textLength:text.length, wordCount:parsed.wordCount,
+      chapterCount:parsed.chapterCount, partCount:parts.length,
+      overall:analysisResult?.overall||0, scores:analysisResult?.scores||{},
+      issueCount:analysisResult?.issues?.length||0, genre:analysisResult?.genre?.label||'',
+      manuscriptHash:(typeof AIEngine!=='undefined'&&AIEngine._shortHash)?AIEngine._shortHash(text):null,
+      timestamp:firebase.firestore.FieldValue.serverTimestamp()
+    });
+    for(let start=0;start<parts.length;start+=400){
+      const batch=this.db.batch();
+      parts.slice(start,start+400).forEach((part,i)=>batch.set(snapshotRef.collection('parts').doc('part-'+String(start+i+1).padStart(4,'0')),{index:start+i,text:part}));
+      await batch.commit();
+    }
+    return snapshotRef.id;
+  },
+
+  async getVersion(manuscriptId, versionId) {
+    const ref=this._userDoc(); if(!ref)return null;
+    const versionRef=ref.collection('manuscripts').doc(manuscriptId).collection('versions').doc(versionId);
+    const doc=await versionRef.get(); if(!doc.exists)return null;
+    const data={...doc.data(),id:doc.id};
+    if(data.schemaVersion>=2){
+      const parts=await versionRef.collection('parts').get();
+      data.text=parts.docs.map(d=>d.data()).sort((a,b)=>a.index-b.index).map(p=>p.text||'').join('');
+    }
+    return data;
+  },
+
+  async restoreVersion(manuscriptId, versionId, analysisResult = null) {
+    const snapshot=await this.getVersion(manuscriptId,versionId);
+    if(!snapshot?.text)return false;
+    const current=await this.getManuscript(manuscriptId);
+    if(current?.text!=null)await this.saveVersion(manuscriptId,analysisResult,current.text,'before_restore');
+    await this.updateManuscript(manuscriptId,snapshot.text,analysisResult);
+    return snapshot.text;
   },
