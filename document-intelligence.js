@@ -18,7 +18,9 @@ const DocumentIntelligence = (() => {
       Math.min(signals.actions, 3) * .12 +
       Math.min(signals.recommendations, 3) * .08 +
       Math.min(signals.researchAttribution, 5) * .06 +
-      Math.min(signals.instructionalAddress, 8) * .025
+      Math.min(signals.instructionalAddress, 8) * .025 +
+      Math.min(signals.chapterInstruction, 8) * .035 +
+      signals.nonfictionGenre * .35
     );
     const type = nonfictionScore >= .35 ? 'nonfiction' : 'fiction_or_unclassified';
     return { type, confidence: type === 'nonfiction' ? Math.min(.95, .55 + nonfictionScore * .4) : Math.max(.2, 1 - nonfictionScore), signals };
@@ -117,6 +119,7 @@ const DocumentIntelligence = (() => {
   }
 
   function enrich(parsed, intelligence) {
+    if (parsed && intelligence?.scoreProvenance?.genre?.label) parsed.genreLabel=intelligence.scoreProvenance.genre.label;
     const documentType = classify(parsed);
     return { ...intelligence, documentType, nonfiction: documentType.type === 'nonfiction' ? build(parsed) : null };
   }
