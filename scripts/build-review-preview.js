@@ -3,7 +3,7 @@
 // Uses the actual app with synthetic data and explicitly mocked cloud/auth.
 const fs=require('node:fs'),path=require('node:path');
 const root=path.resolve(__dirname,'..'),dist=path.join(root,'dist');
-const sample=require('./manuscript-fixtures').nonfiction(8,5);
+const sample=require('./manuscript-fixtures').nonfiction(8,5).replace(/(?:UNIQUE|ENDING)_ANCHOR_\d+ (?:begins|closes) this chapter\.\n*/g,'');
 let html=fs.readFileSync(path.join(dist,'app.html'),'utf8');
 html=html.replace(/<script[^>]+src="https:\/\/www\.gstatic\.com\/firebasejs\/[^"]+"[^>]*><\/script>/g,'');
 html=html.replace('<script src="legacy-recovery.js"></script>','<script src="preview-fixture.js"></script><script src="preview-boot.js"></script><script src="legacy-recovery.js"></script>');
@@ -21,6 +21,8 @@ window.addEventListener('DOMContentLoaded',async()=>{
  notice.textContent='REVIEW PREVIEW · Synthetic manuscript · In-memory saves · No live AI, billing or cloud';
  notice.style.cssText='position:fixed;top:0;left:0;right:0;height:25px;background:#d1ae80;color:#211b15;z-index:9000;text-align:center;font:10px/25px sans-serif;white-space:nowrap;overflow:hidden';
  document.body.style.paddingTop='25px';document.body.style.boxSizing='border-box';document.body.appendChild(notice);
+ const status=document.getElementById('save-state');
+ if(status)new MutationObserver(()=>{if(status.textContent==='Saved to cloud')status.textContent='Saved in preview';}).observe(status,{childList:true,subtree:true,characterData:true});
  for(let i=0;i<100&&!document.getElementById('lib-add-btn');i++)await new Promise(r=>setTimeout(r,50));
  document.getElementById('lib-add-btn').click();
  const input=document.getElementById('file-input'),files=new DataTransfer();
