@@ -108,22 +108,7 @@ module.exports = async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
 
   const userTier = await getUserTier(userId, userEmail);
-  const limit = LIMITS[userTier] || LIMITS.free;
-  const used = await checkAndIncrement(userId, today);
-
-  if (used > limit) {
-    res.status(429).json({
-      error: {
-        message: userTier === 'free'
-          ? 'AI features require a subscription. Upgrade to Starter ($5/mo) for 1 AI analysis per day.'
-          : 'Daily AI limit reached (' + limit + '/day). Upgrade for more, or wait until midnight UTC.',
-        code: 'RATE_LIMITED', limit, used: used - 1, tier: userTier
-      }
-    });
-    return;
-  }
-
-  // The server owns model authorization. Client routing is only a request hint.
+  const limit = LIMITS[userTier] || LIMITS.free;\n\n  // The server owns model authorization. Client routing is only a request hint.
   const ALLOWED_ROUTES = new Set(['claude','claude-premium','openai-fast','openai-nano','openai-premium']);
   const requestedModel = req.headers['x-model'] || 'openai-fast';
   if (!ALLOWED_ROUTES.has(requestedModel)) {
@@ -139,6 +124,20 @@ module.exports = async (req, res) => {
   const permittedRoutes = ROUTES_BY_TIER[userTier] || ROUTES_BY_TIER.free;
   if (!permittedRoutes.has(requestedModel)) {
     res.status(403).json({ error: { message: 'This AI route is not available for your subscription tier', code: 'MODEL_NOT_ALLOWED', tier: userTier } }); return;
+  }
+
+  // Count only authenticated, structurally valid requests that are authorized to use this route.
+  const used = await checkAndIncrement(userId, today);
+  if (used > limit) {
+    res.status(429).json({
+      error: {
+        message: userTier === 'free'
+          ? 'AI features require a subscription.'
+          : 'Daily AI limit reached (' + limit + '/day). Try again after the daily reset.',
+        code: 'RATE_LIMITED', limit, used: used - 1, tier: userTier
+      }
+    });
+    return;
   }
 
   // Extract only allowed fields — never forward arbitrary client payload
