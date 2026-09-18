@@ -68,7 +68,7 @@ $('analyze-btn').addEventListener('click',async()=>{
       _analyzeVersion++;
       const v=_analyzeVersion;
       analysisResult=await new Promise((resolve,reject)=>{
-        let timer=setTimeout(()=>{_analyzerWorker.removeEventListener('message',handler);reject(new Error('Analysis timed out — please try again'))},30000);
+        let timer=setTimeout(()=>{_analyzerWorker.removeEventListener('message',handler);try{_analyzerWorker.terminate()}catch(_){};_analyzerWorker=null;reject(new Error('Analysis timed out — please try again'))},30000);
         const handler=function(e){
           if(e.data.version===v){
             clearTimeout(timer);
