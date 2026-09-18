@@ -140,11 +140,23 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // Extract only allowed fields — never forward arbitrary client payload
+  // Extract only allowed fields — never forward arbitrary client payload.
+  // Bound prompt size at the server even if a modified client bypasses UI/retrieval budgets.
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const system = Array.isArray(body.system) ? body.system : [];
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const promptChars = JSON.stringify({ system, messages }).length;
+  const MAX_PROMPT_CHARS = 120000;
+  if (promptChars > MAX_PROMPT_CHARS) {
+    res.status(413).json({ error: { message: 'AI request context is too large', code: 'PROMPT_TOO_LARGE', maxChars: MAX_PROMPT_CHARS } }); return;
+  }
+  if (!messages.length || messages.length > 12) {
+    res.status(400).json({ error: { message: 'Invalid AI message payload', code: 'INVALID_MESSAGES' } }); return;
+  }
   const sanitized = {
-    system: req.body.system || [],
-    messages: req.body.messages || [],
-    max_tokens: Math.min(Number(req.body.max_tokens) || 2048, 2048)
+    system,
+    messages,
+    max_tokens: Math.min(Math.max(Number(body.max_tokens) || 2048, 64), 2048)
   };
 
   if (requestedModel === 'claude' || requestedModel === 'claude-premium') {
