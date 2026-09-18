@@ -103,7 +103,7 @@ const AIEngine = {
     const packet = this.buildGroundedContext(question, manuscriptText, analysis);
     const context = this._serializeContextPacket(packet);
     return this._callClaude(apiKey,
-      'You are AuthorScrolls Writer\\'s Room. Answer the author\\'s question using only the supplied manuscript context. Distinguish manuscript evidence from interpretation. If the retrieved evidence is insufficient, say so instead of inventing details.',
+      "You are AuthorScrolls Writer's Room. Answer the author's question using only the supplied manuscript context. Distinguish manuscript evidence from interpretation. If the retrieved evidence is insufficient, say so instead of inventing details.",
       'AUTHOR QUESTION:\\n' + question + '\\n\\nReturn JSON: {"answer":"...","evidence":[{"chapterId":"...","quote":"short supporting excerpt"}],"confidence":"high|medium|low","insufficientEvidence":false}',
       '', 'writersRoom:' + this._shortHash(question + context), {
         contextOverride: 'RETRIEVED BOOK CONTEXT:\n' + context
