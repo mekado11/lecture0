@@ -9,8 +9,15 @@
     'relationship-intelligence', 'character-ledger'];
   const deps = names.map((name, i) => typeof module !== 'undefined' && module.exports
     ? require('./' + files[i]) : root[name]);
+  const documentIntel = typeof module !== 'undefined' && module.exports
+    ? require('./document-intelligence') : root.DocumentIntelligence;
   function enrich(parsed, analysis = null) {
-    let intel = deps[1].build(parsed, analysis);
+    let intel = documentIntel.enrich(parsed, deps[1].build(parsed, analysis), analysis);
+    if (intel.documentType.type === 'nonfiction') return {
+      ...intel, characters:[], facts:[], relationships:[], continuity:[],
+      characterLedger:{characters:[]}, relationshipIntelligence:{relationships:[]},
+      narrativeMomentum:{arcs:[]}, timeline:{events:[]}
+    };
     intel = deps[2].enrich(parsed, intel);
     intel = deps[3].enrich(parsed, intel);
     intel = deps[4].enrich(parsed, intel);

@@ -8,3 +8,6 @@ assets/*.min.mjs
 .vercel/
 test-results/
 playwright-report/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log

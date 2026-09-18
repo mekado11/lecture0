@@ -15,6 +15,18 @@ const Storage = {
   _parseManuscript(text) {return ManuscriptParser.parse(text);},
   _buildBookIntelligence(parsed, analysis=null) {return IntelligencePipeline.enrich(parsed,analysis);},
   _utf8Bytes(text) {return new TextEncoder().encode(String(text||'')).length;},
+  async _digest(text) {
+    if(!globalThis.crypto?.subtle)throw new Error('A secure connection is required to verify manuscript saves. Keep this tab open and export your draft.');
+    const bytes=new TextEncoder().encode(text);
+    const digest=await globalThis.crypto.subtle.digest('SHA-256',bytes);
+    return Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
+  },
+  async _verifyIntegrity(data,label) {
+    if((data.schemaVersion==null||data.schemaVersion<4)&&data.contentHash==null)return; // Older drafts remain readable, not retroactively verified.
+    if(typeof data.contentHash!=='string'||!/^[a-f0-9]{64}$/.test(data.contentHash)||
+      await this._digest(data.text)!==data.contentHash)
+      throw new Error(label+' integrity check failed. Do not overwrite this draft; recover a known-good snapshot or original file.');
+  },
   _splitChapterText(text,maxBytes=700000) {
     text=String(text||'');
     if(maxBytes<4)throw new Error('Chunk budget must fit a Unicode character');
@@ -55,10 +67,11 @@ const Storage = {
   },
   _metadata(text,analysis) {
     const parsed=this._parseManuscript(text);
-    return {schemaVersion:3,parserVersion:parsed.version||0,textLength:text.length,
+    return {schemaVersion:4,parserVersion:parsed.version||0,textLength:text.length,
       wordCount:parsed.wordCount,chapterCount:parsed.chapterCount,
       genre:analysis?.genre?.label||'Unknown',genrePrimary:analysis?.genre?.primary||'',
-      overall:analysis?.overall??0,scores:analysis?.scores||{},issueCount:analysis?.issues?.length||0,
+      analysisState:analysis?.analysisPending?'pending':'ready',
+      overall:analysis?.analysisPending?null:(analysis?.overall??0),scores:analysis?.scores||{},issueCount:analysis?.issues?.length||0,
       saveState:'ready',updatedAt:firebase.firestore.FieldValue.serverTimestamp()};
   },
   _revision(doc){
@@ -70,18 +83,30 @@ const Storage = {
     const previous=await ref.get();
     const oldGeneration=previous.exists?previous.data().activeGeneration:null;
     const expected=this._revisions.has(ref.path)?this._revisions.get(ref.path):null;
-    if(this._revision(previous)!==expected)throw new Error('This manuscript changed on another device. Your local recovery is retained; export it before reloading the cloud draft.');
+    if(this._revision(previous)!==expected)throw new Error('This manuscript changed on another device. Your edits remain in this tab; export them before reloading the cloud draft.');
     const generation=ref.collection('chapters').doc().id;
     const parts=this._splitChapterText(text);
+    const contentHash=await this._digest(text);
     // Store source once. All derived intelligence is rebuilt on demand rather
     // than deleting and rewriting five subcollections on every autosave.
-    await this._writeParts(ref.collection('chapters'),parts,generation);
-    await this.db.runTransaction(async tx=>{
-      const current=await tx.get(ref);
-      if(this._revision(current)!==expected)throw new Error('Another device saved this manuscript. Export your local recovery before reloading the cloud draft.');
-      tx.set(ref,{...this._metadata(text,analysis),...extra,activeGeneration:generation,
-        partCount:parts.length,text:firebase.firestore.FieldValue.delete()},{merge:true});
-    });
+    try{
+      await this._writeParts(ref.collection('chapters'),parts,generation);
+      await this.db.runTransaction(async tx=>{
+        const current=await tx.get(ref);
+        if(this._revision(current)!==expected)throw new Error('Another device saved this manuscript. Export your edits from this tab before reloading the cloud draft.');
+        tx.set(ref,{...this._metadata(text,analysis),...extra,activeGeneration:generation,contentHash,
+          partCount:parts.length,text:firebase.firestore.FieldValue.delete()},{merge:true});
+      });
+    }catch(error){
+      // An acknowledgement can fail after a successful commit. Never delete
+      // chunks unless a SERVER read confirms this generation is unpublished.
+      try{
+        const current=await ref.get({source:'server'});
+        if(!current.exists||current.data().activeGeneration!==generation)
+          await this._deleteCollection(ref.collection('chapters').where('generation','==',generation));
+      }catch(_){console.warn('Unpublished draft cleanup deferred; server state could not be confirmed.');}
+      throw error;
+    }
     this._revisions.set(ref.path,generation);
     // Cleanup only the generation observed before this save. Never remove a
     // concurrent writer's new generation.
@@ -113,10 +138,11 @@ const Storage = {
     const ref=user.collection('manuscripts').doc(id),doc=await ref.get();
     if(!doc.exists)return null;
     const data={...doc.data(),id:doc.id};
+    if(data.saveState&&data.saveState!=='ready')throw new Error('Draft is incomplete; save has not committed');
     if(data.schemaVersion>=3) {
       const snap=await ref.collection('chapters').where('generation','==',data.activeGeneration).get();
       const parts=snap.docs.map(d=>d.data()).sort((a,b)=>a.index-b.index);
-      if(parts.length!==data.partCount||parts.some((p,i)=>p.index!==i)){
+      if(!Number.isInteger(data.partCount)||data.partCount<1||parts.length!==data.partCount||parts.some((p,i)=>p.index!==i||typeof p.text!=='string')){
         // A concurrent save may clean up the generation we started reading.
         // Retry only if the committed pointer actually changed; corruption is
         // still reported rather than hidden by empty/truncated text.
@@ -130,6 +156,8 @@ const Storage = {
       data.text=snap.docs.map(d=>d.data()).filter(p=>!p.generation).sort((a,b)=>(a.index-b.index)||((a.partIndex||0)-(b.partIndex||0))).map(p=>p.text||'').join('');
       if(data.textLength!=null&&data.text.length!==data.textLength)throw new Error('Legacy draft is incomplete');
     }
+    if(typeof data.text!=='string'||(Number.isFinite(data.textLength)&&data.text.length!==data.textLength))throw new Error('Draft integrity check failed');
+    await this._verifyIntegrity(data,'Draft');
     this._revisions.set(ref.path,this._revision(doc));
     return data;
   },
@@ -155,15 +183,20 @@ const Storage = {
   },
   async saveVersion(id,analysis,text=null,reason='manual') {
     const user=this._userDoc();if(!user)throw new Error('Sign in to create snapshots');
+    return this._serialize(user.collection('manuscripts').doc(id).path,()=>this._saveVersion(user,id,analysis,text,reason));
+  },
+  async _saveVersion(user,id,analysis,text,reason) {
     if(text==null)text=(await this.getManuscript(id))?.text;
     if(typeof text!=='string')throw new Error('No manuscript text to snapshot');
     const ref=user.collection('manuscripts').doc(id).collection('versions').doc();
     const parsed=this._parseManuscript(text),parts=this._splitChapterText(text);
+    const contentHash=await this._digest(text);
     // Publish snapshot metadata last. Incomplete snapshots never appear usable.
     await this._writeParts(ref.collection('parts'),parts);
-    await ref.set({schemaVersion:3,saveState:'ready',reason,textLength:text.length,
+    await ref.set({schemaVersion:4,saveState:'ready',reason,textLength:text.length,contentHash,
       wordCount:parsed.wordCount,chapterCount:parsed.chapterCount,partCount:parts.length,
-      overall:analysis?.overall??0,scores:analysis?.scores||{},issueCount:analysis?.issues?.length||0,
+      analysisState:analysis?.analysisPending?'pending':'ready',
+      overall:analysis?.analysisPending?null:(analysis?.overall??0),scores:analysis?.scores||{},issueCount:analysis?.issues?.length||0,
       genre:analysis?.genre?.label||'',timestamp:firebase.firestore.FieldValue.serverTimestamp()});
     return ref.id;
   },
@@ -172,26 +205,34 @@ const Storage = {
     const ref=user.collection('manuscripts').doc(id).collection('versions').doc(versionId),doc=await ref.get();
     if(!doc.exists)return null;
     const data={...doc.data(),id:doc.id};
+    if(data.saveState&&data.saveState!=='ready')throw new Error('Snapshot is incomplete; save has not committed');
     if(data.schemaVersion>=2) {
       const snap=await ref.collection('parts').get();
       const parts=snap.docs.map(d=>d.data()).sort((a,b)=>a.index-b.index);
-      if(parts.length!==data.partCount||parts.some((p,i)=>p.index!==i))throw new Error('Snapshot is incomplete');
+      if(!Number.isInteger(data.partCount)||data.partCount<1||parts.length!==data.partCount||parts.some((p,i)=>p.index!==i||typeof p.text!=='string'))throw new Error('Snapshot is incomplete');
       data.text=parts.map(p=>p.text||'').join('');
       if(data.text.length!==data.textLength)throw new Error('Snapshot length check failed');
     }
     if(typeof data.text!=='string')throw new Error('This historical entry contains scores only, not restorable text');
+    await this._verifyIntegrity(data,'Snapshot');
     return data;
   },
   async restoreVersion(id,versionId,analysis=null,currentText=null) {
-    const snapshot=await this.getVersion(id,versionId);
-    if(!snapshot)throw new Error('Snapshot not found');
-    const current=currentText??(await this.getManuscript(id))?.text;
-    if(typeof current!=='string')throw new Error('Cannot create a safety snapshot');
-    await this.saveVersion(id,analysis,current,'before_restore');
-    // Recalculate scores for the restored text; never retain the replaced draft's scores.
-    const restoredAnalysis=typeof Analyzer!=='undefined'?Analyzer.analyze(snapshot.text,analysis?.genre?.primary):null;
-    await this.updateManuscript(id,snapshot.text,restoredAnalysis);
-    return snapshot.text;
+    const user=this._userDoc();if(!user)throw new Error('Sign in to restore snapshots');
+    const ref=user.collection('manuscripts').doc(id);
+    return this._serialize(ref.path,async()=>{
+      if(this.userId!==user.id)throw new Error('Your sign-in changed. Reopen the manuscript before restoring.');
+      const snapshot=await this.getVersion(id,versionId);
+      if(!snapshot)throw new Error('Snapshot not found');
+      const current=currentText??(await this.getManuscript(id))?.text;
+      if(typeof current!=='string')throw new Error('Cannot create a safety snapshot');
+      const safetyAnalysis={genre:analysis?.genre,analysisPending:true};
+      await this._saveVersion(user,id,safetyAnalysis,current,'before_restore');
+      // Storage owns persistence, not scoring. The editor analyzes restored text
+      // once; until then cloud metadata explicitly says analysis is pending.
+      await this._commitText(ref,snapshot.text,safetyAnalysis);
+      return snapshot.text;
+    });
   },
   async savePreferences(preferences) {
     const ref=this._userDoc();if(ref)await ref.set({preferences,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});

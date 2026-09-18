@@ -3,7 +3,13 @@ const IntelligenceWindow = (() => {
   'use strict';
   const $ = id => document.getElementById(id);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let latest = null, mode = 'chapters', renderId = 0, previousFocus = null;
+  let latest = null, mode = 'chapters', renderId = 0, answerId = 0, previousFocus = null;
+  function invalidateContext() {
+    answerId++;
+    if($('workspace-context'))$('workspace-context').innerHTML='';
+    if($('intel-answer'))$('intel-answer').textContent='';
+    if($('intel-ask'))$('intel-ask').disabled=false;
+  }
   function currentText() { return window.AuthorScrollsEditor?.getText() || ''; }
   function build() {
     const text = currentText();
@@ -21,6 +27,12 @@ const IntelligenceWindow = (() => {
     if (!host) return;
     if (!data) { host.innerHTML = empty('Open a manuscript to explore its story intelligence.'); return; }
     const i = data.intel;
+    const nf=i.nonfiction;
+    if(nf){
+      const groups=[['Concepts',nf.concepts],['Attributed claims',nf.claims],['Personal evidence',nf.personalEvidence],['Reflection questions',nf.reflectionQuestions],['Actions',nf.actions],['Recommendations',nf.recommendations]];
+      host.innerHTML='<p class="workspace-nav-hint">Nonfiction intelligence · Source-linked signals for your review, not fact-checking or a judgment of your voice.</p>'+
+        groups.map(([label,rows])=>`<section><h4>${label} <small>${rows.length}</small></h4>${rows.slice(0,12).map(row=>`<article><b>${esc(row.name||row.text||row.evidence)}</b><small>${esc(row.chapterId)} · ${esc(row.source)}</small></article>`).join('')||empty('No explicit signals detected. This does not mean your book lacks them.')}</section>`).join('');
+    }else{
     const sections = [
       ['Characters', i.characterLedger.characters.slice(0,12).map(c => `<article><b>${esc(c.name)}</b><small>${c.mentions} mentions · ${c.chapterIds.length} chapters</small>${c.facts.slice(0,2).map(f=>`<small>${esc(f.predicate)} ${esc(f.object)}</small>`).join('')}</article>`).join('')],
       ['Relationships', i.relationshipIntelligence.relationships.slice(0,10).map(r => `<article><b>${esc(r.characters.join(' ↔ '))}</b><small>${esc(r.types.join(', '))} · candidate for review</small>${evidence(r.evidence.slice(-2))}</article>`).join('')],
@@ -31,6 +43,9 @@ const IntelligenceWindow = (() => {
     ];
     host.innerHTML = `<div class="intel-summary">${[[i.characters.length,'Characters'],[i.facts.length,'Facts'],[i.narrativeMomentum.arcs.length,'Threads'],[i.timeline.events.length,'Time cues']].map(([n,l])=>`<div><b>${n}</b><span>${l}</span></div>`).join('')}</div>` +
       sections.map(([title,html])=>`<section><h4>${title}</h4>${html || empty('No evidence detected yet. This is not proof that your manuscript has none.')}</section>`).join('');
+    }
+    const grammar=data.analysis?.advisory?.grammar;
+    if(grammar)host.innerHTML+=`<section><h4>Optional grammar advice</h4><p class="workspace-nav-hint">External suggestions. Deterministic scores are unchanged. Apply edits only when they serve your voice.</p>${grammar.slice(0,60).map(row=>`<article><b>${esc(row.text)}</b><small>${esc(row.message)}</small><small>${esc(row.suggestion)}</small></article>`).join('')||empty('No additional grammar suggestions returned.')}</section>`;
   }
   function renderContext(kind, id) {
     const data = build(), host = $('workspace-context');
@@ -76,7 +91,10 @@ const IntelligenceWindow = (() => {
         latest=null; await renderNavigator('versions');
         host.innerHTML=empty('Version restored. Your previous working text is available in the safety snapshot.');
       } catch(error) {
-        button.disabled=false; host.querySelector('.version-status').textContent='Restore failed: '+error.message;
+        button.disabled=false;
+        const status=host.querySelector('.version-status');
+        if(status)status.textContent='Restore failed: '+error.message;
+        else host.innerHTML=empty('Restore could not be completed: '+error.message);
       }
     });
   }
@@ -86,6 +104,9 @@ const IntelligenceWindow = (() => {
     if (!host) return;
     document.querySelectorAll('.ws-nav').forEach(b=>b.classList.toggle('active',b.dataset.wsnav===mode));
     if (!data) { host.innerHTML=empty('Open a manuscript to build its navigator.'); return; }
+    const nf=data.intel.nonfiction;
+    document.querySelector('[data-wsnav="characters"]').textContent=nf?'Concepts':'Characters';
+    document.querySelector('[data-wsnav="threads"]').textContent=nf?'Evidence':'Threads';
     const item=(attr,id,title,sub)=>`<button class="ws-item" ${attr}="${esc(id)}"><b>${esc(title)}</b><small>${esc(sub)}</small></button>`;
     if (mode==='versions') {
       const id=Storage._currentManuscriptId;
@@ -102,12 +123,16 @@ const IntelligenceWindow = (() => {
         });
         host.querySelectorAll('[data-version]').forEach(b=>b.addEventListener('click',async()=>{
           try {const version=await Storage.getVersion(id,b.dataset.version);if(version && token===renderId)showVersionPreview(id,version);}
-          catch(error){$('workspace-context').innerHTML=empty('This snapshot could not be read completely. It has not been restored.');}
+          catch(error){if(token===renderId)$('workspace-context').innerHTML=empty('This snapshot could not be read completely. It has not been restored.');}
         }));
       } catch(error){if(token===renderId)host.innerHTML=empty('Snapshots could not be loaded. Check your connection.');}
       return;
     }
-    if(mode==='characters')host.innerHTML=data.intel.characterLedger.characters.map(c=>item('data-character',c.id,c.name,`${c.chapterIds.length} chapters · ${c.threads.length} threads`)).join('')||empty('No recurring characters detected.');
+    if(nf&&(mode==='characters'||mode==='threads')){
+      const rows=mode==='characters'?nf.concepts:[...nf.claims,...nf.personalEvidence];
+      host.innerHTML=rows.map(c=>item('data-chapter',c.chapterId,c.name||c.evidence,c.chapterId+' · '+c.source)).join('')||empty('No explicit evidence detected. Review the source text.');
+    }
+    else if(mode==='characters')host.innerHTML=data.intel.characterLedger.characters.map(c=>item('data-character',c.id,c.name,`${c.chapterIds.length} chapters · ${c.threads.length} threads`)).join('')||empty('No recurring characters detected.');
     else if(mode==='threads')host.innerHTML=data.intel.narrativeMomentum.arcs.map(t=>item('data-thread',t.id,t.label,`${t.pressure} · ${t.recurrence} signals`)).join('')||empty('No narrative threads detected.');
     else if(mode==='review')host.innerHTML='<button class="ws-item" data-open-review><b>Manuscript health</b><small>Review the evidence and editorial suggestions</small></button>';
     else host.innerHTML=data.parsed.chapters.map(c=>item('data-chapter',c.id,c.title,`${c.wordCount} words`)).join('');
@@ -120,15 +145,17 @@ const IntelligenceWindow = (() => {
     const question=$('intel-question')?.value.trim(),data=build(),button=$('intel-ask'),out=$('intel-answer');
     if (!question || !data || button.disabled) return;
     if (!confirm('Send relevant passages from this manuscript to our AI provider to answer this question?')) return;
+    const token=++answerId;
     button.disabled=true;out.textContent='Reading relevant passages…';
     try {
       const result=await AIEngine.askManuscript(null,question,data.text,data.analysis);
+      if(token!==answerId)return;
       if (currentText()!==data.text) {out.textContent='Your manuscript changed while answering. Ask again using the updated draft.';return;}
       // Display only quotations that can be located verbatim in the claimed chapter.
       const supported=(result.evidence||[]).filter(e=>e.quote&&data.parsed.chapters.some(c=>c.id===e.chapterId&&(c.body||c.text).includes(e.quote)));
       out.innerHTML=`<article class="intel-answer"><b>Writer’s Room</b><p>${esc(result.answer||result.raw||'No answer returned.')}</p>${supported.map(e=>`<small>${esc(e.chapterId)} · “${esc(e.quote)}”</small>`).join('')}<small>Interpretation, not a verdict. Verify against your manuscript.</small></article>`;
-    } catch(error){out.textContent=error.message||'The answer could not be loaded.';}
-    finally{button.disabled=false;}
+    } catch(error){if(token===answerId)out.textContent=error.message||'The answer could not be loaded.';}
+    finally{if(token===answerId)button.disabled=false;}
   }
   function open() {previousFocus=document.activeElement;$('intel-window')?.classList.add('open');$('intel-window')?.removeAttribute('inert');render();$('intel-close')?.focus();}
   function close() {$('intel-window')?.classList.remove('open');$('intel-window')?.setAttribute('inert','');previousFocus?.focus();}
@@ -141,8 +168,8 @@ const IntelligenceWindow = (() => {
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('intel-window')?.classList.contains('open'))close();});
     document.querySelectorAll('.ws-nav').forEach(b=>b.addEventListener('click',()=>renderNavigator(b.dataset.wsnav)));
     let timer;
-    $('ed-annotated')?.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>{latest=null;renderNavigator();},800);});
-    window.addEventListener('manuscript:changed',()=>{latest=null;renderNavigator();if($('intel-window')?.classList.contains('open'))render();});
+    $('ed-annotated')?.addEventListener('input',()=>{invalidateContext();clearTimeout(timer);timer=setTimeout(()=>{latest=null;renderNavigator();},800);});
+    window.addEventListener('manuscript:changed',()=>{invalidateContext();latest=null;renderNavigator();if($('intel-window')?.classList.contains('open'))render();});
     renderNavigator();
   }
   return {init,open,close,render,renderNavigator};

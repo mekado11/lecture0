@@ -64,6 +64,7 @@ function pdf(){
       window.__fixture=createFirebaseFixture();window.firebase=__fixture.firebase;
       localStorage.setItem('ml_storage_owner','test-author');localStorage.setItem('wizard_done','1');
       localStorage.setItem('cookie_consent','essential');localStorage.setItem('ml_push_dismissed','1');
+      Object.defineProperty(navigator,'serviceWorker',{configurable:true,get(){throw new DOMException('Notifications blocked in this environment','SecurityError');}});
     });
     let providerCalls=0,contextSent='';
     await context.route('**/api/claude',async route=>{
@@ -74,18 +75,38 @@ function pdf(){
     page.on('dialog',dialog=>{console.log('DIALOG:',dialog.message());dialog.accept();});
     await page.goto(base+'/app.html');
     await page.locator('#lib-loading.hidden').waitFor({state:'attached'});
-    async function upload(name,buffer){
+    // An older draft must not be deleted by startup or silently cross accounts.
+    await page.evaluate(()=>localStorage.setItem('ml_autosave',JSON.stringify({text:'LEGACY_PRIVATE_DRAFT'})));
+    await page.reload();
+    await page.getByRole('heading',{name:'Protect your older drafts'}).waitFor();
+    const recoveryDownload=page.waitForEvent('download');
+    await page.getByRole('button',{name:'Download recovery archive'}).click();
+    assert.ok(fs.readFileSync(await (await recoveryDownload).path(),'utf8').includes('LEGACY_PRIVATE_DRAFT'));
+    await page.getByRole('button',{name:'Remove old browser copies'}).click();
+    assert.equal(await page.evaluate(()=>localStorage.getItem('ml_autosave')),null);
+    await page.locator('#lib-loading.hidden').waitFor({state:'attached'});
+    async function upload(name,buffer,genre='fantasy'){
       // Open the actual upload modal, then use its real file picker.
       await page.locator('#lib-add-btn').click();
       await page.locator('#file-input').setInputFiles({name,mimeType:'application/octet-stream',buffer});
-      await page.locator('#genre-select').selectOption('fantasy');
+      await page.locator('#genre-select').selectOption(genre);
       await page.locator('#analyze-btn').click();
       await page.locator('#editor-view:not(.hidden)').waitFor({timeout:30000});
       await page.locator('[data-wsnav="chapters"]').click();
       await page.locator('#workspace-nav-content [data-chapter]').first().waitFor();
-      assert.ok((await page.locator('#ed-annotated').innerText()).includes('Alice'));
+      assert.ok((await page.locator('#ed-annotated').innerText()).length>100);
     }
     await upload('draft.txt',Buffer.from(text));
+    assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getText()),text,'Opening a draft must not change its text or add page footers');
+    const original=await page.evaluate(()=>AuthorScrollsEditor.getText());
+    await page.locator('#ed-annotated').click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type(' TYPING_SENTINEL');
+    await page.keyboard.press('Control+z');
+    assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getText()),original,'Typing undo restores the pre-edit DOM and text');
+    await page.keyboard.press('Control+Shift+z');
+    assert.ok((await page.evaluate(()=>AuthorScrollsEditor.getText())).includes('TYPING_SENTINEL'));
+    await page.keyboard.press('Control+z');
     assert.equal(providerCalls,0,'No automatic paid calls on manuscript open');
     await page.screenshot({path:path.join(root,'test-results/editor-desktop.png')});
     for(const mode of ['characters','threads','review','chapters']){
@@ -99,29 +120,79 @@ function pdf(){
     assert.ok(contextSent.includes('RETRIEVED BOOK CONTEXT'));
     assert.ok(contextSent.includes('Alice'));
     await page.locator('#intel-close').click();
+    await page.waitForTimeout(350);
+    // A late answer must not reappear after genre/context invalidation, even
+    // when the source text is identical.
+    await page.evaluate(()=>{
+      window.__originalAsk=AIEngine.askManuscript;
+      AIEngine.askManuscript=async()=>new Promise(resolve=>{window.__releaseAnswer=resolve;});
+    });
+    await page.locator('#intel-open').click();
+    await page.locator('#intel-ask').click();
+    await page.waitForFunction(()=>typeof window.__releaseAnswer==='function');
+    await page.locator('#intel-close').click();
+    await page.waitForTimeout(350);
+    await page.locator('#genre-override').selectOption('selfHelp');
+    await page.locator('#genre-override').selectOption('fantasy');
+    await page.evaluate(async()=>{
+      AIEngine.askManuscript=window.__originalAsk;
+      window.__releaseAnswer({answer:'STALE_ANSWER_SENTINEL',evidence:[]});
+      await new Promise(resolve=>setTimeout(resolve,0));
+    });
+    assert.equal(await page.locator('#intel-answer').innerText(),'','Context changes clear answers and discard late results');
     await page.locator('#save-btn').click();
     await page.waitForFunction(async()=> (await Storage.getVersions(Storage._currentManuscriptId)).length>0);
     await page.locator('#ed-annotated').evaluate(el=>{el.appendChild(Object.assign(document.createElement('p'),{textContent:'UNSAVED SENTINEL'}));el.dispatchEvent(new InputEvent('input',{bubbles:true}));});
     // Export immediately, before reanalysis/autosave debounce.
+    await page.locator('.header-menu summary').filter({hasText:'Tools'}).click();
     const download=page.waitForEvent('download');await page.locator('#export-btn').click();
     const exported=await download;
     assert.ok(fs.readFileSync(await exported.path(),'utf8').includes('UNSAVED SENTINEL'));
     // Restore snapshot while current edits have not been saved.
     await page.locator('[data-wsnav="versions"]').click();
     await page.locator('[data-version]').first().click();
+    await page.evaluate(()=>{
+      window.__originalRestore=Storage.restoreVersion.bind(Storage);
+      Storage.restoreVersion=async(...args)=>{
+        await new Promise(resolve=>{window.__releaseRestore=resolve;});
+        return window.__originalRestore(...args);
+      };
+    });
     await page.locator('.ws-restore').click();
+    await page.waitForFunction(()=>typeof window.__releaseRestore==='function');
+    assert.equal(await page.locator('#editor-view').evaluate(el=>el.inert),true,'Editing is locked during restore');
+    const restoreRecoveryDownload=page.waitForEvent('download');
+    await page.getByRole('button',{name:'Export current draft',exact:true}).click();
+    assert.ok(fs.readFileSync(await (await restoreRecoveryDownload).path(),'utf8').includes('UNSAVED SENTINEL'),'Export remains available during a stalled restore');
+    assert.match(await page.evaluate(async()=>{
+      try{await AuthorScrollsEditor.restoreVersion(Storage._currentManuscriptId,'unused');return '';}
+      catch(error){return error.message;}
+    }),/already in progress/);
+    await page.evaluate(()=>{Storage.restoreVersion=window.__originalRestore;window.__releaseRestore();});
     await page.getByText('Version restored. Your previous working text is available in the safety snapshot.').waitFor();
+    assert.equal(await page.locator('#editor-view').evaluate(el=>el.inert),false,'Editing resumes after restore');
     assert.ok(!(await page.locator('#ed-annotated').innerText()).includes('UNSAVED SENTINEL'));
     assert.ok(await page.evaluate(async()=>{
       const versions=await Storage.getVersions(Storage._currentManuscriptId);
       const safety=versions.find(v=>v.reason==='before_restore');
       return (await Storage.getVersion(Storage._currentManuscriptId,safety.id)).text.includes('UNSAVED SENTINEL');
     }));
+    assert.match(await page.evaluate(async()=>{
+      const before=AuthorScrollsEditor.getText();
+      Storage.restoreVersion=async()=>{throw new Error('Simulated restore failure');};
+      try{await AuthorScrollsEditor.restoreVersion(Storage._currentManuscriptId,'unused');return '';}
+      catch(error){
+        if(AuthorScrollsEditor.getText()!==before)throw new Error('Failed restore changed the open draft');
+        return error.message;
+      }finally{Storage.restoreVersion=window.__originalRestore;}
+    }),/Simulated restore failure/);
+    assert.equal(await page.locator('#editor-view').evaluate(el=>el.inert),false,'Failed restore releases interaction lock');
     await page.locator('#ed-annotated').evaluate(el=>{el.appendChild(Object.assign(document.createElement('p'),{textContent:'NAVIGATION SENTINEL'}));el.dispatchEvent(new InputEvent('input',{bubbles:true}));});
     await page.locator('#new-btn').click();
     await page.locator('#upload-view:not(.hidden)').waitFor();
     assert.ok(await page.evaluate(async()=>{const m=(await Storage.getManuscripts())[0];return (await Storage.getManuscript(m.id)).text.includes('NAVIGATION SENTINEL');}));
     await upload('draft.txt',Buffer.from(text));
+    assert.equal(await page.locator('#workspace-context').innerText(),'','Prior manuscript context must not carry forward');
     assert.equal(await page.evaluate(async()=>(await Storage.getManuscripts()).length),2,'Same-name drafts preserved');
     await page.locator('#new-btn').click();
     await page.locator('#upload-view:not(.hidden)').waitFor();
@@ -129,12 +200,69 @@ function pdf(){
     await page.locator('#new-btn').click();
     await page.locator('#upload-view:not(.hidden)').waitFor();
     await upload('import.pdf',pdf());
+    await page.locator('#new-btn').click();
+    await page.locator('#upload-view:not(.hidden)').waitFor();
+    const nonfiction=require('./manuscript-fixtures').nonfiction(12,4);
+    await upload('The Practice of Deliberate Change - A Complete Manuscript Review Edition.txt',Buffer.from(nonfiction),'selfHelp');
+    assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getAnalysis().scores.dialogue),null);
+    await page.locator('[data-wsnav="characters"]').click();
+    assert.equal(await page.locator('[data-wsnav="characters"]').innerText(),'Concepts');
+    await page.locator('#intel-open').click();
+    await page.getByRole('heading',{name:'Attributed claims',exact:false}).waitFor();
+    await page.locator('#intel-close').click();
+    await page.waitForTimeout(350);
+    const scoreBefore=await page.evaluate(()=>JSON.stringify({overall:AuthorScrollsEditor.getAnalysis().overall,scores:AuthorScrollsEditor.getAnalysis().scores}));
+    await context.route('**/api/grammar',route=>route.fulfill({json:{matches:[{offset:0,length:7,message:'Synthetic grammar advice',replacements:[],rule:{category:{id:'GRAMMAR'}}}]}}));
+    await page.evaluate(()=>{window.__userPlan='premium';});
+    await page.locator('.header-menu summary').filter({hasText:'Tools'}).click();
+    await page.locator('#optional-checks-btn').click();
+    await page.waitForFunction(()=>!document.getElementById('optional-checks-btn').disabled);
+    assert.equal(await page.evaluate(()=>JSON.stringify({overall:AuthorScrollsEditor.getAnalysis().overall,scores:AuthorScrollsEditor.getAnalysis().scores})),scoreBefore,'Optional external advice cannot change scores');
+    assert.ok(await page.evaluate(()=>!Object.values(localStorage).some(value=>value.includes('UNIQUE_ANCHOR'))&&!Object.values(sessionStorage).some(value=>value.includes('UNIQUE_ANCHOR'))),'No manuscript-derived browser persistence');
+    await page.screenshot({path:path.join(root,'test-results/header-nonfiction-desktop.png')});
+    // Failure path: retain the open draft and block navigation if cloud writes fail.
+    await page.evaluate(()=>{__fixture.fail=()=>true;});
+    await page.locator('#ed-annotated').click();
+    await page.keyboard.press('Control+End');await page.keyboard.type(' UNSAVED_FAILURE_SENTINEL');
+    await page.locator('#new-btn').click();
+    assert.ok(await page.locator('#editor-view').isVisible());
+    assert.equal(await page.locator('#save-state').innerText(),'Not saved');
+    assert.match(await page.locator('#save-state').getAttribute('title'),/Injected write failure/);
+    assert.match(await page.locator('#save-toast').innerText(),/export your draft before reloading/);
+    await page.setViewportSize({width:375,height:812});
+    await page.screenshot({path:path.join(root,'test-results/save-failure-mobile.png')});
+    assert.ok(await page.locator('#save-toast').evaluate(el=>{
+      const bounds=el.getBoundingClientRect();return bounds.left>=0&&bounds.right<=innerWidth;
+    }),'Save failure guidance fits mobile');
+    await page.setViewportSize({width:1440,height:1000});
+    assert.ok((await page.evaluate(()=>AuthorScrollsEditor.getText())).includes('UNSAVED_FAILURE_SENTINEL'));
+    await page.evaluate(()=>{__fixture.fail=null;});
+    await page.locator('#save-btn').click();
+    await page.waitForFunction(()=>document.getElementById('save-state').textContent==='Saved to cloud');
+    await page.locator('.header-menu summary').filter({hasText:'Account'}).click();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.header-menu[open]').count(),0,'Escape closes menus');
+    console.log('PASS nonfiction routing, exact no-edit text preservation, typing undo/redo, immutable AI scores, private caches, failed-save navigation guard, header menus');
     console.log('PASS editor: TXT/DOCX/PDF imports, worker analysis, navigator, grounded question, save, export, restore, safety snapshot, navigation flush, distinct same-name drafts');
     await page.setViewportSize({width:375,height:812});
     assert.ok(await page.locator('.center-panel').evaluate(el=>el.getBoundingClientRect().height>400),'Mobile manuscript retains writing space');
-    assert.ok((await page.locator('#ed-annotated h1,#ed-annotated h2').first().innerText()).length<100,'PDF body is not swallowed by its chapter heading');
+    assert.ok((await page.locator('#ed-annotated h1,#ed-annotated h2').first().innerText()).length<100,'Body is not swallowed by its chapter heading');
     await page.screenshot({path:path.join(root,'test-results/editor-mobile.png')});
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile editor must not overflow');
+    await page.setViewportSize({width:1440,height:1000});
+    await page.locator('#new-btn').click();
+    await page.locator('#upload-view:not(.hidden)').waitFor();
+    const longBook=require('./manuscript-fixtures').nonfiction(30,60),started=Date.now();
+    await upload('Long-book-validation.txt',Buffer.from(longBook),'selfHelp');
+    assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getText()),longBook,'Long book round-trip');
+    assert.equal(await page.evaluate(async()=> (await Storage.getManuscript(Storage._currentManuscriptId)).text),longBook,'Cloud round-trip');
+    console.log(`PASS long-book browser analysis + render + cloud save: ${longBook.split(/\s+/).length} words, ${Date.now()-started}ms`);
+    await page.locator('#genre-override').selectOption('fantasy');
+    assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getAnalysis().genre.primary),'fantasy');
+    await page.locator('#genre-override').selectOption('selfHelp');
+    assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getAnalysis().scores.dialogue),null);
+    assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getText()),longBook,'Genre switches preserve source');
+    await page.setViewportSize({width:375,height:812});
     for(const filename of ['features.html','pricing.html','faq.html','blog.html','legal.html','profile.html']){
       await page.goto(base+'/'+filename);
       assert.ok((await page.locator('body').innerText()).trim().length>100,filename);
