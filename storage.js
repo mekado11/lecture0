@@ -81,17 +81,16 @@ const Storage = {
     const ref = this._userDoc();
     if (!ref) return null;
     const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+    const parsed = this._parseManuscript(text);
     const intelligence = this._buildBookIntelligence(parsed, analysisResult);
+    const inlineText = text.length <= 450000 ? text : null;
     const doc = {
-      id,
-      fileName,
-      text: text.substring(0, 500000), // 500KB limit per doc
-      wordCount: (text.match(/\b\w+\b/g) || []).length,
+      id, fileName, schemaVersion: 2, parserVersion: parsed.version || 1,
+      textLength: text.length, chapterCount: parsed.chapterCount, wordCount: parsed.wordCount,
+      ...(inlineText !== null ? { text: inlineText } : {}),
       genre: analysisResult?.genre?.label || 'Unknown',
-      genrePrimary: analysisResult?.genre?.primary || '',
-      overall: analysisResult?.overall || 0,
-      scores: analysisResult?.scores || {},
-      issueCount: analysisResult?.issues?.length || 0,
+      genrePrimary: analysisResult?.genre?.primary || '', overall: analysisResult?.overall || 0,
+      scores: analysisResult?.scores || {}, issueCount: analysisResult?.issues?.length || 0,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
@@ -105,15 +104,16 @@ const Storage = {
   async updateManuscript(id, text, analysisResult) {
     const ref = this._userDoc();
     if (!ref) return;
+    const parsed = this._parseManuscript(text);
+    const intelligence = this._buildBookIntelligence(parsed, analysisResult);
+    const inlineText = text.length <= 450000 ? text : null;
     const update = {
-      text: text.substring(0, 500000),
-      wordCount: (text.match(/\b\w+\b/g) || []).length,
-      overall: analysisResult?.overall || 0,
-      scores: analysisResult?.scores || {},
-      genre: analysisResult?.genre?.label || 'Unknown',
-      genrePrimary: analysisResult?.genre?.primary || '',
-      issueCount: analysisResult?.issues?.length || 0,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      schemaVersion: 2, parserVersion: parsed.version || 1, textLength: text.length,
+      chapterCount: parsed.chapterCount, wordCount: parsed.wordCount,
+      text: inlineText === null ? firebase.firestore.FieldValue.delete() : inlineText,
+      overall: analysisResult?.overall || 0, scores: analysisResult?.scores || {},
+      genre: analysisResult?.genre?.label || 'Unknown', genrePrimary: analysisResult?.genre?.primary || '',
+      issueCount: analysisResult?.issues?.length || 0, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     const manuscriptRef = ref.collection('manuscripts').doc(id);
     await manuscriptRef.update(update);
@@ -121,108 +121,3 @@ const Storage = {
     await this._writeBookIntelligence(manuscriptRef, intelligence);
   },
 
-  async getManuscripts() {
-    const ref = this._userDoc();
-    if (!ref) return [];
-    const snap = await ref.collection('manuscripts')
-      .orderBy('updatedAt', 'desc')
-      .limit(20)
-      .get();
-    return snap.docs.map(d => ({ ...d.data(), id: d.id }));
-  },
-
-  async getManuscript(id) {
-    const ref = this._userDoc();
-    if (!ref) return null;
-    const manuscriptRef = ref.collection('manuscripts').doc(id);
-    const doc = await manuscriptRef.get();
-    if (!doc.exists) return null;
-    const data = { ...doc.data(), id: doc.id };
-    // Backward compatible: v1 documents still read their inline text; v2 long
-    // manuscripts reconstruct exact text from ordered chapter documents.
-    if (!data.text && data.schemaVersion >= 2) data.text = await this._readChapterText(manuscriptRef);
-    return data;
-  },
-
-  async deleteManuscript(id) {
-    const ref = this._userDoc();
-    if (!ref) return;
-    await ref.collection('manuscripts').doc(id).delete();
-  },
-
-  // ========================
-  // VERSION HISTORY
-  // ========================
-  async saveVersion(manuscriptId, analysisResult) {
-    const ref = this._userDoc();
-    if (!ref) return;
-    const version = {
-      overall: analysisResult.overall,
-      scores: analysisResult.scores,
-      issueCount: analysisResult.issues?.length || 0,
-      wordCount: analysisResult.totalWords,
-      genre: analysisResult.genre?.label || '',
-      timestamp: firebase.firestore.FieldValue.serverTimestamp()
-    };
-    await ref.collection('manuscripts').doc(manuscriptId)
-      .collection('versions').add(version);
-  },
-
-  async getVersions(manuscriptId) {
-    const ref = this._userDoc();
-    if (!ref) return [];
-    const snap = await ref.collection('manuscripts').doc(manuscriptId)
-      .collection('versions')
-      .orderBy('timestamp', 'desc')
-      .limit(30)
-      .get();
-    return snap.docs.map(d => ({ ...d.data(), id: d.id }));
-  },
-
-  // ========================
-  // USER PREFERENCES
-  // ========================
-  async savePreferences(prefs) {
-    const ref = this._userDoc();
-    if (!ref) return;
-    await ref.set({ preferences: prefs, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
-  },
-
-  async getPreferences() {
-    const ref = this._userDoc();
-    if (!ref) return {};
-    const doc = await ref.get();
-    return doc.exists ? (doc.data().preferences || {}) : {};
-  },
-
-  // ========================
-  // AUTO-SAVE (debounced cloud save)
-  // ========================
-  _autoSaveTimer: null,
-  _currentManuscriptId: null,
-
-  autoSave(text, analysisResult) {
-    clearTimeout(this._autoSaveTimer);
-    this._autoSaveTimer = setTimeout(async () => {
-      if (!this.userId) return;
-      try {
-        if (this._currentManuscriptId) {
-          await this.updateManuscript(this._currentManuscriptId, text, analysisResult);
-        }
-        // Also save to localStorage as fallback
-        localStorage.setItem('ml_autosave', JSON.stringify({
-          text, result: analysisResult,
-          manuscriptId: this._currentManuscriptId,
-          savedAt: new Date().toISOString()
-        }));
-      } catch (e) {
-        console.warn('Auto-save failed:', e.message);
-      }
-    }, 5000); // 5 second debounce
-  }
-};
-
-// Auto-initialize when loaded (Firebase must be initialized first)
-if (typeof firebase !== 'undefined') {
-  Storage.init();
-}
