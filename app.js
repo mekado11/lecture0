@@ -767,7 +767,8 @@ function extractTextFromEditor(){
   return parts.join('\n\n');
 }
 
-function _onAnalysisComplete(newResult){
+function _onAnalysisComplete(newResult, version=null){
+    if(version!==null&&version!==_analyzeVersion)return;
     if(newResult.error)return;
     if(_initialIssueCount===null)_initialIssueCount=newResult.issues.length;
     const prevCount=analysisResult?analysisResult.issues.length:_initialIssueCount;
@@ -793,7 +794,7 @@ function scheduleReanalyze(){
       const handler=function(e){
         if(e.data.version===v){
           _analyzerWorker.removeEventListener('message',handler);
-          if(e.data.type==='result')_onAnalysisComplete(e.data.data);
+          if(e.data.type==='result')_onAnalysisComplete(e.data.data,v);
           else console.warn('Reanalyze worker error:',e.data.message||'unknown error');
         }
       };
