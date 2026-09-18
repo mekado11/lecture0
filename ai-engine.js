@@ -4,7 +4,7 @@
 
 const AIEngine = {
   _cache: new Map(),
-  _versionHistory: null,
+  _versionHistory: null,\n  _bookContextCache: new Map(),
 
   // ========================
   // CACHE MANAGEMENT
@@ -75,12 +75,19 @@ const AIEngine = {
 
   buildGroundedContext(query, manuscriptText, analysis = null) {
     if (typeof ManuscriptParser === 'undefined' || typeof BookIntelligence === 'undefined' || typeof ManuscriptRetrieval === 'undefined') return null;
-    let parsed = ManuscriptParser.parse(manuscriptText);
-    let intel = BookIntelligence.build(parsed, analysis);
-    if (typeof StoryIntelligence !== 'undefined') intel = StoryIntelligence.enrich(parsed, intel);
-    if (typeof ContinuityIntelligence !== 'undefined') intel = ContinuityIntelligence.enrich(parsed, intel);
-    if (typeof TimelineIntelligence !== 'undefined') intel = TimelineIntelligence.enrich(parsed, intel);
-    return ManuscriptRetrieval.contextPacket(query, parsed, intel, 6);
+    const key = this._shortHash(manuscriptText) + '|' + manuscriptText.length;
+    let built = this._bookContextCache.get(key);
+    if (!built) {
+      const parsed = ManuscriptParser.parse(manuscriptText);
+      let intel = BookIntelligence.build(parsed, analysis);
+      if (typeof StoryIntelligence !== 'undefined') intel = StoryIntelligence.enrich(parsed, intel);
+      if (typeof ContinuityIntelligence !== 'undefined') intel = ContinuityIntelligence.enrich(parsed, intel);
+      if (typeof TimelineIntelligence !== 'undefined') intel = TimelineIntelligence.enrich(parsed, intel);
+      built = { parsed, intel };
+      this._bookContextCache.clear();
+      this._bookContextCache.set(key, built);
+    }
+    return ManuscriptRetrieval.contextPacket(query, built.parsed, built.intel, 5);
   },
 
   async askManuscript(apiKey, question, manuscriptText, analysis = null) {
@@ -88,7 +95,7 @@ const AIEngine = {
     const context = this._serializeContextPacket(packet);
     return this._callClaude(apiKey,
       'You are AuthorScrolls Writer\\'s Room. Answer the author\\'s question using only the supplied manuscript context. Distinguish manuscript evidence from interpretation. If the retrieved evidence is insufficient, say so instead of inventing details.',
-      'AUTHOR QUESTION:\\n' + question + '\\n\\nRETRIEVED BOOK CONTEXT:\\n' + context + '\\n\\nReturn JSON: {"answer":"...","evidence":[{"chapterId":"...","quote":"short supporting excerpt"}],"confidence":"high|medium|low","insufficientEvidence":false}',
+      'AUTHOR QUESTION:\\n' + question + '\\n\\nReturn JSON: {"answer":"...","evidence":[{"chapterId":"...","quote":"short supporting excerpt"}],"confidence":"high|medium|low","insufficientEvidence":false}',
       '', 'writersRoom:' + this._shortHash(question + context)
     );
   },
