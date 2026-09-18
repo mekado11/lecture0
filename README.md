@@ -1,83 +1,41 @@
 # AuthorScrolls
 
-Manuscript analysis SaaS for fiction writers. Upload a `.txt`, `.docx`, or `.pdf` and get instant scoring across plot, pacing, clarity, and dialogue — plus AI-powered deep critique, query letter generation, and beta reader simulation for paid tiers.
+A manuscript workspace for authors, with browser-based structural analysis and optional provider-backed writing assistance. The homepage uses a photographic parchment scroll with accessible live text rather than text embedded in an image.
 
-**Live:** [authorscrolls.com](https://authorscrolls.com)
+## Development
 
----
+Node.js 22 is required.
 
-## Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Vanilla JS, Firebase Auth, Firestore |
-| Static hosting + API proxy | Vercel (serverless, `api/`) |
-| AI proxy + CRON reminders | Firebase Cloud Functions (`functions/`) |
-| Payments | Stripe (webhook-verified) |
-| Rate limiting | Upstash Redis (with in-memory dev fallback) |
-| Push notifications | Web Push / VAPID |
-
----
-
-## Project structure
-
-```
-├── app.html            # Main editor
-├── index.html          # Landing page
-├── pricing.html        # Pricing page
-├── profile.html        # User profile
-├── legal.html          # Terms + privacy
-├── app.js              # Editor UI + Firebase integration
-├── analyzer.js         # Local heuristic analysis engine (runs in browser)
-├── ai-engine.js        # AI feature orchestration (calls api/claude proxy)
-├── storage.js          # Firestore read/write helpers
-├── styles.css          # Main stylesheet
-├── styles-mobile.css   # Mobile overrides (≤700px, ≤600px, ≤480px)
-├── mobile-panels.js    # Mobile panel collapse behavior
-├── sw.js               # Service worker (PWA + push)
-├── firebase-config.js  # Firebase project config (public keys only)
-│
-├── api/                # Vercel serverless functions
-│   ├── _auth.js        # Firebase Admin token verification
-│   ├── _ratelimit.js   # Upstash Redis rate limiting
-│   ├── claude.js       # AI proxy (Claude + OpenAI, tier-gated)
-│   ├── checkout.js     # Stripe checkout session
-│   ├── webhook.js      # Stripe webhook handler
-│   └── notify.js       # Push subscription management
-│
-├── functions/          # Firebase Cloud Functions
-│   └── index.js        # claude proxy + push/email CRON reminders
-│
-├── vercel.json         # Vercel routes + security headers
-├── firebase.json       # Firebase Hosting + Functions config
-├── .firebaserc         # Firebase project alias (writers-manuscript)
-├── firestore.rules     # Firestore security rules
-└── DEPLOY.md           # Deployment instructions + env var reference
+```sh
+npm ci
+npm ci --prefix functions
+npm run build
+npm run verify
+npx playwright install --with-deps chromium
+npm run test:browser
+npm start
 ```
 
----
+Open `http://localhost:3000`. Local development uses the real API authorization boundary; automated browser tests use isolated fixtures instead.
 
-## Local development
+## Architecture
 
-```bash
-node server.js
-# Open http://localhost:3000
-```
+| Component | Location |
+|---|---|
+| Scroll homepage, responsive navigation, lazy-loaded sign-in | `index.html`, `landing.css`, `landing-init.js`, `assets/` |
+| Editor and library | `app.html`, `app.js`, `styles.css`, `styles-mobile.css` |
+| Shared evidence pipeline | `intelligence-pipeline.js`, `*-intelligence.js`, `manuscript-parser.js` |
+| Contextual book navigator and snapshot interface | `intelligence-window.js` |
+| Generation-based manuscript persistence | `storage.js` |
+| Authenticated Vercel endpoints | `api/` |
+| Firebase opt-in reminders and retired legacy proxy | `functions/` |
+| Public-only build and regression scripts | `scripts/` |
+| Pull-request checks | `.github/workflows/verify.yml` |
 
-Set `CLAUDE_API_KEY` (and optionally `OPENAI_API_KEY`) in your environment. All other API keys are only needed for production deploys.
+TXT, DOCX and text-based PDF imports are supported. Scanned PDFs need OCR before import; complex PDF reading order is not guaranteed. Heuristic scores and model suggestions are editorial aids, not factual or publication guarantees.
 
----
+## Release review
 
-## Tiers
+See `RELEASE_READINESS.md` for implemented fixes, test scope and unresolved launch gates. See `DEPLOY.md` for environment configuration, staging, migration and rollback instructions.
 
-| Tier | Price | AI calls/day |
-|------|-------|-------------|
-| Free | $0 | 0 (local analysis only) |
-| Starter | $5/mo | 1 |
-| Premium | $15/mo | 5 |
-
----
-
-## Deploy
-
-See [DEPLOY.md](./DEPLOY.md) for full instructions and required environment variables.
+The default branch is `gh-pages`. Vercel is the primary full application host; static hosting alone cannot provide authenticated APIs. Do not infer production readiness from a passing unit test suite.

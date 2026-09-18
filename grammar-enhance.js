@@ -64,21 +64,15 @@ const GrammarEnhance = {
   },
 
   async _callAPI(text) {
-    if (this._useProxy) {
-      try {
-        return await this._callProxy(text);
-      } catch (e) {
-        console.warn('[GrammarEnhance] Proxy failed, trying direct:', e.message);
-        this._useProxy = false;
-      }
-    }
-    return await this._callDirect(text);
+    return this._callProxy(text);
   },
 
   async _callProxy(text) {
+    const user=typeof firebase!=='undefined'?firebase.auth().currentUser:null;
+    if(!user)throw new Error('Sign in before running grammar checks');
     const response = await fetch(this.PROXY_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json',Authorization:'Bearer '+await user.getIdToken() },
       body: JSON.stringify({ text: text, language: 'en-US' })
     });
     if (!response.ok) throw new Error('Proxy returned ' + response.status);

@@ -1,5 +1,6 @@
 'use strict';
 const { verifyToken, getAdmin } = require('./_auth');
+const {checkAndIncrement}=require('./_ratelimit');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
@@ -10,8 +11,8 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const code = (req.body.code || '').trim().toUpperCase();
-  if (!code) {
+  const code = typeof req.body?.code==='string'?req.body.code.trim().toUpperCase():'';
+  if (!/^[A-Z0-9_-]{3,80}$/.test(code)) {
     res.status(400).json({ error: 'Missing invite code' });
     return;
   }
@@ -24,6 +25,8 @@ module.exports = async (req, res) => {
 
   const db = fb.firestore();
   const uid = auth.user.uid;
+  try{if(await checkAndIncrement('redeem:'+uid,new Date().toISOString().slice(0,10))>20)return res.status(429).json({error:'Invite attempt limit reached. Try tomorrow.'});}
+  catch(_){return res.status(503).json({error:'Invite service temporarily unavailable'});}
 
   try {
     const userDoc = await db.collection('users').doc(uid).get();
@@ -57,11 +60,16 @@ module.exports = async (req, res) => {
     const tier = data.tier || 'beta';
     await db.runTransaction(async (t) => {
       const fresh = await t.get(codeRef);
+      const freshUser=await t.get(db.collection('users').doc(uid));
+      if(freshUser.exists&&['beta','starter','premium'].includes(freshUser.data().tier))throw new Error('Plan already active');
+      if(!fresh.exists)throw new Error('Code unavailable');
       const freshUsed = fresh.data().usedBy || [];
-      if (freshUsed.length >= maxUses) throw new Error('Code fully used');
+      if(freshUsed.includes(uid))throw new Error('Code already redeemed');
+      if (freshUsed.length >= (fresh.data().maxUses||1)) throw new Error('Code fully used');
+      if(!['beta','starter','premium'].includes(fresh.data().tier||'beta'))throw new Error('Invalid invite tier');
       t.update(codeRef, { usedBy: [...freshUsed, uid] });
       t.set(db.collection('users').doc(uid), {
-        tier,
+        tier:fresh.data().tier||'beta',
         tierUpdatedAt: fb.firestore.FieldValue.serverTimestamp(),
         betaCode: code
       }, { merge: true });

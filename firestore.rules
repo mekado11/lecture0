@@ -2,7 +2,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedInAs(userId) {
-      return request.auth != null && request.auth.uid == userId;
+      return request.auth != null && request.auth.uid == userId
+        && !exists(/databases/$(database)/documents/accountDeletions/$(userId));
     }
 
     // The user profile contains server-authoritative billing/entitlement fields.
@@ -11,19 +12,19 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedInAs(userId);
       allow create: if signedInAs(userId)
-        && !request.resource.data.keys().hasAny(['tier','tierUpdatedAt','subscriptionStatus','stripeCustomerId','stripeSubscriptionId']);
+        && !request.resource.data.keys().hasAny(['tier','tierUpdatedAt','subscriptionStatus','stripeCustomerId','stripeSubscriptionId','stripeSubscriptionCreated','stripeLastEventCreated','stripeLastEventId']);
       allow update: if signedInAs(userId)
         && !request.resource.data.diff(resource.data).affectedKeys()
-          .hasAny(['tier','tierUpdatedAt','subscriptionStatus','stripeCustomerId','stripeSubscriptionId']);
-      allow delete: if signedInAs(userId);
+          .hasAny(['tier','tierUpdatedAt','subscriptionStatus','stripeCustomerId','stripeSubscriptionId','stripeSubscriptionCreated','stripeLastEventCreated','stripeLastEventId']);
+      allow delete: if false; // Account removal goes through the authenticated server.
 
-      match /{document=**} {
+      match /{collection}/{document=**} {
         allow read, write: if signedInAs(userId);
       }
     }
 
     match /betaCodes/{code} {
-      allow read: if request.auth != null;
+      allow read, write: if false;
     }
     match /pushSubscriptions/{userId} {
       allow read, write: if signedInAs(userId);

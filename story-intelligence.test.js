@@ -1,1 +1,21 @@
-const assert = require('assert');\nconst Parser = require('./manuscript-parser');\nconst BI = require('./book-intelligence');\nconst SI = require('./story-intelligence');\n\nconst text = [\n  'Chapter 1',\n  'Daniel Carter is a doctor. Daniel Carter knows Mara. Mara was afraid.',\n  'Daniel spoke to Mara before leaving.',\n  '',\n  'Chapter 2',\n  'Daniel wanted answers. Mara knew Daniel was angry.'\n].join('\n');\nconst parsed = Parser.parse(text);\nconst base = BI.build(parsed);\nconst story = SI.enrich(parsed, base);\nassert(story.characters.some(c => c.canonicalName === 'Daniel Carter'));\nassert(story.relationships.some(r => r.characters.includes('Daniel Carter') && r.characters.includes('Mara')));\nassert(story.facts.some(f => f.subject === 'Daniel Carter' && f.predicate === 'is'));\nassert(story.facts.every(f => f.chapterId && f.evidence));\nconsole.log('story-intelligence tests passed');\n
+const assert = require('assert');
+const Parser = require('./manuscript-parser');
+const BI = require('./book-intelligence');
+const SI = require('./story-intelligence');
+
+const text = [
+  'Chapter 1',
+  'Daniel Carter is a doctor. Daniel Carter knows Mara. Mara was afraid.',
+  'Daniel spoke to Mara before leaving.',
+  '',
+  'Chapter 2',
+  'Daniel wanted answers. Mara knew Daniel was angry.'
+].join('\n');
+const parsed = Parser.parse(text);
+const base = BI.build(parsed);
+const story = SI.enrich(parsed, base);
+assert(story.characters.some(c => c.canonicalName === 'Daniel Carter'));
+assert(story.relationships.some(r => r.characters.includes('Daniel Carter') && r.characters.includes('Mara')));
+assert(story.facts.some(f => f.subject === 'Daniel Carter' && f.predicate === 'is'));
+assert(story.facts.every(f => f.chapterId && f.evidence));
+console.log('story-intelligence tests passed');

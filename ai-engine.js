@@ -58,7 +58,7 @@ const AIEngine = {
   _routeModel(feature) {
     // Features that benefit from Claude's superior analysis
     const claudeFeatures = ['deepCritique', 'chapterBreakdown', 'openingAnalysis'];
-    if (claudeFeatures.includes(feature)) return 'claude';
+    if (claudeFeatures.includes(feature) && (window.__isAdmin || ['premium','beta'].includes(window.__userPlan))) return 'claude';
     // Everything else uses OpenAI (10-50x cheaper)
     return 'openai-fast';
   },
@@ -80,15 +80,7 @@ const AIEngine = {
     const key = this._shortHash(manuscriptText) + '|' + manuscriptText.length + '|' + analysisSig;
     let built = this._bookContextCache.get(key);
     if (!built) {
-      const parsed = ManuscriptParser.parse(manuscriptText);
-      let intel = BookIntelligence.build(parsed, analysis);
-      if (typeof StoryIntelligence !== 'undefined') intel = StoryIntelligence.enrich(parsed, intel);
-      if (typeof ContinuityIntelligence !== 'undefined') intel = ContinuityIntelligence.enrich(parsed, intel);
-      if (typeof TimelineIntelligence !== 'undefined') intel = TimelineIntelligence.enrich(parsed, intel);
-    if (typeof NarrativeMomentum !== 'undefined') intel = NarrativeMomentum.enrich(intel);
-    if (typeof RelationshipIntelligence !== 'undefined') intel = RelationshipIntelligence.enrich(parsed, intel);
-    if (typeof CharacterLedger !== 'undefined') intel = CharacterLedger.enrich(intel);
-      built = { parsed, intel };
+      built = IntelligencePipeline.build(manuscriptText, analysis);
       this._bookContextCache.clear();
       this._bookContextCache.set(key, built);
     }
@@ -97,10 +89,14 @@ const AIEngine = {
 
   async askManuscript(apiKey, question, manuscriptText, analysis = null) {
     const packet = this.buildGroundedContext(question, manuscriptText, analysis);
+    if (!packet || !packet.chapters.length) return {
+      answer: 'I could not find supporting passages for that question. Try naming a character, event, or phrase from your manuscript.',
+      evidence: [], confidence: 'low', insufficientEvidence: true
+    };
     const context = this._serializeContextPacket(packet);
     return this._callClaude(apiKey,
-      'You are AuthorScrolls Writer\\'s Room. Answer the author\\'s question using only the supplied manuscript context. Distinguish manuscript evidence from interpretation. If the retrieved evidence is insufficient, say so instead of inventing details.',
-      'AUTHOR QUESTION:\\n' + question + '\\n\\nReturn JSON: {"answer":"...","evidence":[{"chapterId":"...","quote":"short supporting excerpt"}],"confidence":"high|medium|low","insufficientEvidence":false}',
+      "You are AuthorScrolls Writer's Room. Answer the author's question using only the supplied manuscript context. Distinguish manuscript evidence from interpretation. If the retrieved evidence is insufficient, say so instead of inventing details.",
+      'AUTHOR QUESTION:\n' + question + '\n\nReturn JSON: {"answer":"...","evidence":[{"chapterId":"...","quote":"short supporting excerpt"}],"confidence":"high|medium|low","insufficientEvidence":false}',
       '', 'writersRoom:' + this._shortHash(question + context), {
         contextOverride: 'RETRIEVED BOOK CONTEXT:\n' + context
       }
@@ -140,7 +136,7 @@ const AIEngine = {
         },
         {
           type: 'text',
-          text: 'MANUSCRIPT TEXT:\n\n' + manuscriptText.substring(0, 15000),
+          text: options.contextOverride || ('MANUSCRIPT TEXT:\n\n' + manuscriptText.substring(0, 15000)),
           cache_control: { type: 'ephemeral' }
         }
       ],

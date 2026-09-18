@@ -5,10 +5,10 @@ const ContinuityIntelligence = (() => {
   const MUTABLE = new Set(['lives','lived','works','worked','wants','wanted','needs','needed','knows','knew','loves','loved','hates','hated']);
   function factKind(fact){
     const p=NORMALIZE(fact.predicate),o=NORMALIZE(fact.object);
-    if(/\\b\\d{1,3}\\s+years? old\\b/.test(o))return 'age';
+    if(/\b(?:\d{1,3}|[a-z]+(?:-[a-z]+)?)\s+years? old\b/.test(o))return 'age';
     if(MUTABLE.has(p))return 'mutable_state';
     if(p==='is'||p==='was'){
-      if(/\\b(mother|father|sister|brother|daughter|son|wife|husband|aunt|uncle|cousin|grandmother|grandfather)\\b/.test(o))return 'kinship_or_identity';
+      if(/\b(mother|father|sister|brother|daughter|son|wife|husband|aunt|uncle|cousin|grandmother|grandfather)\b/.test(o))return 'kinship_or_identity';
       return 'descriptive_state';
     }
     if(p==='has'||p==='had')return 'possession_or_attribute';

@@ -3,25 +3,16 @@
 // Rate limited per user per day
 const https = require('https');
 const { verifyToken, getAdmin } = require('./_auth');
-const { checkAndIncrement, getCount } = require('./_ratelimit');
+const { checkAndIncrement } = require('./_ratelimit');
 
 const LIMITS = { dev: 9999, beta: 50, premium: 75, starter: 25, free: 0 };
-
-// Developer admin UIDs (your Firebase UID — unlimited access)
-const DEV_UIDS = new Set([
-  // Add your Firebase UID here after first sign-in
-]);
-
-// Admin emails — always dev tier, no rate limiting
-const ADMIN_EMAILS = new Set(['admin@authorscrolls.com']);
 
 // Brief in-memory tier cache to avoid hitting Firestore on every request
 const tierCache = new Map();
 const TIER_CACHE_TTL = 60000; // 1 minute
 
 async function getUserTier(userId, email) {
-  if (DEV_UIDS.has(userId)) return 'dev';
-  if (email && ADMIN_EMAILS.has(email.toLowerCase())) return 'dev';
+  if ((process.env.ADMIN_UIDS||'').split(',').map(s=>s.trim()).includes(userId)) return 'dev';
 
   const cached = tierCache.get(userId);
 
@@ -53,9 +44,9 @@ async function getUserTier(userId, email) {
         return tier;
       }
       return cached.tier;
-    } catch (e) { /* Firestore unavailable — fall through to cached or free */ }
+    } catch (e) { /* Fail closed after a bounded cache lifetime. */ }
   }
-  if (cached) return cached.tier;
+  if (cached&&Date.now()-cached.ts<TIER_CACHE_TTL) return cached.tier;
   return 'free';
 }
 
@@ -108,9 +99,12 @@ module.exports = async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
 
   const userTier = await getUserTier(userId, userEmail);
-  const limit = LIMITS[userTier] || LIMITS.free;\n\n  // The server owns model authorization. Client routing is only a request hint.
+  const limit = LIMITS[userTier] || LIMITS.free;
+
+  // The server owns model authorization. Client routing is only a request hint.
   const ALLOWED_ROUTES = new Set(['claude','claude-premium','openai-fast','openai-nano','openai-premium']);
-  const requestedModel = req.headers['x-model'] || 'openai-fast';\n  const requestedFeature = String(req.headers['x-feature'] || 'unknown').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
+  const requestedModel = req.headers['x-model'] || 'openai-fast';
+  const requestedFeature = String(req.headers['x-feature'] || 'unknown').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
   if (!ALLOWED_ROUTES.has(requestedModel)) {
     res.status(400).json({ error: { message: 'Invalid model route' } }); return;
   }
@@ -143,10 +137,16 @@ module.exports = async (req, res) => {
     system,
     messages,
     max_tokens: Math.min(Math.max(Number(body.max_tokens) || 2048, 64), 2048)
-  };\n  // Feature identity is metadata only; authorization remains server-owned.\n  res.setHeader('X-AuthorScrolls-Feature', requestedFeature);
+  };
+  // Feature identity is metadata only; authorization remains server-owned.
+  res.setHeader('X-AuthorScrolls-Feature', requestedFeature);
 
   // Count only authenticated, authorized, structurally valid requests.
-  const used = await checkAndIncrement(userId, today);
+  const needsClaude=requestedModel==='claude'||requestedModel==='claude-premium';
+  if(!(needsClaude?process.env.CLAUDE_API_KEY:process.env.OPENAI_API_KEY))return res.status(503).json({error:{message:'Requested provider is unavailable'}});
+  let used;
+  try{used=await checkAndIncrement(userId,today);}
+  catch(_){return res.status(503).json({error:{message:'Usage verification unavailable. Please try again.'}});}
   if (used > limit) {
     res.status(429).json({
       error: {
@@ -194,6 +194,7 @@ function callClaude(body, res) {
       });
     });
     proxyReq.on('error', err => { res.status(500).json({ error: { message: err.message } }); resolve(); });
+    proxyReq.setTimeout(30000,()=>proxyReq.destroy(new Error('Provider request timed out')));
     proxyReq.write(payload); proxyReq.end();
   });
 }
@@ -201,8 +202,8 @@ function callClaude(body, res) {
 function callOpenAI(body, model, res) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    // Fallback to Claude if no OpenAI key
-    return callClaude(convertToClaude(body), res);
+    res.status(503).json({error:{message:'Requested provider is unavailable'}});
+    return Promise.resolve();
   }
 
   // Map our model names to OpenAI models
@@ -265,11 +266,7 @@ function callOpenAI(body, model, res) {
       });
     });
     proxyReq.on('error', err => { res.status(500).json({ error: { message: err.message } }); resolve(); });
+    proxyReq.setTimeout(30000,()=>proxyReq.destroy(new Error('Provider request timed out')));
     proxyReq.write(payload); proxyReq.end();
   });
-}
-
-function convertToClaude(body) {
-  // Body is already in Claude format, just return it
-  return body;
 }

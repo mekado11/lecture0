@@ -1,6 +1,8 @@
 // Server-side proxy for LanguageTool API
 // Avoids CORS issues and prevents abuse of the public API
 const https = require('https');
+const {verifyToken}=require('./_auth');
+const {checkAndIncrement}=require('./_ratelimit');
 
 module.exports = async (req, res) => {
   const origin = req.headers.origin || '';
@@ -11,9 +13,11 @@ module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', 'https://authorscrolls.com');
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+  const {user}=await verifyToken(req);
+  if(!user)return res.status(401).json({error:'Authentication required'});
 
   const text = req.body?.text;
   if (!text || typeof text !== 'string') {
@@ -22,6 +26,8 @@ module.exports = async (req, res) => {
   if (text.length > 20000) {
     res.status(400).json({ error: 'Text too long (max 20000 chars)' }); return;
   }
+  try{if(await checkAndIncrement('grammar:'+user.uid,new Date().toISOString().slice(0,10))>200)return res.status(429).json({error:'Daily grammar limit reached'});}
+  catch(_){return res.status(503).json({error:'Grammar checks temporarily unavailable'});}
 
   const params = new URLSearchParams({
     text: text,
@@ -60,6 +66,7 @@ module.exports = async (req, res) => {
       res.status(502).json({ error: 'LanguageTool unavailable: ' + err.message });
       resolve();
     });
+    proxyReq.setTimeout(20000,()=>proxyReq.destroy(new Error('Grammar check timed out')));
     proxyReq.write(postData);
     proxyReq.end();
   });

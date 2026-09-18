@@ -3,11 +3,25 @@ firebase.initializeApp(FIREBASE_CONFIG);
 const ADMIN_EMAILS = ['admin@authorscrolls.com'];
 window.__isAdmin = false;
 window.__userPlan = 'free';
+function clearPrivateStorage(){
+  Object.keys(localStorage).filter(k=>/^(ml_|aic_|scan:|fixes:)/.test(k)).forEach(k=>localStorage.removeItem(k));
+  sessionStorage.clear();
+}
 firebase.auth().onAuthStateChanged(function(user) {
   if (!user) { window.location.href = 'index.html'; return; }
-  window.__isAdmin = ADMIN_EMAILS.includes((user.email||'').toLowerCase());
+  // UI hint only. Server authorization uses ADMIN_UIDS, never email alone.
+  window.__isAdmin = user.emailVerified && ADMIN_EMAILS.includes((user.email||'').toLowerCase());
+  if(localStorage.getItem('ml_storage_owner')!==user.uid){
+    clearPrivateStorage();
+    localStorage.setItem('ml_storage_owner',user.uid);
+  }
+  try{document.documentElement.dataset.editorTheme=JSON.parse(localStorage.getItem('ml_prefs')||'{}').darkTheme===false?'light':'dark';}catch(_){}
   // Fetch tier from Firestore
   firebase.firestore().collection('users').doc(user.uid).get().then(function(doc) {
+    if(doc.data()?.preferences){
+      localStorage.setItem('ml_prefs',JSON.stringify(doc.data().preferences));
+      document.documentElement.dataset.editorTheme=doc.data().preferences.darkTheme===false?'light':'dark';
+    }
     if (doc.exists && doc.data().tier) {
       window.__userPlan = doc.data().tier;
     }
@@ -26,7 +40,11 @@ firebase.auth().onAuthStateChanged(function(user) {
     btn.id = 'signout-btn';
     btn.className = 'tb-btn';
     btn.textContent = 'Sign Out';
-    btn.onclick = function() { localStorage.removeItem('ml_autosave'); localStorage.removeItem('ml_session'); localStorage.removeItem('ml_last_open'); localStorage.removeItem('ml_push_subscribed'); sessionStorage.clear(); firebase.auth().signOut().then(function(){ window.location.href = 'index.html'; }).catch(function(){ window.location.href = 'index.html'; }); };
+    btn.onclick = async function() {
+      if(window.AuthorScrollsEditor?.save&&!await window.AuthorScrollsEditor.save())return;
+      try{await firebase.auth().signOut();clearPrivateStorage();window.location.href='index.html';}
+      catch(_){alert('Sign-out failed. Please try again.');}
+    };
     topRight.appendChild(btn);
   }
 });
