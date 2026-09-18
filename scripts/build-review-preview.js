@@ -10,6 +10,32 @@ html=html.replace('<script src="legacy-recovery.js"></script>','<script src="pre
 fs.writeFileSync(path.join(dist,'workspace-preview.html'),html);
 fs.copyFileSync(path.join(__dirname,'firebase-fixture.js'),path.join(dist,'preview-fixture.js'));
 fs.writeFileSync(path.join(dist,'preview-boot.js'),`
+// The Computer iframe has an opaque origin. Keep ALL preview state in memory.
+function previewStorage(){
+ const store={};
+ Object.defineProperties(store,{
+  getItem:{value:key=>Object.hasOwn(store,key)?String(store[key]):null},
+  setItem:{value:(key,value)=>{store[key]=String(value);}},
+  removeItem:{value:key=>{delete store[key];}},
+  clear:{value:()=>Object.keys(store).forEach(key=>delete store[key])},
+  key:{value:index=>Object.keys(store)[index]||null},
+  length:{get:()=>Object.keys(store).length}
+ });return store;
+}
+Object.defineProperty(window,'localStorage',{value:previewStorage(),configurable:true});
+Object.defineProperty(window,'sessionStorage',{value:previewStorage(),configurable:true});
+// Preview-only worker adapter; production and regression tests use a real Worker.
+window.Worker=class {
+ constructor(){this.listeners=new Map();this.stopped=false;}
+ addEventListener(type,listener){this.listeners.set(type,listener);}
+ removeEventListener(type){this.listeners.delete(type);}
+ terminate(){this.stopped=true;clearTimeout(this.timer);}
+ postMessage(message){this.timer=setTimeout(()=>{
+  if(this.stopped)return;
+  try{this.listeners.get('message')?.({data:{type:'result',version:message.version,data:Analyzer.analyze(message.text,message.genreKey)}});}
+  catch(error){this.listeners.get('message')?.({data:{type:'error',version:message.version,message:error.message}});}
+ },0);}
+};
 window.__fixture=createFirebaseFixture();window.firebase=__fixture.firebase;
 localStorage.setItem('ml_storage_owner','test-author');localStorage.setItem('wizard_done','1');
 localStorage.setItem('cookie_consent','essential');localStorage.setItem('ml_push_dismissed','1');
