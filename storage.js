@@ -58,7 +58,8 @@ const Storage = {
     return {schemaVersion:3,parserVersion:parsed.version||0,textLength:text.length,
       wordCount:parsed.wordCount,chapterCount:parsed.chapterCount,
       genre:analysis?.genre?.label||'Unknown',genrePrimary:analysis?.genre?.primary||'',
-      overall:analysis?.overall??0,scores:analysis?.scores||{},issueCount:analysis?.issues?.length||0,
+      analysisState:analysis?.analysisPending?'pending':'ready',
+      overall:analysis?.analysisPending?null:(analysis?.overall??0),scores:analysis?.scores||{},issueCount:analysis?.issues?.length||0,
       saveState:'ready',updatedAt:firebase.firestore.FieldValue.serverTimestamp()};
   },
   _revision(doc){
@@ -70,7 +71,7 @@ const Storage = {
     const previous=await ref.get();
     const oldGeneration=previous.exists?previous.data().activeGeneration:null;
     const expected=this._revisions.has(ref.path)?this._revisions.get(ref.path):null;
-    if(this._revision(previous)!==expected)throw new Error('This manuscript changed on another device. Your local recovery is retained; export it before reloading the cloud draft.');
+    if(this._revision(previous)!==expected)throw new Error('This manuscript changed on another device. Your edits remain in this tab; export them before reloading the cloud draft.');
     const generation=ref.collection('chapters').doc().id;
     const parts=this._splitChapterText(text);
     // Store source once. All derived intelligence is rebuilt on demand rather
@@ -78,7 +79,7 @@ const Storage = {
     await this._writeParts(ref.collection('chapters'),parts,generation);
     await this.db.runTransaction(async tx=>{
       const current=await tx.get(ref);
-      if(this._revision(current)!==expected)throw new Error('Another device saved this manuscript. Export your local recovery before reloading the cloud draft.');
+      if(this._revision(current)!==expected)throw new Error('Another device saved this manuscript. Export your edits from this tab before reloading the cloud draft.');
       tx.set(ref,{...this._metadata(text,analysis),...extra,activeGeneration:generation,
         partCount:parts.length,text:firebase.firestore.FieldValue.delete()},{merge:true});
     });
@@ -113,6 +114,7 @@ const Storage = {
     const ref=user.collection('manuscripts').doc(id),doc=await ref.get();
     if(!doc.exists)return null;
     const data={...doc.data(),id:doc.id};
+    if(data.saveState&&data.saveState!=='ready')throw new Error('Draft is incomplete; save has not committed');
     if(data.schemaVersion>=3) {
       const snap=await ref.collection('chapters').where('generation','==',data.activeGeneration).get();
       const parts=snap.docs.map(d=>d.data()).sort((a,b)=>a.index-b.index);
@@ -130,6 +132,7 @@ const Storage = {
       data.text=snap.docs.map(d=>d.data()).filter(p=>!p.generation).sort((a,b)=>(a.index-b.index)||((a.partIndex||0)-(b.partIndex||0))).map(p=>p.text||'').join('');
       if(data.textLength!=null&&data.text.length!==data.textLength)throw new Error('Legacy draft is incomplete');
     }
+    if(typeof data.text!=='string'||(Number.isFinite(data.textLength)&&data.text.length!==data.textLength))throw new Error('Draft integrity check failed');
     this._revisions.set(ref.path,this._revision(doc));
     return data;
   },
@@ -163,7 +166,8 @@ const Storage = {
     await this._writeParts(ref.collection('parts'),parts);
     await ref.set({schemaVersion:3,saveState:'ready',reason,textLength:text.length,
       wordCount:parsed.wordCount,chapterCount:parsed.chapterCount,partCount:parts.length,
-      overall:analysis?.overall??0,scores:analysis?.scores||{},issueCount:analysis?.issues?.length||0,
+      analysisState:analysis?.analysisPending?'pending':'ready',
+      overall:analysis?.analysisPending?null:(analysis?.overall??0),scores:analysis?.scores||{},issueCount:analysis?.issues?.length||0,
       genre:analysis?.genre?.label||'',timestamp:firebase.firestore.FieldValue.serverTimestamp()});
     return ref.id;
   },

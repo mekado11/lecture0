@@ -21,6 +21,12 @@ const IntelligenceWindow = (() => {
     if (!host) return;
     if (!data) { host.innerHTML = empty('Open a manuscript to explore its story intelligence.'); return; }
     const i = data.intel;
+    const nf=i.nonfiction;
+    if(nf){
+      const groups=[['Concepts',nf.concepts],['Attributed claims',nf.claims],['Personal evidence',nf.personalEvidence],['Reflection questions',nf.reflectionQuestions],['Actions',nf.actions],['Recommendations',nf.recommendations]];
+      host.innerHTML='<p class="workspace-nav-hint">Nonfiction intelligence · Source-linked signals for your review, not fact-checking or a judgment of your voice.</p>'+
+        groups.map(([label,rows])=>`<section><h4>${label} <small>${rows.length}</small></h4>${rows.slice(0,12).map(row=>`<article><b>${esc(row.name||row.text||row.evidence)}</b><small>${esc(row.chapterId)} · ${esc(row.source)}</small></article>`).join('')||empty('No explicit signals detected. This does not mean your book lacks them.')}</section>`).join('');
+    }else{
     const sections = [
       ['Characters', i.characterLedger.characters.slice(0,12).map(c => `<article><b>${esc(c.name)}</b><small>${c.mentions} mentions · ${c.chapterIds.length} chapters</small>${c.facts.slice(0,2).map(f=>`<small>${esc(f.predicate)} ${esc(f.object)}</small>`).join('')}</article>`).join('')],
       ['Relationships', i.relationshipIntelligence.relationships.slice(0,10).map(r => `<article><b>${esc(r.characters.join(' ↔ '))}</b><small>${esc(r.types.join(', '))} · candidate for review</small>${evidence(r.evidence.slice(-2))}</article>`).join('')],
@@ -31,6 +37,9 @@ const IntelligenceWindow = (() => {
     ];
     host.innerHTML = `<div class="intel-summary">${[[i.characters.length,'Characters'],[i.facts.length,'Facts'],[i.narrativeMomentum.arcs.length,'Threads'],[i.timeline.events.length,'Time cues']].map(([n,l])=>`<div><b>${n}</b><span>${l}</span></div>`).join('')}</div>` +
       sections.map(([title,html])=>`<section><h4>${title}</h4>${html || empty('No evidence detected yet. This is not proof that your manuscript has none.')}</section>`).join('');
+    }
+    const grammar=data.analysis?.advisory?.grammar;
+    if(grammar)host.innerHTML+=`<section><h4>Optional grammar advice</h4><p class="workspace-nav-hint">External suggestions. Deterministic scores are unchanged. Apply edits only when they serve your voice.</p>${grammar.slice(0,60).map(row=>`<article><b>${esc(row.text)}</b><small>${esc(row.message)}</small><small>${esc(row.suggestion)}</small></article>`).join('')||empty('No additional grammar suggestions returned.')}</section>`;
   }
   function renderContext(kind, id) {
     const data = build(), host = $('workspace-context');
@@ -86,6 +95,9 @@ const IntelligenceWindow = (() => {
     if (!host) return;
     document.querySelectorAll('.ws-nav').forEach(b=>b.classList.toggle('active',b.dataset.wsnav===mode));
     if (!data) { host.innerHTML=empty('Open a manuscript to build its navigator.'); return; }
+    const nf=data.intel.nonfiction;
+    document.querySelector('[data-wsnav="characters"]').textContent=nf?'Concepts':'Characters';
+    document.querySelector('[data-wsnav="threads"]').textContent=nf?'Evidence':'Threads';
     const item=(attr,id,title,sub)=>`<button class="ws-item" ${attr}="${esc(id)}"><b>${esc(title)}</b><small>${esc(sub)}</small></button>`;
     if (mode==='versions') {
       const id=Storage._currentManuscriptId;
@@ -107,7 +119,11 @@ const IntelligenceWindow = (() => {
       } catch(error){if(token===renderId)host.innerHTML=empty('Snapshots could not be loaded. Check your connection.');}
       return;
     }
-    if(mode==='characters')host.innerHTML=data.intel.characterLedger.characters.map(c=>item('data-character',c.id,c.name,`${c.chapterIds.length} chapters · ${c.threads.length} threads`)).join('')||empty('No recurring characters detected.');
+    if(nf&&(mode==='characters'||mode==='threads')){
+      const rows=mode==='characters'?nf.concepts:[...nf.claims,...nf.personalEvidence];
+      host.innerHTML=rows.map(c=>item('data-chapter',c.chapterId,c.name||c.evidence,c.chapterId+' · '+c.source)).join('')||empty('No explicit evidence detected. Review the source text.');
+    }
+    else if(mode==='characters')host.innerHTML=data.intel.characterLedger.characters.map(c=>item('data-character',c.id,c.name,`${c.chapterIds.length} chapters · ${c.threads.length} threads`)).join('')||empty('No recurring characters detected.');
     else if(mode==='threads')host.innerHTML=data.intel.narrativeMomentum.arcs.map(t=>item('data-thread',t.id,t.label,`${t.pressure} · ${t.recurrence} signals`)).join('')||empty('No narrative threads detected.');
     else if(mode==='review')host.innerHTML='<button class="ws-item" data-open-review><b>Manuscript health</b><small>Review the evidence and editorial suggestions</small></button>';
     else host.innerHTML=data.parsed.chapters.map(c=>item('data-chapter',c.id,c.title,`${c.wordCount} words`)).join('');
