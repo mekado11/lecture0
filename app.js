@@ -2431,12 +2431,9 @@ async function saveAnalysis(){
       return;
     }catch(e){_showSaveToast('Cloud save failed — saved locally');console.warn('Cloud save error:',e.message)}
   }
-  // Fallback to localStorage
-  const saves=safeLocalJSON('ml_saves',[]);
-  saves.push({fileName:uploadedFile.name,text:extractedText,result:analysisResult,savedAt:new Date().toISOString()});
-  if(saves.length>10)saves.splice(0,saves.length-10);
-  try{localStorage.setItem('ml_saves',JSON.stringify(saves))}catch(e){_showSaveToast('Local save failed — storage full');return}
-  _showSaveToast('Saved locally');
+  // Never place manuscript bodies in browser storage. Keep the editor state in memory
+  // and make the failure explicit so the author can retry cloud save or export.
+  _showSaveToast(Storage.userId?'Cloud save failed — changes remain open in this tab':'Sign in to save this manuscript to the cloud');
 }
 
 // ============================================================
@@ -2460,13 +2457,7 @@ async function renderLibrary(){
   if(Storage.userId){
     try{manuscripts=await Storage.getManuscripts()}catch(e){_showSaveToast('Could not load manuscripts from cloud');console.warn('Firestore load error:',e.message)}
   }
-  // Fallback to localStorage bookshelf
-  if(manuscripts.length===0){
-    const shelf=safeLocalJSON('ml_bookshelf',[]);
-    const saves=safeLocalJSON('ml_saves',[]);
-    const all=[...shelf,...saves];
-    manuscripts=all.map((s,i)=>({id:null,fileName:s.fileName,overall:s.result?.overall||s.overall||0,wordCount:s.result?.totalWords||s.totalWords||0,genre:s.result?.genre?.label||s.genre||'',updatedAt:{toDate:()=>new Date(s.savedAt||Date.now())},text:s.text,_local:true,_data:s}));
-  }
+  // Firestore is the manuscript library source of truth; legacy local manuscript bodies are ignored.
 
   // Deduplicate by fileName — keep the most recently updated entry
   const seen=new Map();
@@ -2870,9 +2861,7 @@ Storage.whenReady().then(async user=>{
   // Fetch all manuscripts once — used for validation and fallback
   let manuscripts=[];
   try{manuscripts=await Storage.getManuscripts()}catch(e){_showSaveToast('Could not load manuscripts from cloud');console.warn('Could not fetch manuscripts:',e.message)}
-  const shelf=safeLocalJSON('ml_bookshelf',[]);
-  const saves=safeLocalJSON('ml_saves',[]);
-  const hasAnyManuscripts=manuscripts.length>0||shelf.length>0||saves.length>0;
+  const hasAnyManuscripts=manuscripts.length>0;
 
   // If no manuscripts anywhere, clear stale session data and show blank library
   if(!hasAnyManuscripts){
