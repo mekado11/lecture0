@@ -93,7 +93,7 @@ const AIEngine = {
     );
   },
 
-  async _callClaude(apiKey, systemPrompt, userPrompt, manuscriptText, feature) {
+  async _callClaude(apiKey, systemPrompt, userPrompt, manuscriptText, feature, options = {}) {
     // Check cache first
     const cached = this._getCached(manuscriptText, feature);
     if (cached) return cached;
