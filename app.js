@@ -2221,13 +2221,10 @@ async function runAI(key){
     }
     analysisResult._aiResults=ai;
     renderAI(ai);
-    // Blend AI-derived signals back into Document Health scores.
-    // The regex analyzer measures mechanical patterns; the AI reads semantic quality.
-    // Together they produce scores that reflect both.
-    if(AIEngine._applyAIDerivedScores(analysisResult,ai)){
-      analysisResult.overall=Analyzer.recalcOverall(analysisResult);
-      updateScoresOnly(analysisResult);
-    }
+    // AI results are advisory evidence, not score mutations. Keeping Document Health
+    // deterministic prevents the same manuscript from changing score after an AI run
+    // or because a model response/cache changed. Semantic assessments stay in Review.
+    analysisResult._aiScoreEvidence = { advisoryOnly:true, generatedAt:new Date().toISOString() };
     st.classList.add('hidden');
     $('ai-results').classList.remove('hidden');
     document.querySelector('.ai-intro')?.classList.add('hidden');
