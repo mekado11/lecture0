@@ -40,17 +40,40 @@ const Storage = {
     return null;
   },
 
+  async _replaceCollection(collectionRef, rows, idFor) {
+    const existing = await collectionRef.get();
+    for (let start=0; start<existing.docs.length; start+=400) {
+      const batch=this.db.batch();
+      existing.docs.slice(start,start+400).forEach(d=>batch.delete(d.ref));
+      await batch.commit();
+    }
+    for (let start=0; start<rows.length; start+=400) {
+      const batch=this.db.batch();
+      rows.slice(start,start+400).forEach((row,i)=>batch.set(collectionRef.doc(idFor(row,start+i)), row));
+      await batch.commit();
+    }
+  },
+
   async _writeBookIntelligence(manuscriptRef, intelligence) {
     if (!intelligence) return;
-    await manuscriptRef.collection('intelligence').doc('book').set({
-      version: intelligence.version,
-      chapterCount: intelligence.chapterCount,
-      characters: intelligence.characters,
-      pov: intelligence.pov,
-      scoreEvidence: intelligence.scoreEvidence || {},
-      scoreConflicts: intelligence.scoreConflicts || [],
+    const root=manuscriptRef.collection('intelligence').doc('book');
+    await root.set({
+      version: intelligence.version, chapterCount: intelligence.chapterCount,
+      characterCount: (intelligence.characters||[]).length,
+      factCount: (intelligence.facts||[]).length,
+      relationshipCount: (intelligence.relationshipIntelligence?.relationships||[]).length,
+      timelineEventCount: (intelligence.timeline?.events||[]).length,
+      threadCount: (intelligence.narrativeMomentum?.arcs||[]).length,
+      continuityCount: (intelligence.continuity||[]).length,
+      pov: intelligence.pov, scoreEvidence: intelligence.scoreEvidence || {},
+      scoreConflicts: (intelligence.scoreConflicts || []).slice(0,20),
       generatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
+    await this._replaceCollection(root.collection('facts'), intelligence.facts||[], (x,i)=>x.id||('fact-'+String(i+1).padStart(5,'0')));
+    await this._replaceCollection(root.collection('relationships'), intelligence.relationshipIntelligence?.relationships||[], (x,i)=>x.id||('relationship-'+String(i+1).padStart(4,'0')));
+    await this._replaceCollection(root.collection('timeline'), intelligence.timeline?.events||[], (x,i)=>x.id||('event-'+String(i+1).padStart(5,'0')));
+    await this._replaceCollection(root.collection('threads'), intelligence.narrativeMomentum?.arcs||[], (x,i)=>x.id||('thread-'+String(i+1).padStart(4,'0')));
+    await this._replaceCollection(root.collection('characters'), intelligence.characterLedger?.characters||[], (x,i)=>x.id||('character-'+String(i+1).padStart(4,'0')));
   },
 
   async _writeChapters(manuscriptRef, parsed, intelligence = null) {
