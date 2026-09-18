@@ -121,7 +121,7 @@ const AIEngine = {
     if (currentUser) {
       try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch (e) {}
     }
-    headers['x-model'] = this._routeModel(feature);
+    headers['x-model'] = this._routeModel(feature);\n    headers['x-feature'] = String(feature || 'unknown').split(':')[0].substring(0, 40);
 
     const bodyPayload = JSON.stringify({
       model: 'claude-sonnet-4-20250514',
@@ -1013,7 +1013,7 @@ Rules:
     if (currentUser) {
       try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch(e) {}
     }
-    headers['x-model'] = 'openai-fast';
+    headers['x-model'] = 'openai-fast';\n    headers['x-feature'] = 'rewrite';
     const rewriteBody = JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 256,
@@ -1128,7 +1128,7 @@ Rules:
       headers['x-user-id'] = currentUser.uid;
       try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch(e) {}
     }
-    headers['x-model'] = 'openai-fast';
+    headers['x-model'] = 'openai-fast';\n    headers['x-feature'] = 'rewrite';
 
     const batchBody = JSON.stringify({
       model: 'claude-sonnet-4-20250514',
