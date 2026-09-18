@@ -4,7 +4,8 @@
 
 const AIEngine = {
   _cache: new Map(),
-  _versionHistory: null,\n  _bookContextCache: new Map(),
+  _versionHistory: null,
+  _bookContextCache: new Map(),
 
   // ========================
   // CACHE MANAGEMENT
@@ -75,14 +76,18 @@ const AIEngine = {
 
   buildGroundedContext(query, manuscriptText, analysis = null) {
     if (typeof ManuscriptParser === 'undefined' || typeof BookIntelligence === 'undefined' || typeof ManuscriptRetrieval === 'undefined') return null;
-    const analysisSig = analysis ? this._shortHash(JSON.stringify({overall:analysis.overall||0,scores:analysis.scores||{},genre:analysis.genre||{}})) : 'none';\n    const key = this._shortHash(manuscriptText) + '|' + manuscriptText.length + '|' + analysisSig;
+    const analysisSig = analysis ? this._shortHash(JSON.stringify({overall:analysis.overall||0,scores:analysis.scores||{},genre:analysis.genre||{}})) : 'none';
+    const key = this._shortHash(manuscriptText) + '|' + manuscriptText.length + '|' + analysisSig;
     let built = this._bookContextCache.get(key);
     if (!built) {
       const parsed = ManuscriptParser.parse(manuscriptText);
       let intel = BookIntelligence.build(parsed, analysis);
       if (typeof StoryIntelligence !== 'undefined') intel = StoryIntelligence.enrich(parsed, intel);
       if (typeof ContinuityIntelligence !== 'undefined') intel = ContinuityIntelligence.enrich(parsed, intel);
-      if (typeof TimelineIntelligence !== 'undefined') intel = TimelineIntelligence.enrich(parsed, intel);\n    if (typeof NarrativeMomentum !== 'undefined') intel = NarrativeMomentum.enrich(intel);\n    if (typeof RelationshipIntelligence !== 'undefined') intel = RelationshipIntelligence.enrich(parsed, intel);\n    if (typeof CharacterLedger !== 'undefined') intel = CharacterLedger.enrich(intel);
+      if (typeof TimelineIntelligence !== 'undefined') intel = TimelineIntelligence.enrich(parsed, intel);
+    if (typeof NarrativeMomentum !== 'undefined') intel = NarrativeMomentum.enrich(intel);
+    if (typeof RelationshipIntelligence !== 'undefined') intel = RelationshipIntelligence.enrich(parsed, intel);
+    if (typeof CharacterLedger !== 'undefined') intel = CharacterLedger.enrich(intel);
       built = { parsed, intel };
       this._bookContextCache.clear();
       this._bookContextCache.set(key, built);
@@ -121,7 +126,8 @@ const AIEngine = {
     if (currentUser) {
       try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch (e) {}
     }
-    headers['x-model'] = this._routeModel(feature);\n    headers['x-feature'] = String(feature || 'unknown').split(':')[0].substring(0, 40);
+    headers['x-model'] = this._routeModel(feature);
+    headers['x-feature'] = String(feature || 'unknown').split(':')[0].substring(0, 40);
 
     const bodyPayload = JSON.stringify({
       model: 'claude-sonnet-4-20250514',
@@ -1013,7 +1019,8 @@ Rules:
     if (currentUser) {
       try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch(e) {}
     }
-    headers['x-model'] = 'openai-fast';\n    headers['x-feature'] = 'rewrite';
+    headers['x-model'] = 'openai-fast';
+    headers['x-feature'] = 'rewrite';
     const rewriteBody = JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 256,
@@ -1128,7 +1135,8 @@ Rules:
       headers['x-user-id'] = currentUser.uid;
       try { headers['authorization'] = 'Bearer ' + await currentUser.getIdToken(); } catch(e) {}
     }
-    headers['x-model'] = 'openai-fast';\n    headers['x-feature'] = 'rewrite';
+    headers['x-model'] = 'openai-fast';
+    headers['x-feature'] = 'rewrite';
 
     const batchBody = JSON.stringify({
       model: 'claude-sonnet-4-20250514',
