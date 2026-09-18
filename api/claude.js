@@ -108,9 +108,12 @@ module.exports = async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
 
   const userTier = await getUserTier(userId, userEmail);
-  const limit = LIMITS[userTier] || LIMITS.free;\n\n  // The server owns model authorization. Client routing is only a request hint.
+  const limit = LIMITS[userTier] || LIMITS.free;
+
+  // The server owns model authorization. Client routing is only a request hint.
   const ALLOWED_ROUTES = new Set(['claude','claude-premium','openai-fast','openai-nano','openai-premium']);
-  const requestedModel = req.headers['x-model'] || 'openai-fast';\n  const requestedFeature = String(req.headers['x-feature'] || 'unknown').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
+  const requestedModel = req.headers['x-model'] || 'openai-fast';
+  const requestedFeature = String(req.headers['x-feature'] || 'unknown').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
   if (!ALLOWED_ROUTES.has(requestedModel)) {
     res.status(400).json({ error: { message: 'Invalid model route' } }); return;
   }
@@ -143,7 +146,9 @@ module.exports = async (req, res) => {
     system,
     messages,
     max_tokens: Math.min(Math.max(Number(body.max_tokens) || 2048, 64), 2048)
-  };\n  // Feature identity is metadata only; authorization remains server-owned.\n  res.setHeader('X-AuthorScrolls-Feature', requestedFeature);
+  };
+  // Feature identity is metadata only; authorization remains server-owned.
+  res.setHeader('X-AuthorScrolls-Feature', requestedFeature);
 
   // Count only authenticated, authorized, structurally valid requests.
   const used = await checkAndIncrement(userId, today);
