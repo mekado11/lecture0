@@ -68,7 +68,7 @@ module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', 'https://authorscrolls.com');
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, X-Model, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-User-Id, X-Model, X-Feature, Authorization');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
   // GET = health check (C-1 fix: no config details exposed publicly)
@@ -108,34 +108,53 @@ module.exports = async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
 
   const userTier = await getUserTier(userId, userEmail);
-  const limit = LIMITS[userTier] || LIMITS.free;
-  const used = await checkAndIncrement(userId, today);
-
-  if (used > limit) {
-    res.status(429).json({
-      error: {
-        message: userTier === 'free'
-          ? 'AI features require a subscription. Upgrade to Starter ($5/mo) for 1 AI analysis per day.'
-          : 'Daily AI limit reached (' + limit + '/day). Upgrade for more, or wait until midnight UTC.',
-        code: 'RATE_LIMITED', limit, used: used - 1, tier: userTier
-      }
-    });
-    return;
-  }
-
-  // Determine which model/provider to use
+  const limit = LIMITS[userTier] || LIMITS.free;\n\n  // The server owns model authorization. Client routing is only a request hint.
   const ALLOWED_ROUTES = new Set(['claude','claude-premium','openai-fast','openai-nano','openai-premium']);
-  const requestedModel = req.headers['x-model'] || 'openai-fast';
+  const requestedModel = req.headers['x-model'] || 'openai-fast';\n  const requestedFeature = String(req.headers['x-feature'] || 'unknown').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
   if (!ALLOWED_ROUTES.has(requestedModel)) {
     res.status(400).json({ error: { message: 'Invalid model route' } }); return;
   }
-
-  // Extract only allowed fields — never forward arbitrary client payload
-  const sanitized = {
-    system: req.body.system || [],
-    messages: req.body.messages || [],
-    max_tokens: Math.min(Number(req.body.max_tokens) || 2048, 2048)
+  const ROUTES_BY_TIER = {
+    free: new Set(),
+    starter: new Set(['openai-fast','openai-nano']),
+    beta: new Set(['openai-fast','openai-nano','claude']),
+    premium: new Set(['openai-fast','openai-nano','openai-premium','claude','claude-premium']),
+    dev: ALLOWED_ROUTES
   };
+  const permittedRoutes = ROUTES_BY_TIER[userTier] || ROUTES_BY_TIER.free;
+  if (!permittedRoutes.has(requestedModel)) {
+    res.status(403).json({ error: { message: 'This AI route is not available for your subscription tier', code: 'MODEL_NOT_ALLOWED', tier: userTier } }); return;
+  }
+
+  // Extract only allowed fields — never forward arbitrary client payload.
+  // Bound prompt size at the server even if a modified client bypasses UI/retrieval budgets.
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const system = Array.isArray(body.system) ? body.system : [];
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const promptChars = JSON.stringify({ system, messages }).length;
+  const MAX_PROMPT_CHARS = 120000;
+  if (promptChars > MAX_PROMPT_CHARS) {
+    res.status(413).json({ error: { message: 'AI request context is too large', code: 'PROMPT_TOO_LARGE', maxChars: MAX_PROMPT_CHARS } }); return;
+  }
+  if (!messages.length || messages.length > 12) {
+    res.status(400).json({ error: { message: 'Invalid AI message payload', code: 'INVALID_MESSAGES' } }); return;
+  }
+  const sanitized = {
+    system,
+    messages,
+    max_tokens: Math.min(Math.max(Number(body.max_tokens) || 2048, 64), 2048)
+  };\n  // Feature identity is metadata only; authorization remains server-owned.\n  res.setHeader('X-AuthorScrolls-Feature', requestedFeature);
+
+  // Count only authenticated, authorized, structurally valid requests.
+  const used = await checkAndIncrement(userId, today);
+  if (used > limit) {
+    res.status(429).json({
+      error: {
+        message: userTier === 'free' ? 'AI features require a subscription.' : 'Daily AI limit reached (' + limit + '/day). Try again after the daily reset.',
+        code: 'RATE_LIMITED', limit, used: used - 1, tier: userTier
+      }
+    }); return;
+  }
 
   if (requestedModel === 'claude' || requestedModel === 'claude-premium') {
     return callClaude(sanitized, res);
