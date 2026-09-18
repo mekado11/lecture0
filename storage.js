@@ -242,35 +242,7 @@ const Storage = {
     return snapshot.text;
   },
 
-  // ========================
-  // USER PREFERENCES
-  // ========================
-  async savePreferences(prefs) {
-    const ref=this._userDoc(); if(!ref)return;
-    await ref.set({preferences:prefs,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
-  },
+  // Current manuscript identity is shared with app.js save/open flows.
+  _currentManuscriptId:null
 
-  async getPreferences() {
-    const ref=this._userDoc(); if(!ref)return {};
-    const doc=await ref.get();
-    return doc.exists?(doc.data().preferences||{}):{};
-  },
-
-  // ========================
-  // AUTO-SAVE
-  // ========================
-  _autoSaveTimer:null,
-  _currentManuscriptId:null,
-
-  autoSave(text, analysisResult) {
-    clearTimeout(this._autoSaveTimer);
-    this._autoSaveTimer=setTimeout(async()=>{
-      if(!this.userId)return;
-      try{
-        if(this._currentManuscriptId)await this.updateManuscript(this._currentManuscriptId,text,analysisResult);
-        const safe=analysisResult?(()=>{const {rawIssues,...rest}=analysisResult;return rest;})():analysisResult;
-        localStorage.setItem('ml_autosave',JSON.stringify({text,result:safe,manuscriptId:this._currentManuscriptId,savedAt:new Date().toISOString()}));
-      }catch(e){console.warn('Auto-save failed:',e.message);}
-    },5000);
-  }
 };
