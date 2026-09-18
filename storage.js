@@ -76,17 +76,24 @@ const Storage = {
     await this._replaceCollection(root.collection('characters'), intelligence.characterLedger?.characters||[], (x,i)=>x.id||('character-'+String(i+1).padStart(4,'0')));
   },
 
-  _splitChapterText(text, maxChars = 300000) {
-    text=String(text||''); if(text.length<=maxChars)return [text];
+  _utf8Bytes(text) {
+    text=String(text||'');
+    if(typeof TextEncoder!=='undefined')return new TextEncoder().encode(text).length;
+    return unescape(encodeURIComponent(text)).length;
+  },
+
+  _splitChapterText(text, maxBytes = 700000) {
+    text=String(text||''); if(this._utf8Bytes(text)<=maxBytes)return [text];
     const parts=[]; let start=0;
     while(start<text.length){
-      let end=Math.min(text.length,start+maxChars);
+      let lo=start+1,hi=text.length,end=start+1;
+      while(lo<=hi){const mid=Math.floor((lo+hi)/2);if(this._utf8Bytes(text.slice(start,mid))<=maxBytes){end=mid;lo=mid+1;}else hi=mid-1;}
       if(end<text.length){
-        const floor=start+Math.floor(maxChars*.7);
+        const floor=start+Math.floor((end-start)*.7);
         const para=text.lastIndexOf('\n\n',end);
         const sentence=Math.max(text.lastIndexOf('. ',end),text.lastIndexOf('? ',end),text.lastIndexOf('! ',end));
         const cut=para>=floor?para+2:(sentence>=floor?sentence+2:end);
-        end=cut;
+        if(cut>start)end=cut;
       }
       parts.push(text.slice(start,end)); start=end;
     }
