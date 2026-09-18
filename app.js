@@ -17,7 +17,12 @@ document.body.classList.add('lib-mode'); // Library is first view — allow scro
 function _authDiagnosticMessage(msg) {
   const parts = msg.replace('SERVER_AUTH_ERROR:', '').split(':');
   const reason = parts[0];
-  if (reason === 'admin_not_configured') return 'The server is temporarily unable to verify sign-ins. Please try again in a few minutes.';
+  // Owner breadcrumb: the UI message is deliberately vague (no infra details for
+  // visitors), so log the raw server reason where the site owner can see it.
+  console.warn('[Auth] server rejected request — reason:', msg);
+  // admin_not_configured is a DEPLOYMENT problem (missing/malformed Firebase env vars),
+  // not a transient one — don't promise that waiting or reloading will fix it.
+  if (reason === 'admin_not_configured') return 'The server can\'t verify sign-ins right now. If you\'re the site owner, check the server configuration.';
   if (reason === 'no_token') return 'Your browser did not send an auth token. Try reloading the page.';
   if (reason === 'token_invalid') return 'Your login token was rejected by the server. Try signing out and back in.';
   return 'Authentication failed (' + reason + '). Try reloading the page.';
