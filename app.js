@@ -1298,18 +1298,27 @@ function renderDetailed(r){
   const plot=r.plot||{};
   const trans=r.transitions||{};
   const ic=r.issueCounts||{};
-  const plotLabel=isChapter?'Scene Structure':'Plot Structure';
-  const plotRows=[pl[plot.arc]||'',sr('Rising Action',plot.hasRisingAction?'Yes':'Weak')];
-  if(isChapter){plotRows.push(sr('Scene Goal',plot.hasSceneGoal?'Detected':'Missing'));plotRows.push(sr('Cliffhanger',plot.hasCliffhanger?'Yes — strong chapter ending':'No — consider a hook'))}
-  else{plotRows.push(sr('Climax',plot.hasClimax?'Yes':'Weak'));plotRows.push(sr('Resolution',plot.hasResolution?'Yes':'Weak'))}
-  plotRows.push(sr('Mode',(r.manuscriptMode?.label||'Unknown')+' (~'+(r.manuscriptMode?.estPages||0)+' pages)'));
-  // Plot/scene structure must report its own observed signals, never the global language-issue density.
-  if(Array.isArray(plot.quarters)&&plot.quarters.length){
-    const tensionTotal=plot.quarters.reduce((n,q)=>n+(q.tension||0),0);
-    const resolutionTotal=plot.quarters.reduce((n,q)=>n+(q.resolution||0),0);
-    plotRows.push(sr('Observed tension signals',tensionTotal));
-    plotRows.push(sr('Observed resolution signals',resolutionTotal));
+  const isNFDetail=Analyzer.isNonfiction(r.genre);
+  const plotLabel=isNFDetail?'Argument Structure':(isChapter?'Scene Structure':'Plot Structure');
+  const plotRows=[];
+  if(isNFDetail){
+    plotRows.push(sr('Explicit claim signals',plot.thesisSignals??0));
+    plotRows.push(sr('Evidence signals',plot.evidenceSignals??0));
+    plotRows.push(sr('Evidence / 1K words',plot.evidencePerK??0));
+    plotRows.push(sr('Logical transition signals',plot.transitionSignals??0));
+    plotRows.push(sr('Closing synthesis signals',plot.synthesisSignals??0));
+  }else{
+    plotRows.push(sr('Rising-action candidate',plot.risingActionCandidate?'Detected':'Not detected'));
+    plotRows.push(sr('Peak tension/action quarter',plot.peakQuarter??'N/A'));
+    plotRows.push(sr('Climax candidate',plot.climaxCandidate?'Detected':'Not detected'));
+    plotRows.push(sr('Resolution candidate',plot.resolutionCandidate?'Detected':'Not detected'));
+    if(Array.isArray(plot.quarters)&&plot.quarters.length){
+      plotRows.push(sr('Tension signals',plot.quarters.reduce((n,q)=>n+(q.tensionSignals||0),0)));
+      plotRows.push(sr('Resolution signals',plot.quarters.reduce((n,q)=>n+(q.resolutionSignals||0),0)));
+      plotRows.push(sr('Action signals',plot.quarters.reduce((n,q)=>n+(q.actionSignals||0),0)));
+    }
   }
+  plotRows.push(sr('Mode',(r.manuscriptMode?.label||'Unknown')+' (~'+(r.manuscriptMode?.estPages||0)+' pages)'));
   h+=secWithTip(plotLabel,scores.plot||0,plotRows,'plot',r);
   h+=secWithTip('Transitions',scores.transitions||0,[(trans.smoothRate||0)+'% smooth',sr('Transition Words',trans.transitionsUsed||0),sr('Smooth',(trans.smoothTransitions||0)+'/'+((trans.totalParagraphs||1)-1))],'transitions',r);
   h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0)+(ic.repetition||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Wordy',ic.wordy||0),sr('Repetition',ic.repetition||0),sr('Confused Words',ic['confused-word']||0)],'copy',r);
@@ -1343,13 +1352,10 @@ function renderDetailed(r){
   const dlRows=[dl.count===0?'No dialogue detected.':''];
   dlRows.push(sr('Lines',dl.count||0));dlRows.push(sr('Ratio',(dl.ratio||0)+'% of text'));
   if(dl.count>0){
-    dlRows.push(sr('Tag Discipline',dl.tagDiscipline+'/100'));
-    dlRows.push(sr('Conciseness',dl.conciseness+'/100'));
-    dlRows.push(sr('Show Not Tell',dl.showNotTell+'/100'));
-    dlRows.push(sr('Purposefulness',dl.purposefulness+'/100'));
-    dlRows.push(sr('Naturalness',dl.naturalness+'/100'));
-    dlRows.push(sr('Avg Line Length',dl.avgLength+' words'));
-    dlRows.push(sr('Length Variety',dl.lengthVariety||0));
+    dlRows.push(sr('Observed candidates',dl.candidateCount??0));
+    dlRows.push(sr('Candidates / 100 lines',dl.candidatesPer100??0));
+    dlRows.push(sr('Avg Line Length',(dl.avgLength??0)+' words'));
+    dlRows.push(sr('Length Variation (SD)',dl.lengthVariety??0));
     dlRows.push(sr('"Said/Asked" Rate',dl.saidRatio+'%'));
     if(dl.exoticTags>0)dlRows.push(sr('Exotic Tags',dl.exoticTags));
     if(dl.adverbTags>0)dlRows.push(sr('Adverb Tags',dl.adverbTags));
