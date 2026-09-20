@@ -1316,12 +1316,15 @@ function renderDetailed(r){
   // Line Editing (true stylistic editing, not just readability)
   const le=r.lineEditing||{};
   const lineRows=['Stylistic editing: tone, flow, precision, pacing, POV, extraneous language'];
-  lineRows.push(sr('Tone Consistency',(le.tone?.score??0)+'/100'));
-  lineRows.push(sr('Sentence Flow',(le.flow?.score??0)+'/100'));
-  lineRows.push(sr('Word Precision',(le.precision?.score??0)+'/100'));
-  lineRows.push(sr('Pacing Rhythm',(le.pacing?.score??0)+'/100'));
-  lineRows.push(sr('POV Discipline',(le.pov?.score??0)+'/100'));
-  lineRows.push(sr('Extraneous Language',(le.extraneous?.score??0)+'/100'));
+  lineRows.push(sr('Tone / Register Evidence',(le.tone?.score??'N/A')+(le.tone?.score==null?'':'/100')));
+  lineRows.push(sr('Sentence Continuity',(le.flow?.score??'N/A')+(le.flow?.score==null?'':'/100')));
+  lineRows.push(sr('Word Precision',(le.precision?.score??'N/A')+(le.precision?.score==null?'':'/100')));
+  lineRows.push(sr('Sentence Rhythm',(le.pacing?.score??'N/A')+(le.pacing?.score==null?'':'/100')));
+  lineRows.push(sr('POV Review',le.pov?.score==null?'Advisory only':le.pov.score+'/100'));
+  lineRows.push(sr('Extraneous Language',(le.extraneous?.score??'N/A')+(le.extraneous?.score==null?'':'/100')));
+  if(le.flow?.unsupportedBoundaries!=null)lineRows.push(sr('Unsupported Sentence Boundaries',le.flow.unsupportedBoundaries+' ('+le.flow.unsupportedRate+'%)'));
+  if(le.precision?.vagueRatePerK!=null)lineRows.push(sr('Precision Candidates / 1K',le.precision.vagueRatePerK));
+  if(le.extraneous?.filterRatePerK!=null)lineRows.push(sr('Filter Phrases / 1K',le.extraneous.filterRatePerK));
   // Show findings
   if(le.findings&&le.findings.length>0){
     lineRows.push('<div style="margin-top:.4rem;border-top:1px solid var(--border);padding-top:.4rem">');
