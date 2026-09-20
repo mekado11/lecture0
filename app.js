@@ -1303,7 +1303,13 @@ function renderDetailed(r){
   if(isChapter){plotRows.push(sr('Scene Goal',plot.hasSceneGoal?'Detected':'Missing'));plotRows.push(sr('Cliffhanger',plot.hasCliffhanger?'Yes — strong chapter ending':'No — consider a hook'))}
   else{plotRows.push(sr('Climax',plot.hasClimax?'Yes':'Weak'));plotRows.push(sr('Resolution',plot.hasResolution?'Yes':'Weak'))}
   plotRows.push(sr('Mode',(r.manuscriptMode?.label||'Unknown')+' (~'+(r.manuscriptMode?.estPages||0)+' pages)'));
-  plotRows.push(sr('Issues/1K words',r.issuesPerK||0));
+  // Plot/scene structure must report its own observed signals, never the global language-issue density.
+  if(Array.isArray(plot.quarters)&&plot.quarters.length){
+    const tensionTotal=plot.quarters.reduce((n,q)=>n+(q.tension||0),0);
+    const resolutionTotal=plot.quarters.reduce((n,q)=>n+(q.resolution||0),0);
+    plotRows.push(sr('Observed tension signals',tensionTotal));
+    plotRows.push(sr('Observed resolution signals',resolutionTotal));
+  }
   h+=secWithTip(plotLabel,scores.plot||0,plotRows,'plot');
   h+=secWithTip('Transitions',scores.transitions||0,[(trans.smoothRate||0)+'% smooth',sr('Transition Words',trans.transitionsUsed||0),sr('Smooth',(trans.smoothTransitions||0)+'/'+((trans.totalParagraphs||1)-1))],'transitions');
   h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0)+(ic.repetition||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Wordy',ic.wordy||0),sr('Repetition',ic.repetition||0),sr('Confused Words',ic['confused-word']||0)],'copy');
@@ -1358,9 +1364,10 @@ function renderDetailed(r){
   if(r.scores?.dialogue!=null)h+=sec('Dialogue',r.scores.dialogue,dlRows);
   // Pacing heatmap
   if(r.pacing){const cols={action:'#c0392b',dialogue:'#2980b9',description:'#27ae60',exposition:'#f39c12',reflection:'#8e44ad'};
-  h+='<div class="a-sec"><h3>Pacing Heatmap</h3><div class="hm-wrap">'+r.pacing.segments.map((s,i)=>'<div class="hm-blk" style="background:'+cols[s.type]+'" title="Seg '+(i+1)+': '+s.type+'"></div>').join('')+'</div><div class="hm-leg"><span><span class="hm-dot" style="background:#c0392b"></span>Action</span><span><span class="hm-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="hm-dot" style="background:#27ae60"></span>Description</span><span><span class="hm-dot" style="background:#f39c12"></span>Exposition</span><span><span class="hm-dot" style="background:#8e44ad"></span>Reflection</span></div></div>'}
+  const segs=r.pacing.segments||[];
+  h+='<div class="a-sec"><h3>Pacing Heatmap</h3><div style="font-size:.65rem;color:var(--dim);margin-bottom:.35rem">'+segs.length+' observed manuscript segments · '+(r.pacing.segmentSize||200)+' words per segment</div><div class="hm-wrap">'+segs.map((s,i)=>'<div class="hm-blk" style="background:'+cols[s.type]+'" title="Words '+(s.startWord||'?')+'–'+(s.endWord||'?')+': '+s.type+' · dialogue '+(s.dialogueDensity??0)+'% · action '+(s.actionDensity??0)+'%"></div>').join('')+'</div><div class="hm-leg"><span><span class="hm-dot" style="background:#c0392b"></span>Action</span><span><span class="hm-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="hm-dot" style="background:#27ae60"></span>Description</span><span><span class="hm-dot" style="background:#f39c12"></span>Exposition</span><span><span class="hm-dot" style="background:#8e44ad"></span>Reflection</span></div></div>'}
   // Characters
-  if(r.characters?.list?.length>0){const mx=Math.max(...r.characters.list.map(c=>c.mentions));h+='<div class="a-sec"><h3>Characters</h3><div class="ch-grid">'+r.characters.list.map(c=>'<div class="ch-card"><div class="ch-name">'+esc(c.name)+'</div><div class="ch-cnt">'+c.mentions+' mentions</div><div class="ch-bar"><div class="ch-fill" style="width:'+Math.round(c.mentions/mx*100)+'%"></div></div></div>').join('')+'</div></div>'}
+  if(r.characters?.applicable!==false&&r.characters?.list?.length>0){const mx=Math.max(...r.characters.list.map(c=>c.mentions));h+='<div class="a-sec"><h3>Detected Characters</h3><div style="font-size:.65rem;color:var(--dim);margin-bottom:.35rem">Recurring person-name candidates with contextual evidence</div><div class="ch-grid">'+r.characters.list.map(c=>'<div class="ch-card"><div class="ch-name">'+esc(c.name)+'</div><div class="ch-cnt">'+c.mentions+' mentions · '+(c.evidenceCount||0)+' contextual signals</div><div class="ch-bar"><div class="ch-fill" style="width:'+Math.round(c.mentions/mx*100)+'%"></div></div></div>').join('')+'</div></div>'}
   // Genre-Specific Elements Scanner
   if(r.genreElements&&r.genreElements.applicable){
     const ge=r.genreElements;
