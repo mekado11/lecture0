@@ -78,6 +78,31 @@ test('a word repeated inside parallel structure is the device, not a fault — e
   assert.ok(found.length>0&&found.every(i=>!i.rhetorical),JSON.stringify(found));
 });
 
+test('a stance adverb qualifies a claim and is set aside; a manner adverb is raised with the manuscript rate',()=>{
+  const t='Most people assume that effort is the whole story. Research generally suggests otherwise, and the pattern eventually repeats. He walked silently to the door and closed it carefully.';
+  const r=Analyzer.analyze(t,'selfHelp');
+  const adverbs=r.issues.filter(i=>i.type==='adverb');
+  const generally=adverbs.find(i=>i.text==='generally'), silently=adverbs.find(i=>i.text==='silently');
+  assert.ok(generally&&silently,adverbs.map(i=>i.text).join(','));
+  assert.equal(generally.stance,true);
+  assert.equal(generally.contextSuppressed,true,'still on the record, set aside');
+  assert.match(generally._context.reason,/stance adverb/);
+  assert.equal(silently.stance,false);
+  assert.match(silently.message,/manner adverbs \(\d+(\.\d+)? per 1,000 words\)/,'the finding quotes the manuscript rate');
+  assert.notEqual(silently.autoFix,false);
+});
+
+test('an adverb in a list or stack is never auto-deleted, and one on a speech tag is raised',()=>{
+  const listed=Analyzer.findAdverbs('And yet something feels quietly, persistently wrong.','selfHelp');
+  assert.ok(listed.length>=2,listed.map(i=>i.text).join(','));
+  assert.ok(listed.every(i=>i.autoFix===false),'deleting one word would leave punctuation debris');
+  const r=Analyzer.analyze('"Go," she said softly. He waited by the door for a long time.','literary');
+  const softly=r.issues.find(i=>i.type==='adverb'&&i.text==='softly');
+  assert.ok(softly&&softly.tagAdjacent);
+  assert.equal(softly.contextRaised,true);
+  assert.match(softly._context.reason,/speech tag/);
+});
+
 test('repetition in explanatory prose is set aside with a reason, and the count follows the score',()=>{
   const t='Merriam-Webster defines poverty as a lack of money or comfort. But poverty is also the absence of access to healthcare, to education, to what a child needs to grow. It is the choice nobody makes for the child. The overworked parent is doing three jobs at once, and it is affecting more people than we generally admit.';
   const r=Analyzer.analyze(t,'selfHelp');

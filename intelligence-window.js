@@ -211,7 +211,8 @@ const IntelligenceWindow = (() => {
   // A bare count would be an unfalsifiable claim, so this always shows the grouping and the
   // reason behind each adjustment.
   const MODE_WORDS = { dialogue:'dialogue', action:'action', reflection:'reflective',
-    description:'descriptive', exposition:'explanatory', parallel:'parallel-structure' };
+    description:'descriptive', exposition:'explanatory', parallel:'parallel-structure',
+    stance:'claim-qualifying', 'speech-tag':'speech-tag' };
   function renderContextAdjustments(data) {
     const context = data.analysis && data.analysis.proseContext;
     const issues = (data.analysis && data.analysis.issues) || [];

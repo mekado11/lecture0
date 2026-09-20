@@ -1217,6 +1217,7 @@ function showDetail(cat){
   function hasConcreteFix(iss){
     // Mechanical fixes and AI-grounded replacements only; a synonym from a fixed list is
     // offered for the author to weigh, never applied for them.
+    if(iss.autoFix===false)return false;
     return !!iss.suggestion.match(/Replace with:\s*".+?"/)||iss.type==='adverb'||iss.type==='wordy'||iss.type==='cliche';
   }
 
@@ -2185,7 +2186,8 @@ function renderAnnotatedAsPages(text,issues){
       // A verb or synonym from a fixed list is never applied for the author: it is shown
       // for them to weigh, and the button takes them to the word instead.
       const hasAI=!!sug.match(/Replace with:\s*".+?"/);
-      const canAutoFix=!setAside&&(hasAI||t==='adverb'||t==='wordy'||t==='cliche');
+      // data-nofix: the detector judged deletion unsafe here (an adverb in a list or stack).
+      const canAutoFix=!setAside&&hl.dataset.nofix!=='1'&&(hasAI||t==='adverb'||t==='wordy'||t==='cliche');
       const fixLabel=canAutoFix?'Replace & Fix':'Edit Here';
       const body=setAside
         ?'<div class="tip-sug">Set aside for this passage:</div><div class="tip-quote">'+esc(setAside)+'</div>'
@@ -2227,7 +2229,7 @@ function getAnnotatedSlice(fullText,start,end,issues){
     const iStart=Math.max(i.index,start);
     const iEnd=Math.min(i.index+i.length,end);
     if(iStart>pos)h+=esc(fullText.substring(pos,iStart));
-    const setAside=i.contextSuppressed&&i._context?' data-r="'+escA(i._context.reason||'')+'"':'';
+    const setAside=(i.contextSuppressed&&i._context?' data-r="'+escA(i._context.reason||'')+'"':'')+(i.autoFix===false?' data-nofix="1"':'');
     h+='<span class="hl'+(i.contextSuppressed?' hl-ctx':'')+'" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'"'+setAside+'>'+esc(fullText.substring(iStart,iEnd))+'</span>';
     pos=iEnd;
   }
