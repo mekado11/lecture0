@@ -128,15 +128,24 @@ const BookIntelligence = (() => {
       evidence,
       status: Number.isFinite(value) ? 'measured' : 'not_measured'
     });
+    const plot=analysis.plot||{}, pacing=analysis.pacing||{}, dialogue=analysis.dialogue||{};
+    const plotEvidence=plot.arc==='nonfiction'
+      ? ['claim signals='+(plot.thesisSignals??0),'evidence signals='+(plot.evidenceSignals??0),'transition signals='+(plot.transitionSignals??0),'synthesis signals='+(plot.synthesisSignals??0)]
+      : ['peak quarter='+(plot.peakQuarter??'N/A'),'tension signals='+(plot.quarters||[]).reduce((n,q)=>n+(q.tensionSignals||0),0),'action signals='+(plot.quarters||[]).reduce((n,q)=>n+(q.actionSignals||0),0),'resolution signals='+(plot.quarters||[]).reduce((n,q)=>n+(q.resolutionSignals||0),0)];
+    const paceSegments=Array.isArray(pacing.segments)?pacing.segments:[];
     return {
-      overall: metric(analysis.overall, 'Analyzer.recalcOverall', ['weighted category scores']),
-      plot: metric(scores.plot, 'Analyzer plot score', [byType('plot') + ' plot issue(s)']),
-      pacing: metric(Number.isFinite(scores.plot) && Number.isFinite(scores.transitions) ? (scores.plot + scores.transitions) / 2 : null, 'plot + transitions composite', ['plot=' + (scores.plot ?? 'N/A'), 'transitions=' + (scores.transitions ?? 'N/A')]),
-      hook: metric(rp.hookStrength, 'Analyzer.analyzeReaderPerspective', [byType('hook') + ' hook issue(s)']),
-      engagement: metric(rp.engagementScore, 'Analyzer.analyzeReaderPerspective', ['reader-perspective heuristic']),
-      clarity: metric(rp.clarityScore, 'Analyzer.analyzeReaderPerspective', [byType('clarity') + ' clarity issue(s)']),
-      dialogue: metric(scores.dialogue, 'Analyzer dialogue score', [byType('dialogue') + ' dialogue issue(s)']),
-      grammar: metric(scores.grammar, 'Analyzer grammar score', [byType('grammar') + ' grammar issue(s)'])
+      overall: metric(analysis.overall, 'Analyzer._computeScoreBundle', ['applicable dimensions only; weights renormalized']),
+      plot: metric(scores.plot, plot.arc==='nonfiction'?'Analyzer._analyzeArgumentStructure':'Analyzer.analyzePlot', plotEvidence),
+      pacing: metric(Number.isFinite(scores.plot)&&Number.isFinite(scores.transitions)?(scores.plot+scores.transitions)/2:null,'plot + transitions composite',['plot='+(scores.plot??'N/A'),'transitions='+(scores.transitions??'N/A'),'classified pacing segments='+paceSegments.length]),
+      hook: metric(rp.hookStrength,'Analyzer.analyzeReaderPerspective',[byType('hook')+' hook finding(s)']),
+      engagement: metric(rp.engagementScore,'Analyzer.analyzeReaderPerspective',['reader-perspective heuristic']),
+      clarity: metric(rp.clarityScore,'Analyzer.analyzeReaderPerspective',[byType('clarity')+' clarity finding(s)']),
+      copy: metric(scores.copy,'Analyzer.scoreCopyEditing',['validated copy findings='+['passive','adverb','cliche','wordy','confused-word','repetition','grammar'].reduce((n,t)=>n+byType(t),0)]),
+      line: metric(scores.line,'Analyzer line-editing evidence model',['length-normalized observed candidates']),
+      style: metric(scores.style,'Analyzer.analyzeStyle',['MSTTR/rhythm/observed style metrics']),
+      dialogue: metric(scores.dialogue,'Analyzer.analyzeDialogue',['dialogue lines='+(dialogue.count??0),'observed candidates='+(dialogue.candidateCount??0)]),
+      showTell: metric(scores.showTell,'Analyzer show/tell candidate-density index',[byType('show-tell')+' candidate(s)']),
+      grammar: metric(scores.grammar,'Analyzer grammar density model',[byType('grammar')+' grammar finding(s)'])
     };
   }
 

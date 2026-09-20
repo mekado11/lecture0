@@ -1133,76 +1133,30 @@ const Analyzer = {
   // PLOT STRUCTURE ANALYSIS
   // ========================
   analyzePlot(text, mode, genre) {
-    if (this.isNonfiction(genre)) return this._analyzeArgumentStructure(text, mode);
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    const totalParagraphs = paragraphs.length;
-    if (totalParagraphs < 3) {
-      return { score: 50, arc: 'too-short', details: 'Text too short for plot analysis.', hasRisingAction: false, hasClimax: false, hasResolution: false, hasCliffhanger: false, hasSceneGoal: false, paragraphCount: totalParagraphs, quarters: [] };
+    if(this.isNonfiction(genre)) return this._analyzeArgumentStructure(text,mode);
+    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
+    if(paragraphs.length<3)return {score:null,applicable:false,arc:'insufficient-data',details:'Too little narrative text for structural measurement.',paragraphCount:paragraphs.length,quarters:[]};
+    const qSize=Math.ceil(paragraphs.length/4);
+    const tensionRe=/\b(conflict|struggle|fight|danger|threat|problem|challenge|crisis|desperate|fear|terror|panic|attack|escape|chase|betray|confront|demand|risk|urgent|trapped|failed|loss|enemy|pressure)\b/gi;
+    const resolutionRe=/\b(resolved|forgive|forgiven|healed|returned|reunited|safe|calm|accepted|reconciled|settled|answered|solution|peace)\b/gi;
+    const actionRe=/\b(ran|rushed|grabbed|threw|struck|fought|attacked|escaped|chased|drove|pulled|pushed|fell|burst|charged|fired|slammed|crashed)\b/gi;
+    const quarters=[];
+    for(let i=0;i<4;i++){
+      const ps=paragraphs.slice(i*qSize,Math.min((i+1)*qSize,paragraphs.length));
+      const txt=ps.join(' '), wc=(txt.match(/\b[\w’'-]+\b/g)||[]).length;
+      const tension=(txt.match(tensionRe)||[]).length, resolution=(txt.match(resolutionRe)||[]).length, action=(txt.match(actionRe)||[]).length;
+      quarters.push({quarter:i+1,paragraphStart:i*qSize+1,paragraphEnd:Math.min((i+1)*qSize,paragraphs.length),wordCount:wc,tensionSignals:tension,resolutionSignals:resolution,actionSignals:action,tensionPerK:+(tension/Math.max(wc,1)*1000).toFixed(2),resolutionPerK:+(resolution/Math.max(wc,1)*1000).toFixed(2),actionPerK:+(action/Math.max(wc,1)*1000).toFixed(2)});
     }
-    const tensionWords = ['but','however','suddenly','unfortunately','despite','conflict',
-      'struggle','fight','danger','threat','problem','challenge','crisis','desperate',
-      'fear','terror','shock','scream','panic','crash','explosion','death','kill',
-      'attack','escape','chase','reveal','secret','betray','confront','demand'];
-    const resolutionWords = ['finally','resolved','peace','understand','accept','together',
-      'smile','hope','light','dawn','new','begin','realize','truth','answer',
-      'embrace','forgive','heal','return','home','safe','calm'];
-    const quarterSize = Math.ceil(totalParagraphs / 4);
-    const quarters = [];
-    for (let i = 0; i < 4; i++) {
-      const start = i * quarterSize;
-      const end = Math.min(start + quarterSize, totalParagraphs);
-      const section = paragraphs.slice(start, end).join(' ').toLowerCase();
-      let tension = 0, resolution = 0;
-      tensionWords.forEach(w => { const m = section.match(new RegExp(`\\b${w}\\b`, 'g')); if (m) tension += m.length; });
-      resolutionWords.forEach(w => { const m = section.match(new RegExp(`\\b${w}\\b`, 'g')); if (m) resolution += m.length; });
-      quarters.push({ tension, resolution, wordCount: section.split(/\s+/).length });
-    }
-    const hasRisingAction = quarters[1].tension > quarters[0].tension;
-    const hasClimax = quarters[2].tension >= quarters[1].tension || quarters[2].tension >= quarters[0].tension;
-    const hasResolution = quarters[3].resolution > quarters[2].resolution || quarters[3].tension < quarters[2].tension;
-
-    // Chapter-level: check for scene goal and cliffhanger ending
-    const lastPara = paragraphs[paragraphs.length - 1].toLowerCase();
-    const hasCliffhanger = /\?$/.test(lastPara.trim()) || /\b(but|however|suddenly|then|until|never|everything changed)\b/.test(lastPara);
-    const firstPara = paragraphs[0].toLowerCase();
-    const hasSceneGoal = /\b(need|must|had to|wanted|determined|searching|looking for|trying to)\b/.test(firstPara);
-
-    const totalTension = quarters.reduce((s, q) => s + q.tension, 0);
-    const totalResolution = quarters.reduce((s, q) => s + q.resolution, 0);
-    const tensionDensity = totalTension / Math.max(totalParagraphs, 1);
-    let score = 10;
-    if (mode === 'chapter' || mode === 'excerpt') {
-      if (hasSceneGoal) score += 15;
-      if (hasRisingAction) score += 18;
-      if (hasClimax) score += 15;
-      if (hasCliffhanger) score += 15;
-      if (hasResolution) score += 5;
-    } else {
-      if (hasRisingAction) score += 20;
-      if (hasClimax) score += 20;
-      if (hasResolution) score += 18;
-      if (!hasRisingAction && !hasClimax && !hasResolution) score -= 5;
-    }
-    if (tensionDensity > 1.5) score += 8;
-    else if (tensionDensity > 0.8) score += 4;
-    else if (tensionDensity < 0.2) score -= 5;
-    const wordCounts = quarters.map(q => q.wordCount);
-    const avgWords = wordCounts.reduce((a, b) => a + b, 0) / 4;
-    const paceVariance = wordCounts.reduce((sum, w) => sum + Math.pow(w - avgWords, 2), 0) / 4;
-    if (paceVariance < avgWords * avgWords * 0.25) score += 4;
-
-    let arcType = 'flat';
-    if (mode === 'chapter' || mode === 'excerpt') {
-      if (hasSceneGoal && hasRisingAction && hasCliffhanger) arcType = 'strong-scene';
-      else if (hasRisingAction && hasCliffhanger) arcType = 'building';
-      else if (hasRisingAction) arcType = 'rising';
-      else if (hasCliffhanger) arcType = 'hook-ending';
-    } else {
-      if (hasRisingAction && hasClimax && hasResolution) arcType = 'classic';
-      else if (hasRisingAction && hasClimax) arcType = 'rising';
-      else if (hasResolution) arcType = 'resolution-focused';
-    }
-    return { score: Math.min(100, Math.max(0, score)), arc: arcType, quarters, hasRisingAction, hasClimax, hasResolution, hasCliffhanger, hasSceneGoal, paragraphCount: totalParagraphs };
+    const curve=quarters.map(q=>q.tensionPerK+q.actionPerK*.5);
+    const risingCandidate=curve[1]>curve[0];
+    const peak=Math.max(...curve),peakQuarter=curve.indexOf(peak)+1;
+    const climaxCandidate=peakQuarter===3||peakQuarter===4;
+    const resolutionCandidate=quarters[3].resolutionPerK>Math.max(quarters[0].resolutionPerK,quarters[1].resolutionPerK);
+    // Structural score reflects only measured arc-shape evidence. Labels remain candidates:
+    // deterministic lexical signals cannot prove a literary climax or resolution.
+    const measured=[risingCandidate,climaxCandidate,resolutionCandidate];
+    const score=Math.round(measured.filter(Boolean).length/measured.length*100);
+    return {score,applicable:true,arc:'measured-arc-signals',methodology:'Quarter-normalized tension/action/resolution signals; structural labels are candidates, not facts.',quarters,paragraphCount:paragraphs.length,risingActionCandidate:risingCandidate,climaxCandidate,resolutionCandidate,peakQuarter,hasRisingAction:risingCandidate,hasClimax:climaxCandidate,hasResolution:resolutionCandidate,hasCliffhanger:null,hasSceneGoal:null};
   },
 
   // ========================
@@ -1210,65 +1164,26 @@ const Analyzer = {
   // Scores: thesis clarity, evidence density, logical transitions, conclusion synthesis
   // ========================
   _analyzeArgumentStructure(text, mode) {
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    const totalParagraphs = paragraphs.length;
-    if (totalParagraphs < 3) {
-      return { score: 50, arc: 'too-short', details: 'Text too short for argument analysis.', hasThesis: false, hasEvidence: false, hasTransitions: false, hasConclusion: false, paragraphCount: totalParagraphs, quarters: [] };
-    }
-    const lower = text.toLowerCase();
-    const totalWords = (text.match(/\b\w+\b/g) || []).length;
-
-    // Thesis: opening establishes a premise / question / claim
-    const opening = paragraphs.slice(0, 3).join(' ').toLowerCase();
-    const thesisSignals = (opening.match(/\b(this book|this chapter|here is|the truth is|i argue|i believe|the question|the problem|the issue|consider|imagine|suppose|let me|what if|why|how|because)\b/g) || []).length;
-    const hasThesis = thesisSignals >= 2 || opening.includes('?');
-
-    // Evidence density: data, examples, citations, "for example", quoted material
-    const evidenceMatches = (lower.match(/\b(for example|for instance|research|study|studies|data|evidence|according to|statistics|percent|percentage|consider|case in point|specifically|in fact|notably)\b/g) || []).length;
-    const citationMatches = (text.match(/\(\d{4}\)|\[\d+\]|\bpage \d+/gi) || []).length;
-    const evidencePerK = ((evidenceMatches + citationMatches) / Math.max(totalWords, 1)) * 1000;
-    const hasEvidence = evidencePerK >= 1.5;
-
-    // Logical transitions: first/second/finally/therefore/consequently/however/moreover
-    const transitionMatches = (lower.match(/\b(first|second|third|finally|therefore|consequently|however|moreover|furthermore|in addition|on the other hand|in contrast|as a result|nevertheless|thus|hence|accordingly|meanwhile|subsequently)\b/g) || []).length;
-    const transitionPerK = (transitionMatches / Math.max(totalWords, 1)) * 1000;
-    const hasTransitions = transitionPerK >= 2;
-
-    // Conclusion: final paragraphs synthesize / summarize / call to action
-    const closing = paragraphs.slice(-3).join(' ').toLowerCase();
-    const conclusionSignals = (closing.match(/\b(in conclusion|in summary|to summarize|the takeaway|finally|ultimately|the lesson|the point is|remember this|now you|action|next step|begin|start|do this)\b/g) || []).length;
-    const hasConclusion = conclusionSignals >= 1;
-
-    // Quarter-by-quarter argument density (parallel structure to plot quarters)
-    const q = Math.floor(totalParagraphs / 4);
-    const quarters = [0, 1, 2, 3].map(i => {
-      const start = i * q;
-      const end = i === 3 ? totalParagraphs : (i + 1) * q;
-      const slice = paragraphs.slice(start, end).join(' ').toLowerCase();
-      const sliceWords = (slice.match(/\b\w+\b/g) || []).length;
-      const sliceEvidence = (slice.match(/\b(for example|research|study|data|evidence|according to|specifically)\b/g) || []).length;
-      return { density: sliceWords > 0 ? sliceEvidence / sliceWords * 1000 : 0 };
-    });
-
-    let score = 10;
-    if (hasThesis) score += 25;
-    if (hasEvidence) score += 25;
-    if (hasTransitions) score += 20;
-    if (hasConclusion) score += 15;
-    // Bonus for high-quality evidence density
-    if (evidencePerK > 4) score += 5;
-
-    return {
-      score: Math.min(100, Math.max(0, score)),
-      arc: 'nonfiction',
-      hasThesis, hasEvidence, hasTransitions, hasConclusion,
-      evidencePerK: Math.round(evidencePerK * 10) / 10,
-      transitionPerK: Math.round(transitionPerK * 10) / 10,
-      paragraphCount: totalParagraphs,
-      quarters,
-      // Plot-shape compatibility fields (so existing UI doesn't crash):
-      hasRisingAction: hasEvidence, hasClimax: hasConclusion, hasResolution: hasConclusion, hasCliffhanger: false, hasSceneGoal: hasThesis
-    };
+    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
+    const words=text.match(/\b[\w’'-]+\b/g)||[], totalWords=words.length;
+    if(paragraphs.length<3)return {score:null,applicable:false,arc:'nonfiction',details:'Too little text for argument-structure measurement.',paragraphCount:paragraphs.length,quarters:[]};
+    const opening=paragraphs.slice(0,Math.min(3,paragraphs.length)).join(' ');
+    const closing=paragraphs.slice(-Math.min(3,paragraphs.length)).join(' ');
+    const claimRe=/\b(i argue|this book argues|this chapter argues|the central claim|the thesis|the problem is|the question is|we will show|i will show|this book shows|this chapter shows)\b/gi;
+    const evidenceRe=/\b(for example|for instance|according to|research|study|studies|data|evidence|statistics|case study|survey|experiment|analysis found|results show)\b/gi;
+    const transitionRe=/\b(first|second|third|finally|therefore|consequently|however|moreover|furthermore|in addition|on the other hand|in contrast|as a result|nevertheless|thus|hence|accordingly|meanwhile|subsequently)\b/gi;
+    const synthesisRe=/\b(in conclusion|in summary|to summarize|taken together|overall|ultimately|the takeaway|the evidence shows|we have seen|this means)\b/gi;
+    const thesisSignals=(opening.match(claimRe)||[]).length;
+    const evidenceSignals=(text.match(evidenceRe)||[]).length+(text.match(/\([^)]*\b(19|20)\d{2}\b[^)]*\)|\[\d+\]/g)||[]).length;
+    const transitionSignals=(text.match(transitionRe)||[]).length;
+    const synthesisSignals=(closing.match(synthesisRe)||[]).length;
+    const evidencePerK=+(evidenceSignals/Math.max(totalWords,1)*1000).toFixed(2);
+    const transitionPerK=+(transitionSignals/Math.max(totalWords,1)*1000).toFixed(2);
+    const observed=[thesisSignals>0,evidenceSignals>0,transitionSignals>0,synthesisSignals>0];
+    const score=Math.round(observed.filter(Boolean).length/observed.length*100);
+    const qSize=Math.ceil(paragraphs.length/4);
+    const quarters=[0,1,2,3].map(i=>{const t=paragraphs.slice(i*qSize,Math.min((i+1)*qSize,paragraphs.length)).join(' '),wc=(t.match(/\b[\w’'-]+\b/g)||[]).length,e=(t.match(evidenceRe)||[]).length;return {quarter:i+1,wordCount:wc,evidenceSignals:e,evidencePerK:+(e/Math.max(wc,1)*1000).toFixed(2)}});
+    return {score,applicable:true,arc:'nonfiction',methodology:'Observed claim, evidence, transition, and closing-synthesis signals.',thesisSignals,evidenceSignals,transitionSignals,synthesisSignals,evidencePerK,transitionPerK,hasThesis:thesisSignals>0,hasEvidence:evidenceSignals>0,hasTransitions:transitionSignals>0,hasConclusion:synthesisSignals>0,paragraphCount:paragraphs.length,quarters,hasRisingAction:null,hasClimax:null,hasResolution:null,hasCliffhanger:null,hasSceneGoal:null};
   },
 
   // ========================
@@ -1416,324 +1331,194 @@ const Analyzer = {
   // TRANSITION ANALYSIS
   // ========================
   analyzeTransitions(text) {
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    if (paragraphs.length < 2) return { score: 50, totalParagraphs: paragraphs.length, transitionsUsed: 0, smoothTransitions: 0, smoothRate: 0, details: [] };
-    const transitionWords = new Set([
-      'however','moreover','furthermore','meanwhile','consequently','therefore',
-      'nevertheless','nonetheless','additionally','similarly','conversely',
-      'in contrast','on the other hand','as a result','in addition','for example',
-      'for instance','in other words','in fact','indeed','likewise','accordingly',
-      'thus','hence','still','yet','also','then','next','finally','afterwards',
-      'later','before','after','during','while','although','though','even though',
-      'because','since','when','once','until','unless']);
-    let transitionsUsed = 0, smoothTransitions = 0;
-    const transitionDetails = [];
-    for (let i = 1; i < paragraphs.length; i++) {
-      const currStart = paragraphs[i].trim().split(/\s+/).slice(0, 8).join(' ').toLowerCase();
-      let hasTransition = false;
-      for (const tw of transitionWords) {
-        if (currStart.includes(tw)) { hasTransition = true; transitionsUsed++; break; }
-      }
-      const prevWords = new Set(paragraphs[i-1].toLowerCase().match(/\b[a-z]{4,}\b/g) || []);
-      const currWords = paragraphs[i].toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
-      const shared = currWords.filter(w => prevWords.has(w)).length;
-      const continuity = shared / Math.max(currWords.length, 1);
-      if (hasTransition || continuity > 0.15) smoothTransitions++;
-      transitionDetails.push({ paragraph: i+1, hasTransitionWord: hasTransition, continuityScore: Math.round(continuity*100), smooth: hasTransition || continuity > 0.15 });
+    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
+    if(paragraphs.length<2) return {score:null,totalParagraphs:paragraphs.length,transitionsUsed:0,smoothTransitions:0,smoothRate:null,details:[],applicable:false};
+    const stop=new Set('the a an and or but of to in on at for from with by as is are was were be been being it this that these those he she they we you i his her their our your my not no do did does have has had'.split(' '));
+    const contentWords=s=>(s.toLowerCase().match(/\b[a-z]{4,}\b/g)||[]).filter(w=>!stop.has(w));
+    const transitionRe=/^(however|moreover|furthermore|meanwhile|consequently|therefore|nevertheless|nonetheless|additionally|similarly|conversely|in contrast|on the other hand|as a result|in addition|for example|for instance|in other words|in fact|indeed|likewise|accordingly|thus|hence|still|yet|also|then|next|finally|afterwards|later|before|after|during|while|although|though|even though|because|since|when|once|until|unless)\b/i;
+    let transitionsUsed=0,smoothTransitions=0;
+    const details=[];
+    for(let i=1;i<paragraphs.length;i++){
+      const prev=contentWords(paragraphs[i-1]), curr=contentWords(paragraphs[i]);
+      const prevSet=new Set(prev), currSet=new Set(curr);
+      const shared=[...new Set(curr.filter(w=>prevSet.has(w)))];
+      const union=new Set([...prev,...curr]).size;
+      const overlap=union?shared.length/union:0;
+      const currTrim=paragraphs[i].trim();
+      const marker=(currTrim.match(transitionRe)||[])[1]||null;
+      const pronounBridge=/^(he|she|they|it|this|that|these|those|such|his|her|their)\b/i.test(currTrim);
+      // A transition is supported by an explicit connective, meaningful lexical carryover,
+      // or a referential bridge. This is evidence, not a claim that a transition "feels smooth."
+      const supported=Boolean(marker)||overlap>=0.06||(pronounBridge&&shared.length>=1);
+      if(marker) transitionsUsed++;
+      if(supported) smoothTransitions++;
+      details.push({fromParagraph:i,toParagraph:i+1,marker,sharedTerms:shared.slice(0,8),overlapScore:Math.round(overlap*100),pronounBridge,supported});
     }
-    const smoothRate = smoothTransitions / (paragraphs.length - 1);
-    let score = Math.round(smoothRate * 80 + 20);
-    const transitionRate = transitionsUsed / (paragraphs.length - 1);
-    if (transitionRate > 0.3 && transitionRate < 0.7) score = Math.min(score + 10, 100);
-    return { score: Math.min(100, Math.max(0, score)), totalParagraphs: paragraphs.length, transitionsUsed, smoothTransitions, smoothRate: Math.round(smoothRate * 100), details: transitionDetails };
+    const smoothRate=Math.round(smoothTransitions/details.length*100);
+    // Score is explicitly the supported-boundary rate. No arbitrary +20 floor or bonus
+    // for using a preferred percentage of transition words.
+    return {score:smoothRate,totalParagraphs:paragraphs.length,transitionsUsed,smoothTransitions,smoothRate,details,applicable:true,metric:'supported paragraph boundaries'};
   },
 
   // ========================
   // DIALOGUE ANALYSIS
   // ========================
   analyzeDialogue(text, genre) {
-    const dialogueMatches = text.match(/[""\u201C][^""\u201D]*[""\u201D]/g) || [];
-    const dialogueCount = dialogueMatches.length;
-    const totalWords = text.split(/\s+/).length;
-    const lower = text.toLowerCase();
-    const findings = [];
-
-    const isNF = this.isNonfiction(genre);
-
-    if (dialogueCount === 0) {
-      if (isNF) {
-        return {
-          score: null, n_a: true, count: 0, ratio: 0, tags: {}, saidRatio: 0, avgLength: 0,
-          tagDiscipline: 0, conciseness: 0, showNotTell: 0, purposefulness: 0, naturalness: 0,
-          findings: [{ type: 'dialogue', severity: 'low', message: 'Nonfiction with no dialogue \u2014 not scored.' }]
-        };
-      }
-      return {
-        score: 50, count: 0, ratio: 0, tags: {}, saidRatio: 0, avgLength: 0,
-        tagDiscipline: 0, conciseness: 0, showNotTell: 0, purposefulness: 0, naturalness: 0,
-        findings: [{ type: 'dialogue', severity: 'medium', message: 'No dialogue detected. If this is fiction, dialogue is one of the fastest ways to pull readers into a moment. Even literary fiction benefits from dialogue to break up narration and reveal character.' }]
-      };
-    }
-
-    const dialogueWords = dialogueMatches.reduce((sum, d) => sum + d.split(/\s+/).length, 0);
-    const ratio = dialogueWords / totalWords;
-
-    // Nonfiction with low dialogue ratio: not scored (quoted experts, brief exchanges in memoir, etc.)
-    if (isNF && ratio < 0.05) {
-      return {
-        score: null, n_a: true, count: dialogueCount, ratio,
-        tags: {}, saidRatio: 0, avgLength: 0,
-        tagDiscipline: 0, conciseness: 0, showNotTell: 0, purposefulness: 0, naturalness: 0,
-        findings: [{ type: 'dialogue', severity: 'low', message: 'Nonfiction with minimal dialogue (<5%) \u2014 not scored.' }]
-      };
-    }
-
-    // === TAG DISCIPLINE ===
-    // Good dialogue uses "said"/"asked" (invisible tags) and beats (action) instead of exotic tags
-    let tagDiscipline = 100;
-    const tagPatterns = text.match(/[""\u201D]\s*(said|asked|whispered|shouted|muttered|replied|exclaimed|declared|murmured|yelled|cried|answered|stated|remarked|noted|suggested|demanded|insisted|pleaded|warned|admitted|announced|argued|claimed|complained|confirmed|denied|explained|observed|protested|responded|sighed|snapped|stammered)\b/gi) || [];
-    const tags = {};
-    tagPatterns.forEach(t => { const verb = t.replace(/[""\u201D]\s*/, '').toLowerCase(); tags[verb] = (tags[verb] || 0) + 1; });
-    const saidAskedCount = (tags['said'] || 0) + (tags['asked'] || 0);
-    const totalTags = tagPatterns.length;
-    const saidRatio = totalTags > 0 ? saidAskedCount / totalTags : 0;
-    // Exotic tags (not said/asked)
-    const exoticTags = totalTags - saidAskedCount;
-    const exoticRatio = totalTags > 0 ? exoticTags / totalTags : 0;
-    if (exoticRatio > 0.5) {
-      tagDiscipline -= 20;
-      findings.push({ type: 'tags', severity: 'medium', message: 'Over-decorated dialogue tags: ' + exoticTags + '/' + totalTags + ' are exotic ("exclaimed", "murmured", etc). Use "said" — it\'s invisible to readers. Let the words carry emotion.' });
-    }
-    // Adverb-modified tags ("said angrily", "whispered softly")
-    const adverbTags = (text.match(/[""\u201D]\s*\w+\s+(angrily|sadly|happily|nervously|excitedly|furiously|quietly|loudly|softly|tearfully|breathlessly|anxiously|impatiently|curiously|coldly|warmly|flatly|sharply|gently|bitterly|wearily|desperately|hopefully|hoarsely|fiercely|slowly|quickly)/gi) || []).length;
-    if (adverbTags > 0) {
-      tagDiscipline -= adverbTags * 5;
-      findings.push({ type: 'tags', severity: 'medium', message: adverbTags + ' adverb-modified tag(s) ("said angrily", "whispered softly"). Cut the adverb — if the dialogue needs an adverb to convey emotion, the dialogue itself is too weak.' });
-    }
-    // Over-attribution: tagging every single line
-    if (totalTags > 0 && totalTags / dialogueCount > 0.7) {
-      tagDiscipline -= 10;
-      findings.push({ type: 'tags', severity: 'low', message: 'Over-attributed: ' + totalTags + ' tags for ' + dialogueCount + ' lines. In back-and-forth dialogue, drop tags after establishing speakers. Use action beats instead.' });
-    }
-    // NO tags at all (also a problem — reader gets lost)
-    if (dialogueCount > 4 && totalTags === 0) {
-      tagDiscipline -= 10;
-      findings.push({ type: 'tags', severity: 'low', message: 'No dialogue tags found. While minimal tags are good, zero tags across ' + dialogueCount + ' lines can confuse readers about who is speaking.' });
-    }
-
-    // === CONCISENESS ===
-    // Dialogue should be tighter than narration. Long speeches = lecture, not conversation
-    let conciseness = 100;
-    const lengths = dialogueMatches.map(d => d.replace(/[""\u201C\u201D]/g, '').trim().split(/\s+/).length);
-    const avgLen = lengths.reduce((a, b) => a + b, 0) / lengths.length;
-    const longSpeeches = lengths.filter(l => l > 40).length;
-    const shortPunches = lengths.filter(l => l <= 5).length;
-    if (longSpeeches > 0) {
-      conciseness -= longSpeeches * 8;
-      findings.push({ type: 'conciseness', severity: 'medium', message: longSpeeches + ' dialogue line(s) over 40 words. Characters shouldn\'t give speeches — break into exchange, use interruptions, or move info to narration.' });
-    }
-    if (avgLen > 20) {
-      conciseness -= 10;
-      findings.push({ type: 'conciseness', severity: 'low', message: 'Average dialogue line is ' + Math.round(avgLen) + ' words. Real conversation is shorter. Mix long and short — a one-word reply can be more powerful than a paragraph.' });
-    }
-    // Reward short, punchy exchanges
-    if (shortPunches > dialogueCount * 0.3) conciseness += 5;
-
-    // === SHOW NOT TELL IN DIALOGUE CONTEXT ===
-    // Narration around dialogue shouldn't explain what the dialogue already shows
-    let showNotTell = 100;
-    // "he said angrily" when the dialogue is clearly angry
-    // Emotion-explaining narration near dialogue
-    const emotionExplainers = (text.match(/[""\u201D][^""\u201C]*\b(was angry|was upset|was nervous|was scared|was happy|was sad|felt angry|felt nervous|felt scared|felt happy|felt sad|with anger|with frustration|in frustration|in anger|with fear)\b/gi) || []).length;
-    if (emotionExplainers > 0) {
-      showNotTell -= emotionExplainers * 8;
-      findings.push({ type: 'showing', severity: 'high', message: emotionExplainers + ' emotion explanation(s) near dialogue ("was angry", "felt nervous"). If the dialogue shows anger, don\'t explain it — trust the reader. Use action beats: "His jaw tightened" not "He was angry."' });
-    }
-    // Action beats that tell instead of show
-    const tellingBeats = (text.match(/[""\u201D][^""\u201C]*(trying to calm|trying to hide|trying to sound|wanting to say|hoping to|meaning to)\b/gi) || []).length;
-    if (tellingBeats > 0) {
-      showNotTell -= tellingBeats * 5;
-      findings.push({ type: 'showing', severity: 'medium', message: tellingBeats + ' telling beat(s) near dialogue ("trying to calm him down"). Show the attempt through action, not narration of intent.' });
-    }
-
-    // === PURPOSEFULNESS ===
-    // Every line should: move plot, reveal character, or build tension
-    // We can detect anti-patterns: small talk, greetings, empty exchanges
-    let purposefulness = 100;
-    const smallTalk = dialogueMatches.filter(d => {
-      const dl = d.toLowerCase().replace(/[""\u201C\u201D]/g, '').trim();
-      return /^(hi|hello|hey|how are you|good morning|good evening|nice to meet you|what's up|goodbye|bye|see you|take care|thanks|thank you|you're welcome|no problem|sure|okay|ok|yeah|yes|no|fine|right|well|hmm|huh|oh)\s*[.!?]*$/i.test(dl);
-    }).length;
-    if (smallTalk > 0) {
-      purposefulness -= smallTalk * 6;
-      findings.push({ type: 'purpose', severity: 'low', message: smallTalk + ' small-talk/filler line(s) ("Hi", "How are you", "Okay"). Every dialogue line should move the story, reveal character, or build tension. Cut pleasantries unless they serve a purpose.' });
-    }
-    // Repetitive dialogue (character repeating what was just said)
-    for (let i = 1; i < dialogueMatches.length; i++) {
-      const prev = dialogueMatches[i - 1].toLowerCase().replace(/[""\u201C\u201D]/g, '').trim();
-      const curr = dialogueMatches[i].toLowerCase().replace(/[""\u201C\u201D]/g, '').trim();
-      if (prev.length > 10 && curr.includes(prev.substring(0, Math.min(prev.length, 20)))) {
-        purposefulness -= 5;
-      }
-    }
-
-    // === NATURALNESS ===
-    // Dialogue shouldn't sound like exposition dressed as speech
-    let naturalness = 100;
-    // "As you know" / exposition dumps in dialogue
-    const asYouKnow = (text.match(/[""\u201C][^""\u201D]*(as you know|as we discussed|as I mentioned|let me explain|the thing is|you see|I should tell you|you need to understand|what you don't realize)\b/gi) || []).length;
-    if (asYouKnow > 0) {
-      naturalness -= asYouKnow * 8;
-      findings.push({ type: 'naturalness', severity: 'high', message: asYouKnow + ' exposition-in-dialogue ("As you know...", "Let me explain..."). People don\'t explain things the other person already knows. Move backstory to narration or show it through conflict.' });
-    }
-    // Characters speaking in complete, formal sentences (real people fragment)
-    const formalDialogue = dialogueMatches.filter(d => {
-      const words = d.replace(/[""\u201C\u201D]/g, '').trim().split(/\s+/);
-      return words.length > 15 && !/[—\-?!]/.test(d) && !/\.\.\.|\.{3}/.test(d);
-    }).length;
-    if (formalDialogue > dialogueCount * 0.6 && dialogueCount > 3) {
-      naturalness -= 10;
-      findings.push({ type: 'naturalness', severity: 'low', message: 'Most dialogue lines are long, complete sentences. Real people trail off, interrupt, fragment. Add "—" dashes, "..." ellipses, and sentence fragments for realism.' });
-    }
-    // Length variety (conversations have rhythm — long, short, long, short)
-    const lenStdDev = Math.sqrt(lengths.reduce((s, l) => s + Math.pow(l - avgLen, 2), 0) / lengths.length);
-    if (lenStdDev < 3 && dialogueCount > 4) {
-      naturalness -= 8;
-      findings.push({ type: 'naturalness', severity: 'low', message: 'Dialogue lines are all similar length (stddev: ' + lenStdDev.toFixed(1) + '). Real conversations have rhythm — a rapid-fire exchange, then a longer statement, then silence. Vary line lengths.' });
-    }
-    if (lenStdDev > 5) naturalness += 3; // good variety
-
-    // Clamp all
-    tagDiscipline = Math.min(100, Math.max(0, tagDiscipline));
-    conciseness = Math.min(100, Math.max(0, conciseness));
-    showNotTell = Math.min(100, Math.max(0, showNotTell));
-    purposefulness = Math.min(100, Math.max(0, purposefulness));
-    naturalness = Math.min(100, Math.max(0, naturalness));
-
-    const score = Math.round(tagDiscipline * 0.2 + conciseness * 0.2 + showNotTell * 0.25 + purposefulness * 0.15 + naturalness * 0.2);
-
-    return {
-      score: Math.min(100, Math.max(0, score)),
-      count: dialogueCount, ratio: Math.round(ratio * 100),
-      tags, saidRatio: Math.round((totalTags > 0 ? saidAskedCount / totalTags : 0) * 100),
-      avgLength: Math.round(avgLen),
-      // Sub-scores
-      tagDiscipline, conciseness, showNotTell, purposefulness, naturalness,
-      // Details
-      exoticTags, adverbTags, longSpeeches, shortPunches, smallTalk, asYouKnow,
-      lengthVariety: Math.round(lenStdDev * 10) / 10,
-      findings
-    };
+    const matches=text.match(/[“"][^”"\n]*[”"]/g)||[];
+    const totalWords=(text.match(/\b[\w’'-]+\b/g)||[]).length;
+    const isNF=this.isNonfiction(genre);
+    if(!matches.length)return {score:null,n_a:true,count:0,ratio:0,applicable:false,findings:[],methodology:'No dialogue measured; absence is not a quality defect.'};
+    const lengths=matches.map(d=>(d.match(/\b[\w’'-]+\b/g)||[]).length);
+    const dialogueWords=lengths.reduce((a,b)=>a+b,0), ratio=dialogueWords/Math.max(totalWords,1)*100;
+    if(isNF&&ratio<5)return {score:null,n_a:true,count:matches.length,ratio:+ratio.toFixed(1),applicable:false,findings:[],methodology:'Minimal nonfiction dialogue is descriptive only.'};
+    const tagRe=/[”"]\s*(said|asked|whispered|shouted|muttered|replied|exclaimed|declared|murmured|yelled|cried|answered|stated|remarked|noted|suggested|demanded|insisted|pleaded|warned|admitted|announced|argued|claimed|complained|confirmed|denied|explained|protested|responded|snapped|stammered)\b/gi;
+    const tags={}; for(const m of text.matchAll(tagRe)){const v=m[1].toLowerCase();tags[v]=(tags[v]||0)+1;}
+    const totalTags=Object.values(tags).reduce((a,b)=>a+b,0),saidAsked=(tags.said||0)+(tags.asked||0);
+    const adverbTags=(text.match(/[”"]\s*\w+\s+\w+ly\b/gi)||[]).length;
+    const smallTalk=matches.filter(d=>/^[“"]\s*(hi|hello|hey|how are you|good morning|good evening|goodbye|bye|thanks|thank you|okay|ok|yeah|yes|no|fine|right|well|hmm|oh)\s*[.!?]?[”"]$/i.test(d)).length;
+    const expositionMarkers=(text.match(/[“"][^”"]*\b(as you know|as we discussed|as i mentioned|let me explain|you need to understand)\b[^”"]*[”"]/gi)||[]).length;
+    const longLines=lengths.filter(n=>n>60).length;
+    const mean=lengths.reduce((a,b)=>a+b,0)/lengths.length;
+    const sd=Math.sqrt(lengths.reduce((n,v)=>n+(v-mean)**2,0)/lengths.length);
+    const findings=[];
+    if(adverbTags)findings.push({type:'tags',severity:'low',count:adverbTags,message:adverbTags+' dialogue-tag adverb candidate'+(adverbTags===1?'':'s')+' detected; review in context.'});
+    if(expositionMarkers)findings.push({type:'naturalness',severity:'medium',count:expositionMarkers,message:expositionMarkers+' explicit exposition-in-dialogue marker'+(expositionMarkers===1?'':'s')+' detected.'});
+    if(longLines)findings.push({type:'conciseness',severity:'low',count:longLines,message:longLines+' dialogue line'+(longLines===1?'':'s')+' exceed 60 words; review as possible monologues.'});
+    if(smallTalk)findings.push({type:'purpose',severity:'low',count:smallTalk,message:smallTalk+' standalone pleasantry/filler candidate'+(smallTalk===1?'':'s')+' detected; these may be intentional.'});
+    // Only objectively detectable anti-pattern densities affect this quality index.
+    const candidateCount=adverbTags+expositionMarkers+longLines+smallTalk;
+    const candidatesPer100=candidateCount/Math.max(matches.length,1)*100;
+    const score=Math.max(0,Math.min(100,Math.round(100/(1+candidatesPer100/35))));
+    return {score,applicable:true,count:matches.length,ratio:+ratio.toFixed(1),methodology:'Observed dialogue anti-pattern density; naturalness/purpose are not inferred as facts.',tags,saidRatio:totalTags?Math.round(saidAsked/totalTags*100):null,avgLength:+mean.toFixed(1),lengthVariety:+sd.toFixed(1),tagDiscipline:null,conciseness:null,showNotTell:null,purposefulness:null,naturalness:null,adverbTags,longSpeeches:longLines,smallTalk,asYouKnow:expositionMarkers,candidateCount,candidatesPer100:+candidatesPer100.toFixed(1),findings};
   },
 
   // ========================
   // STYLE ANALYSIS
   // ========================
   analyzeStyle(text) {
-    const words = text.match(/\b[a-z']+\b/gi) || [];
-    const totalWords = words.length;
-    const uniqueWords = new Set(words.map(w => w.toLowerCase()));
-    const lexicalDiversity = uniqueWords.size / Math.max(totalWords, 1);
-    const avgWordLen = words.reduce((sum, w) => sum + w.length, 0) / Math.max(totalWords, 1);
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    const paraLengths = paragraphs.map(p => p.split(/\s+/).length);
-    const avgParaLen = paraLengths.reduce((a, b) => a + b, 0) / Math.max(paraLengths.length, 1);
-    const firstPerson = (text.match(/\bI\b/g) || []).length;
-    const thirdPerson = (text.match(/\b(he|she|they)\b/gi) || []).length;
-    const povConsistency = Math.abs(firstPerson - thirdPerson) / Math.max(firstPerson + thirdPerson, 1);
-    let score = 10;
-    if (lexicalDiversity > 0.55) score += 30;
-    else if (lexicalDiversity > 0.45) score += 22;
-    else if (lexicalDiversity > 0.35) score += 14;
-    else if (lexicalDiversity > 0.25) score += 6;
-    if (avgWordLen > 4.5 && avgWordLen < 6) score += 15;
-    else if (avgWordLen > 4) score += 8;
-    else if (avgWordLen <= 3.5) score -= 5;
-    if (povConsistency > 0.8) score += 25;
-    else if (povConsistency > 0.6) score += 15;
-    else if (povConsistency > 0.4) score += 8;
-    const paraLenVariance = paraLengths.length > 1 ? paraLengths.reduce((s, l) => s + Math.pow(l - avgParaLen, 2), 0) / paraLengths.length : 0;
-    if (Math.sqrt(paraLenVariance) > 20) score += 10;
-    else if (Math.sqrt(paraLenVariance) > 10) score += 5;
-    const pov = firstPerson > thirdPerson * 2 ? 'First Person' : thirdPerson > firstPerson * 2 ? 'Third Person' : 'Mixed';
-    return { score: Math.min(100, Math.max(0, score)), totalWords, uniqueWords: uniqueWords.size, lexicalDiversity: Math.round(lexicalDiversity * 100), avgWordLength: Math.round(avgWordLen * 10) / 10, avgParagraphLength: Math.round(avgParaLen), pov, paragraphCount: paragraphs.length };
+    const words=text.match(/\b[a-z']+\b/gi)||[];
+    const totalWords=words.length;
+    const lowerWords=words.map(w=>w.toLowerCase());
+    const uniqueWords=new Set(lowerWords);
+    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
+    const sentences=text.match(/[^.!?]+[.!?]+/g)||[];
+    const sentLens=sentences.map(s=>(s.match(/\b[\w’'-]+\b/g)||[]).length).filter(Boolean);
+    const paraLens=paragraphs.map(p=>(p.match(/\b[\w’'-]+\b/g)||[]).length);
+    const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
+    const sd=a=>{const m=mean(a);return a.length?Math.sqrt(a.reduce((n,v)=>n+(v-m)**2,0)/a.length):0};
+    // Type-token ratio collapses as manuscripts get longer. Use MSTTR: mean TTR over
+    // equal 100-word windows, which makes the vocabulary metric length-comparable.
+    const window=100,ttrs=[];
+    for(let i=0;i<lowerWords.length;i+=window){const w=lowerWords.slice(i,i+window);if(w.length>=50)ttrs.push(new Set(w).size/w.length);}
+    const lexicalDiversity=ttrs.length?mean(ttrs):(uniqueWords.size/Math.max(totalWords,1));
+    const avgWordLen=mean(words.map(w=>w.length));
+    const firstPerson=(text.match(/\b(I|me|my|mine|myself)\b/g)||[]).length;
+    const secondPerson=(text.match(/\b(you|your|yours|yourself|yourselves)\b/gi)||[]).length;
+    const thirdPerson=(text.match(/\b(he|she|they|him|her|them|his|hers|their|theirs)\b/gi)||[]).length;
+    const pov=firstPerson>Math.max(secondPerson,thirdPerson)*1.5?'First Person':secondPerson>Math.max(firstPerson,thirdPerson)*1.5?'Second Person':thirdPerson>Math.max(firstPerson,secondPerson)*1.5?'Third Person':'Mixed';
+    const sentenceStdDev=sd(sentLens),paragraphStdDev=sd(paraLens);
+    // Style score measures observable control/variety only. POV choice and average word
+    // length are descriptive traits, not quality points.
+    let score=100;
+    if(sentLens.length>=5 && sentenceStdDev<3) score-=20;
+    if(paraLens.length>=5 && paragraphStdDev<8) score-=15;
+    if(lexicalDiversity<0.45) score-=15;
+    if(lexicalDiversity<0.35) score-=15;
+    return {score:Math.max(0,Math.min(100,Math.round(score))),totalWords,uniqueWords:uniqueWords.size,lexicalDiversity:Math.round(lexicalDiversity*100),lexicalMetric:'MSTTR-100',avgWordLength:Math.round(avgWordLen*10)/10,avgSentenceLength:Math.round(mean(sentLens)*10)/10,sentenceLengthStdDev:Math.round(sentenceStdDev*10)/10,avgParagraphLength:Math.round(mean(paraLens)),paragraphLengthStdDev:Math.round(paragraphStdDev*10)/10,pov,pronouns:{first:firstPerson,second:secondPerson,third:thirdPerson},paragraphCount:paragraphs.length,sentenceCount:sentences.length};
   },
 
   // ========================
   // PACING ANALYSIS
   // ========================
   analyzePacing(text) {
-    const words = text.split(/\s+/);
+    // Fixed-size windows are retained for a stable heatmap, but every block now carries
+    // provenance (word range + excerpt) and classifications are based on observed signals.
+    const tokens = (text.match(/\S+/g) || []);
     const segmentSize = 200;
     const segments = [];
-    for (let i = 0; i < words.length; i += segmentSize) {
-      const chunk = words.slice(i, i + segmentSize).join(' ');
-      const chunkLower = chunk.toLowerCase();
-      const wordCount = Math.min(segmentSize, words.length - i);
-      // Action density
-      const actionWords = (chunkLower.match(/\b(ran|jumped|fought|grabbed|threw|slammed|crashed|bolted|sprinted|dodged|punched|kicked|fired|chased|escaped|attacked|blocked|dove|lunged|swung|struck|smashed|raced|rushed|burst|charged|leaped|dashed)\b/g) || []).length;
-      // Dialogue density
-      const dialogueLines = (chunk.match(/[""\u201C][^""\u201D]*[""\u201D]/g) || []).length;
-      // Description density
-      const descWords = (chunkLower.match(/\b(beautiful|vast|dark|bright|ancient|massive|tiny|enormous|gleaming|shadowy|crimson|golden|silver|towering|sprawling|weathered|ornate|rustic|pristine|desolate)\b/g) || []).length;
-      const actionDensity = actionWords / wordCount * 100;
-      const dialogueDensity = dialogueLines * 10 / wordCount * 100;
-      const descriptionDensity = descWords / wordCount * 100;
-      let type = 'exposition';
-      if (actionDensity > 2) type = 'action';
-      else if (dialogueDensity > 3) type = 'dialogue';
-      else if (descriptionDensity > 2) type = 'description';
-      else if ((chunkLower.match(/\b(thought|felt|wondered|realized|remembered|considered|reflected|pondered|mused)\b/g) || []).length > 2) type = 'reflection';
-      segments.push({ type, actionDensity: Math.round(actionDensity * 10) / 10, dialogueDensity: Math.round(dialogueDensity * 10) / 10, descriptionDensity: Math.round(descriptionDensity * 10) / 10, wordCount });
+    for (let i = 0; i < tokens.length; i += segmentSize) {
+      const slice = tokens.slice(i, i + segmentSize);
+      const chunk = slice.join(' ');
+      const lower = chunk.toLowerCase();
+      const wordCount = slice.length;
+      const sentences = chunk.split(/[.!?]+/).filter(s => s.trim());
+      const dialogueMatches = chunk.match(/[“"][^”"]*[”"]/g) || [];
+      const dialogueWords = dialogueMatches.reduce((n,d)=>n+(d.match(/\b[\w’'-]+\b/g)||[]).length,0);
+      const actionHits = (lower.match(/\b(ran|run|jumped|fought|grabbed|threw|slammed|crashed|bolted|sprinted|dodged|punched|kicked|fired|chased|escaped|attacked|blocked|dove|lunged|swung|struck|smashed|raced|rushed|burst|charged|leaped|dashed|pulled|pushed|climbed|fell|turned|moved)\b/g)||[]).length;
+      const reflectionHits = (lower.match(/\b(thought|felt|wondered|realized|realised|remembered|considered|reflected|pondered|mused|believed|feared|hoped|imagined)\b/g)||[]).length;
+      const descriptionHits = (lower.match(/\b(looked|appeared|seemed|color|colour|light|dark|bright|shadow|tall|small|large|wide|narrow|cold|warm|hot|quiet|loud|smell|scent|sound|voice|sky|room|street|building|landscape)\b/g)||[]).length;
+      const expositionHits = (lower.match(/\b(because|therefore|means|meant|explained|history|reason|result|example|according|known|understood|information|fact|process)\b/g)||[]).length;
+      const scores = {
+        action: actionHits / Math.max(wordCount,1),
+        dialogue: dialogueWords / Math.max(wordCount,1),
+        description: descriptionHits / Math.max(wordCount,1),
+        reflection: reflectionHits / Math.max(wordCount,1),
+        exposition: expositionHits / Math.max(wordCount,1)
+      };
+      // Dialogue is measured as word share; other modes are lexical signals. Require
+      // evidence before assigning a specialized mode; otherwise exposition is the neutral fallback.
+      let type='exposition';
+      const ranked=Object.entries(scores).filter(([k])=>k!=='exposition').sort((a,b)=>b[1]-a[1]);
+      if(scores.dialogue>=0.12) type='dialogue';
+      else if(scores.action>=0.018 && ranked[0]?.[0]==='action') type='action';
+      else if(scores.reflection>=0.015 && ranked[0]?.[0]==='reflection') type='reflection';
+      else if(scores.description>=0.018 && ranked[0]?.[0]==='description') type='description';
+      segments.push({
+        type,
+        startWord:i+1,endWord:i+wordCount,wordCount,
+        actionDensity:Math.round(scores.action*1000)/10,
+        dialogueDensity:Math.round(scores.dialogue*1000)/10,
+        descriptionDensity:Math.round(scores.description*1000)/10,
+        reflectionDensity:Math.round(scores.reflection*1000)/10,
+        excerpt:chunk.slice(0,180)
+      });
     }
-    return { segments };
+    const counts={action:0,dialogue:0,description:0,exposition:0,reflection:0};
+    segments.forEach(s=>{counts[s.type]=(counts[s.type]||0)+1;});
+    return { segments, segmentSize, counts, totalSegments:segments.length };
   },
 
   // ========================
   // CHARACTER TRACKING
   // ========================
-  analyzeCharacters(text) {
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    // Find proper nouns (capitalized words not at sentence start)
-    const candidates = {};
-    const sentenceStartWords = new Set();
-    text.split(/[.!?]+/).forEach(s => {
-      const first = s.trim().split(/\s+/)[0];
-      if (first) sentenceStartWords.add(first);
-    });
-    // Common non-name capitalized words
-    const skipWords = new Set(['The','A','An','In','On','At','To','For','It','He','She','They','We','You','I','My','His','Her','Our','Their','This','That','These','Those','But','And','Or','If','So','Yet','Not','Was','Were','Is','Are','Has','Had','Have','Do','Does','Did','Will','Would','Could','Should','May','Might','Can','Just','Now','Then','Here','There','When','Where','How','What','Who','Why','Which','After','Before','During','While','Although','Because','Since','Until','Unless','Chapter','Part','Section','One','Two','Three','Four','Five']);
-    const nameRegex = /\b([A-Z][a-z]{2,})\b/g;
-    let match;
-    while ((match = nameRegex.exec(text)) !== null) {
-      const name = match[0];
-      if (!skipWords.has(name)) {
-        if (!candidates[name]) candidates[name] = { mentions: 0, paragraphs: new Set(), dialogueCount: 0 };
-        candidates[name].mentions++;
-        // Find which paragraph
-        let charCount = 0;
-        for (let p = 0; p < paragraphs.length; p++) {
-          charCount += paragraphs[p].length + 2;
-          if (match.index < charCount) { candidates[name].paragraphs.add(p); break; }
-        }
-      }
+  analyzeCharacters(text, genre) {
+    // Character tracking is a fiction/person detector, not a capitalization counter.
+    // Concept-heavy nonfiction was previously turning words such as "Your", "Poverty",
+    // "United" and "States" into characters.
+    const genreKey=typeof genre==='string'?genre:(genre?.primary||'');
+    if (this.isNonfiction(genre) && !['memoir','biography','trueCrime'].includes(genreKey)) return {list:[],applicable:false};
+
+    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
+    const skip=new Set(('The A An In On At To For It He She They We You Your Yours I My His Her Our Their This That These Those But And Or If So Yet Not Was Were Is Are Has Had Have Do Does Did Will Would Could Should May Might Can Just Now Then Here There When Where How What Who Why Which After Before During While Although Because Since Until Unless Chapter Part Section One Two Three Four Five Every Some Most None People Think Self Patience Poverty Take Start Whether Reflection Confidence Write Action About Family Education Social Use Consider Mark Gates United States Nigeria America Europe Africa Asia Monday Tuesday Wednesday Thursday Friday Saturday Sunday January February March April May June July August September October November December').split(/\s+/));
+    const candidates=new Map();
+    const nameRe=/\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b/g;
+    let m;
+    while((m=nameRe.exec(text))!==null){
+      const name=m[1];
+      if(name.split(/\s+/).some(w=>skip.has(w))) continue;
+      const before=text.slice(Math.max(0,m.index-2),m.index);
+      const sentenceStart=m.index===0||/[.!?]\s*$/.test(text.slice(Math.max(0,m.index-4),m.index));
+      const after=text.slice(m.index+name.length,m.index+name.length+45);
+      const beforeCtx=text.slice(Math.max(0,m.index-45),m.index);
+      const possessive=/^[’']s\b/.test(after);
+      const speech=new RegExp('^[\\s,]*(said|asked|whispered|replied|muttered|shouted|cried|answered|called|told|nodded|smiled|laughed|sighed|turned|walked|ran|looked|stared|grabbed|pulled|pushed)\\b','i').test(after);
+      const addressed=new RegExp('\\b(said|asked|told|called|with|from|to)\\s+$','i').test(beforeCtx);
+      const multi=name.includes(' ');
+      const row=candidates.get(name)||{mentions:0,paragraphs:new Set(),dialogueCount:0,evidence:0,sentenceStartOnly:true};
+      row.mentions++;
+      if(!sentenceStart) row.sentenceStartOnly=false;
+      if(possessive||speech||addressed||multi) row.evidence++;
+      if(speech) row.dialogueCount++;
+      let cursor=0;
+      for(let p=0;p<paragraphs.length;p++){cursor+=paragraphs[p].length+2;if(m.index<cursor){row.paragraphs.add(p);break;}}
+      candidates.set(name,row);
     }
-    // Check dialogue attribution
-    const dialogueAttr = text.match(/[""\u201D]\s*([A-Z][a-z]+)\s+(said|asked|whispered|replied|muttered|exclaimed|shouted|cried)/g) || [];
-    dialogueAttr.forEach(d => {
-      const nameMatch = d.match(/[""\u201D]\s*([A-Z][a-z]+)/);
-      if (nameMatch && candidates[nameMatch[1]]) candidates[nameMatch[1]].dialogueCount++;
-    });
-    // Filter to recurring characters (3+ mentions)
-    const list = Object.entries(candidates)
-      .filter(([_, data]) => data.mentions >= 3)
-      .sort((a, b) => b[1].mentions - a[1].mentions)
-      .map(([name, data]) => ({
-        name, mentions: data.mentions,
-        paragraphs: Array.from(data.paragraphs).sort((a,b) => a-b),
-        dialogueCount: data.dialogueCount
-      }));
-    return { list };
+    const list=[...candidates.entries()]
+      .filter(([name,d])=>d.mentions>=3 && (d.evidence>=1 || (!d.sentenceStartOnly && d.mentions>=5)))
+      .sort((a,b)=>b[1].mentions-a[1].mentions)
+      .slice(0,40)
+      .map(([name,d])=>({name,mentions:d.mentions,paragraphs:[...d.paragraphs].sort((a,b)=>a-b),dialogueCount:d.dialogueCount,evidenceCount:d.evidence}));
+    return {list,applicable:true};
   },
 
   // ========================
@@ -2223,224 +2008,106 @@ const Analyzer = {
   // transitions at the sentence level
   // ========================
   analyzeLineEditing(text, genre) {
-    const isNFLine = this.isNonfiction(genre);
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    const words = text.match(/\b\w+\b/g) || [];
-    const totalWords = words.length;
-    const lower = text.toLowerCase();
-    if (sentences.length < 3) return { score: 50, tone: {}, flow: {}, precision: {}, pacing: {}, pov: {}, findings: [] };
-    const findings = [];
+    const isNF=this.isNonfiction(genre);
+    const sentences=(text.match(/[^.!?]+[.!?]+/g)||[]).map(s=>s.trim()).filter(Boolean);
+    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
+    const words=text.match(/\b[\w’'-]+\b/g)||[];
+    const totalWords=words.length;
+    if(sentences.length<3) return {score:null,applicable:false,tone:{score:null},flow:{score:null},precision:{score:null},pacing:{score:null},pov:{score:null},extraneous:{score:null},findings:[]};
+    const findings=[];
+    const perK=n=>n/Math.max(totalWords,1)*1000;
+    const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
+    const sd=a=>{const m=mean(a);return a.length?Math.sqrt(a.reduce((n,v)=>n+(v-m)**2,0)/a.length):0};
+    const clamp=n=>Math.max(0,Math.min(100,Math.round(n)));
 
-    // === 1. TONE CONSISTENCY ===
-    // Are the word choices serving a consistent emotional register?
-    let toneScore = 20;
-    // Detect tonal clashes: formal words near casual words
-    const formalWords = (lower.match(/\b(nevertheless|furthermore|notwithstanding|henceforth|whereby|therein|aforementioned|commenced|endeavored|subsequently|utilized|ascertained|pursuant|heretofore)\b/g) || []).length;
-    const casualWords = (lower.match(/\b(gonna|wanna|gotta|kinda|sorta|stuff|things|cool|awesome|totally|basically|literally|super|pretty much|you know|like)\b/g) || []).length;
-    if (formalWords === 0 && casualWords === 0) toneScore += 25;
-    else if (formalWords === 0 || casualWords === 0) toneScore += 15;
-    else {
-      toneScore -= (formalWords + casualWords) * 4;
-      findings.push({ type: 'tone', severity: 'medium', message: 'Tonal clash: ' + formalWords + ' formal words mixed with ' + casualWords + ' casual words. Pick a register and stay consistent.' });
-    }
-    // Detect emotional whiplash (rapid mood shifts without transition)
-    const moodWords = { dark: /\b(dark|death|blood|fear|terror|grief|mourn|scream|agony)\b/gi, light: /\b(laugh|smile|joy|delight|warm|bright|hope|cheer|happy)\b/gi };
-    let prevMood = null;
-    let moodShifts = 0;
-    sentences.forEach(s => {
-      const sl = s.toLowerCase();
-      const darkCount = (sl.match(moodWords.dark) || []).length;
-      const lightCount = (sl.match(moodWords.light) || []).length;
-      const mood = darkCount > lightCount ? 'dark' : lightCount > darkCount ? 'light' : null;
-      if (mood && prevMood && mood !== prevMood) moodShifts++;
-      if (mood) prevMood = mood;
-    });
-    const moodShiftRate = moodShifts / Math.max(sentences.length, 1);
-    if (moodShiftRate < 0.05) toneScore += 20;
-    else if (moodShiftRate < 0.1) toneScore += 10;
-    else if (moodShifts > sentences.length * 0.15) {
-      toneScore -= 15;
-      findings.push({ type: 'tone', severity: 'low', message: 'Frequent mood shifts (' + moodShifts + ') without transition. Readers may feel disoriented.' });
-    }
+    // Tone: report observable register mixing. Formal/casual vocabulary is not inherently
+    // good or bad; only unusually dense mixing creates a modest consistency penalty.
+    const lower=text.toLowerCase();
+    const formal=(lower.match(/\b(nevertheless|furthermore|notwithstanding|henceforth|whereby|therein|aforementioned|commenced|endeavored|subsequently|utilized|ascertained|pursuant|heretofore)\b/g)||[]).length;
+    const casual=(lower.match(/\b(gonna|wanna|gotta|kinda|sorta|stuff|cool|awesome|totally|basically|literally|super|pretty much|you know)\b/g)||[]).length;
+    const registerMix=Math.min(formal,casual);
+    const registerMixRate=perK(registerMix);
+    let toneScore=clamp(100-Math.min(35,registerMixRate*8));
+    if(registerMixRate>1) findings.push({type:'tone',severity:'low',count:registerMix,ratePerK:+registerMixRate.toFixed(2),message:registerMix+' mixed-register signals ('+registerMixRate.toFixed(1)+' per 1K words). Review them in context; intentional voice shifts may be valid.'});
 
-    // === 2. SENTENCE FLOW (do sentences connect naturally?) ===
-    let flowScore = 15;
-    // Check for abrupt topic shifts between consecutive sentences
-    let abruptShifts = 0;
-    for (let i = 1; i < sentences.length; i++) {
-      const prev = sentences[i - 1].toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
-      const curr = sentences[i].toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
-      const prevSet = new Set(prev);
-      const shared = curr.filter(w => prevSet.has(w)).length;
-      // If zero overlap and no transition word, it's abrupt
-      if (shared === 0 && !/^(but|and|so|then|yet|still|however|meanwhile|instead|also|furthermore|besides|next|after|before|later|now|finally)\b/i.test(sentences[i].trim())) {
-        abruptShifts++;
-      }
+    // Flow: lexical continuity is a signal, not proof of smoothness. Remove the old
+    // assumption that zero repeated 4+ letter words means a sentence transition is bad.
+    const stop=new Set('the a an and or but of to in on at for from with by as is are was were be been being it this that these those he she they we you i his her their our your my not no do did does have has had'.split(' '));
+    const cw=s=>(s.toLowerCase().match(/\b[a-z]{4,}\b/g)||[]).filter(w=>!stop.has(w));
+    const connector=/^(but|and|so|then|yet|still|however|meanwhile|instead|also|furthermore|besides|next|after|before|later|now|finally|therefore|because|although|while)\b/i;
+    let unsupported=0;
+    const flowEvidence=[];
+    for(let i=1;i<sentences.length;i++){
+      const a=cw(sentences[i-1]),b=cw(sentences[i]),aset=new Set(a),shared=[...new Set(b.filter(w=>aset.has(w)))];
+      const hasConnector=connector.test(sentences[i]);
+      const supported=hasConnector||shared.length>0;
+      if(!supported) unsupported++;
+      if(!supported&&flowEvidence.length<20) flowEvidence.push({fromSentence:i,toSentence:i+1,excerpt:sentences[i].slice(0,140)});
     }
-    const abruptRate = abruptShifts / Math.max(sentences.length - 1, 1);
-    if (abruptRate < 0.1) flowScore += 30;
-    else if (abruptRate < 0.2) flowScore += 20;
-    else if (abruptRate < 0.3) flowScore += 10;
-    else {
-      flowScore -= Math.round(abruptRate * 40);
-      findings.push({ type: 'flow', severity: 'medium', message: Math.round(abruptRate * 100) + '% of sentence transitions are abrupt — no shared context or transition word. Sentences feel disconnected.' });
-    }
-    // Check sentence rhythm variety (consecutive same-length sentences)
-    const lengths = sentences.map(s => s.trim().split(/\s+/).length);
-    let monotoneRuns = 0;
-    for (let i = 2; i < lengths.length; i++) {
-      const diff1 = Math.abs(lengths[i] - lengths[i - 1]);
-      const diff2 = Math.abs(lengths[i - 1] - lengths[i - 2]);
-      if (diff1 < 3 && diff2 < 3) monotoneRuns++;
-    }
-    const monotoneRate = monotoneRuns / Math.max(sentences.length, 1);
-    if (monotoneRate < 0.1) flowScore += 20;
-    else if (monotoneRate < 0.2) flowScore += 10;
-    else if (monotoneRuns > sentences.length * 0.3) {
-      flowScore -= 15;
-      findings.push({ type: 'flow', severity: 'low', message: 'Sentence lengths are too uniform — creates a monotone rhythm. Vary between short punches and longer flowing sentences.' });
-    }
+    const unsupportedRate=unsupported/Math.max(sentences.length-1,1)*100;
+    let flowScore=clamp(100-Math.min(45,unsupportedRate*1.2));
+    if(unsupportedRate>25) findings.push({type:'flow',severity:'medium',count:unsupported,rate:+unsupportedRate.toFixed(1),message:unsupported+' sentence boundaries ('+unsupportedRate.toFixed(1)+'%) lack an explicit connector or repeated content term. Inspect these boundaries before revising.',evidence:flowEvidence});
 
-    // === 3. WORD PRECISION (are words earning their place?) ===
-    let precisionScore = 15;
-    // Vague/imprecise words
-    const vagueWords = (lower.match(/\b(thing|things|stuff|something|somehow|somewhat|somewhere|nice|good|bad|big|small|very|really|quite|rather|pretty|a lot|a bit|kind of|sort of|got|get|went|came|made|did)\b/g) || []).length;
-    const vagueRate = vagueWords / Math.max(totalWords, 1) * 100;
-    if (vagueRate < 1) precisionScore += 30;
-    else if (vagueRate < 2) precisionScore += 20;
-    else if (vagueRate < 3) precisionScore += 10;
-    if (vagueRate > 3) {
-      precisionScore -= Math.min(25, Math.round(vagueRate * 4));
-      findings.push({ type: 'precision', severity: 'medium', message: vagueWords + ' vague/imprecise words (' + vagueRate.toFixed(1) + '%). Replace "thing", "stuff", "nice", "got" with specific language.' });
-    }
-    // Redundant modifiers (e.g. "completely destroyed", "very unique")
-    const redundantMods = (lower.match(/\b(completely destroyed|totally ruined|very unique|absolutely perfect|completely finished|totally dead|very essential|extremely crucial|quite obvious|rather interesting|pretty good|really nice|very important|absolutely necessary)\b/g) || []).length;
-    if (redundantMods === 0) precisionScore += 15;
-    else {
-      precisionScore -= redundantMods * 5;
-      findings.push({ type: 'precision', severity: 'low', message: redundantMods + ' redundant modifier(s) found ("very unique", "completely destroyed"). The modifier adds nothing.' });
-    }
+    // Precision: normalize all penalties by manuscript length. Common words are candidates,
+    // not automatically "bad"; the score responds only to unusually high density.
+    const vagueMatches=lower.match(/\b(thing|things|stuff|something|somehow|somewhat|somewhere|nice|good|bad|big|small|very|really|quite|rather|pretty|got|get|went|came|made|did)\b/g)||[];
+    const vagueRate=perK(vagueMatches.length);
+    const redundant=lower.match(/\b(completely destroyed|totally ruined|very unique|absolutely perfect|completely finished|totally dead|very essential|extremely crucial|quite obvious|absolutely necessary)\b/g)||[];
+    const redundantRate=perK(redundant.length);
+    let precisionScore=clamp(100-Math.min(45,Math.max(0,vagueRate-12)*1.5)-Math.min(20,redundantRate*5));
+    if(vagueRate>20) findings.push({type:'precision',severity:'medium',count:vagueMatches.length,ratePerK:+vagueRate.toFixed(1),message:vagueMatches.length+' broad/imprecise-word candidates ('+vagueRate.toFixed(1)+' per 1K words). Review flagged passages; do not replace mechanically.'});
+    if(redundant.length) findings.push({type:'precision',severity:'low',count:redundant.length,ratePerK:+redundantRate.toFixed(1),message:redundant.length+' potentially redundant modifier phrase'+(redundant.length===1?'':'s')+' detected.'});
 
-    // === 4. PACING RHYTHM (at sentence level) ===
-    let pacingScore = 20;
-    // Action scenes should have shorter sentences
-    // Description scenes can be longer
-    // But overall, variety is key
-    const avgLen = lengths.reduce((a, b) => a + b, 0) / lengths.length;
-    const stdDev = Math.sqrt(lengths.reduce((s, l) => s + Math.pow(l - avgLen, 2), 0) / lengths.length);
-    if (stdDev >= 5 && stdDev <= 12) pacingScore += 25;
-    else if (stdDev > 3 && stdDev < 5) pacingScore += 15;
-    if (stdDev < 3) {
-      pacingScore -= 20;
-      findings.push({ type: 'pacing', severity: 'medium', message: 'Very low sentence length variation (stddev: ' + stdDev.toFixed(1) + '). Writing feels mechanical. Mix short and long.' });
-    }
-    // Check for dialogue pacing: dialogue paragraphs should be snappy
-    const dialogueParagraphs = paragraphs.filter(p => /[""\u201C]/.test(p));
-    const longDialogueParagraphs = dialogueParagraphs.filter(p => p.split(/\s+/).length > 80);
-    if (dialogueParagraphs.length > 0 && longDialogueParagraphs.length === 0) pacingScore += 15;
-    else if (longDialogueParagraphs.length > 0) {
-      pacingScore -= longDialogueParagraphs.length * 6;
-      findings.push({ type: 'pacing', severity: 'low', message: longDialogueParagraphs.length + ' dialogue paragraph(s) over 80 words. Dialogue should feel snappy — break into shorter exchanges.' });
-    }
+    // Pacing rhythm: sentence-length variation is descriptive. Penalize only extreme
+    // uniformity; do not declare 5–12 words of standard deviation universally "ideal."
+    const lengths=sentences.map(s=>(s.match(/\b[\w’'-]+\b/g)||[]).length).filter(Boolean);
+    const avgLen=mean(lengths), stdDev=sd(lengths);
+    const dialogueParas=paragraphs.filter(p=>/[“"]/.test(p));
+    const longDialogue=dialogueParas.filter(p=>(p.match(/\b[\w’'-]+\b/g)||[]).length>100);
+    let pacingScore=100;
+    if(lengths.length>=10&&stdDev<2.5) pacingScore-=30;
+    else if(lengths.length>=10&&stdDev<4) pacingScore-=15;
+    const longDialogueRate=longDialogue.length/Math.max(dialogueParas.length,1)*100;
+    if(dialogueParas.length>=3&&longDialogueRate>30) pacingScore-=Math.min(25,Math.round(longDialogueRate/3));
+    pacingScore=clamp(pacingScore);
+    if(stdDev<4&&lengths.length>=10) findings.push({type:'pacing',severity:'low',message:'Sentence-length variation is low (SD '+stdDev.toFixed(1)+'). Review rhythm in context rather than targeting a fixed sentence length.'});
+    if(longDialogue.length) findings.push({type:'pacing',severity:'low',count:longDialogue.length,message:longDialogue.length+' dialogue paragraph'+(longDialogue.length===1?'':'s')+' exceed 100 words; inspect for monologue density.'});
 
-    // === 5. POV DISCIPLINE ===
-    // POV discipline is a FICTION craft concept. Memoir and self-help legitimately mix
-    // first-person narration ("I grew up...") with third-person anecdotes ("she never
-    // gave up") and direct address ("you can..."). Score neutral for nonfiction.
-    let povScore = 20;
-    // Strip quoted dialogue before counting narration pronouns — characters saying
-    // "I think..." in a third-person book (or "he did it!" in a first-person book)
-    // is speech, not narration, and was massively skewing these counts.
-    const narrationOnly = text.replace(/["“][^"”\n]{0,400}["”]/g, ' ');
-    const firstPerson = (narrationOnly.match(/\bI\b/g) || []).length;
-    const thirdHeShe = (narrationOnly.match(/\b(he|she)\b/gi) || []).length;
-    const secondYou = (narrationOnly.match(/\byou\b/gi) || []).length;
-    const dominant = firstPerson > thirdHeShe ? 'first' : thirdHeShe > firstPerson ? 'third' : 'mixed';
-    if (isNFLine) {
-      povScore = 45; // neutral — matches the max a clean fiction manuscript earns
-    } else {
-    // Check for POV slips — ratio-based, never absolute counts.
-    // A first-person narrator constantly refers to other people as he/she; that is NOT a
-    // POV problem. The old check flagged any first-person book with >5 he/she pronouns
-    // in the entire manuscript, which is every first-person book ever written.
-    const thirdShare = thirdHeShe / Math.max(firstPerson + thirdHeShe, 1);
-    if (dominant === 'third' && firstPerson <= 1) povScore += 25;
-    else if (dominant === 'first' && thirdShare < 0.45) povScore += 25;
-    else if (dominant === 'mixed') povScore += 5;
-    if (dominant === 'third' && firstPerson > 2) {
-      const slipRate = firstPerson / (firstPerson + thirdHeShe);
-      // A slip is a partial leak of "I" into third-person narration. A large share
-      // (>= 0.35) means the book is intentionally first-person-with-a-large-cast or
-      // deliberately mixed POV — not an accident, so don't flag it.
-      if (slipRate > 0.05 && slipRate < 0.35) {
-        povScore -= 15;
-        findings.push({ type: 'pov', severity: 'high', message: 'POV slip: ' + firstPerson + ' first-person ("I") occurrences in third-person narrative. Unless intentional, stay consistent.' });
-      }
-    }
-    // Only flag first-person narration when third-person pronouns nearly MATCH first-person
-    // usage across the book — i.e. the narration genuinely drifts between modes.
-    if (dominant === 'first' && thirdShare > 0.45 && thirdHeShe > 50) {
-      povScore -= 10;
-      findings.push({ type: 'pov', severity: 'medium', message: 'Narration alternates heavily between first person ("I") and third person (he/she). If sections are intentionally in different POVs, ignore this; otherwise pick one mode per scene.' });
-    }
-    // Head-hopping: in third person limited, check if we see multiple characters\' thoughts
-    if (dominant === 'third') {
-      const thoughtVerbs = text.match(/\b(he thought|she thought|he wondered|she wondered|he knew|she knew|he felt|she felt|he realized|she realized)\b/gi) || [];
-      const heThoughts = thoughtVerbs.filter(t => /^he/i.test(t)).length;
-      const sheThoughts = thoughtVerbs.filter(t => /^she/i.test(t)).length;
-      if (heThoughts > 0 && sheThoughts > 0) {
-        povScore -= 15;
-        findings.push({ type: 'pov', severity: 'medium', message: 'Possible head-hopping: both "he thought/felt/knew" (' + heThoughts + ') and "she thought/felt/knew" (' + sheThoughts + '). In limited third person, only one character\'s thoughts should be accessible per scene.' });
-      }
-    }
-    }
+    // POV: pronoun ratios cannot prove a POV violation. Preserve them as descriptive
+    // telemetry and only surface candidate mixed-narration passages for fiction.
+    const narration=text.replace(/[“"][^”"\n]{0,600}[”"]/g,' ');
+    const first=(narration.match(/\b(I|me|my|mine|myself)\b/g)||[]).length;
+    const second=(narration.match(/\b(you|your|yours|yourself|yourselves)\b/gi)||[]).length;
+    const third=(narration.match(/\b(he|she|him|her|his|hers)\b/gi)||[]).length;
+    const totalPronouns=Math.max(first+second+third,1);
+    const shares={first:first/totalPronouns,second:second/totalPronouns,third:third/totalPronouns};
+    const dominant=Object.entries(shares).sort((a,b)=>b[1]-a[1])[0][0];
+    const sorted=Object.values(shares).sort((a,b)=>b-a);
+    const mixedNarration=!isNF&&totalPronouns>=30&&sorted[0]<0.7&&sorted[1]>0.2;
+    const povScore=isNF?null:clamp(100-(mixedNarration?20:0));
+    if(mixedNarration) findings.push({type:'pov',severity:'low',message:'Narration pronouns are materially mixed (first '+Math.round(shares.first*100)+'%, second '+Math.round(shares.second*100)+'%, third '+Math.round(shares.third*100)+'%). This is a review candidate, not proof of a POV error.'});
 
-    // === 6. EXTRANEOUS LANGUAGE ===
-    let extraneousScore = 20;
-    // "began to", "started to" — just do the action
-    const beganTo = (lower.match(/\b(began to|started to|proceeded to|continued to|attempted to|happened to|managed to)\b/g) || []).length;
-    if (beganTo === 0) extraneousScore += 20;
-    else {
-      extraneousScore -= beganTo * 4;
-      findings.push({ type: 'extraneous', severity: 'low', message: beganTo + ' filter phrase(s): "began to", "started to", etc. Cut the filter — just do the action. "She began to run" → "She ran."' });
-    }
-    // "that" overuse
-    const thatCount = (lower.match(/\bthat\b/g) || []).length;
-    const thatRate = thatCount / Math.max(totalWords, 1) * 100;
-    if (thatRate < 1.5) extraneousScore += 15;
-    else if (thatRate > 2.5) {
-      extraneousScore -= 12;
-      findings.push({ type: 'extraneous', severity: 'low', message: '"That" appears ' + thatCount + ' times (' + thatRate.toFixed(1) + '%). Many can be removed: "She knew that he was" → "She knew he was."' });
-    }
-    // "in order to" / "the fact that" already caught by wordy, but reinforce
-    // Dialogue attribution overload
-    const attributions = (text.match(/[""\u201D]\s*(he|she|they|I)\s+(said|asked|replied|answered|whispered|shouted|muttered|exclaimed|declared|responded|cried|yelled|stated|remarked|noted)\b/gi) || []).length;
-    const dialogueLines = (text.match(/[""\u201C][^""\u201D]*[""\u201D]/g) || []).length;
-    if (dialogueLines > 0 && attributions / dialogueLines < 0.5) extraneousScore += 15;
-    else if (dialogueLines > 0 && attributions / dialogueLines > 0.8) {
-      extraneousScore -= 10;
-      findings.push({ type: 'extraneous', severity: 'low', message: 'Dialogue is over-attributed (' + attributions + '/' + dialogueLines + ' lines tagged). In two-person dialogue, you can drop most tags after establishing who\'s speaking.' });
-    }
+    // Extraneous language: length-normalized candidate density. "That" and dialogue tags
+    // are not automatically errors, so they remain telemetry instead of fixed penalties.
+    const filterMatches=lower.match(/\b(began to|started to|proceeded to|continued to|attempted to|happened to|managed to)\b/g)||[];
+    const filterRate=perK(filterMatches.length);
+    const thatCount=(lower.match(/\bthat\b/g)||[]).length;
+    const thatRate=perK(thatCount);
+    let extraneousScore=clamp(100-Math.min(40,Math.max(0,filterRate-2)*6));
+    if(filterRate>3) findings.push({type:'extraneous',severity:'low',count:filterMatches.length,ratePerK:+filterRate.toFixed(1),message:filterMatches.length+' filter-phrase candidates ('+filterRate.toFixed(1)+' per 1K words). Review for places where the direct verb is stronger.'});
 
-    // Clamp scores
-    toneScore = Math.min(100, Math.max(0, toneScore));
-    flowScore = Math.min(100, Math.max(0, flowScore));
-    precisionScore = Math.min(100, Math.max(0, precisionScore));
-    pacingScore = Math.min(100, Math.max(0, pacingScore));
-    povScore = Math.min(100, Math.max(0, povScore));
-    extraneousScore = Math.min(100, Math.max(0, extraneousScore));
-
-    const score = Math.round(toneScore * 0.15 + flowScore * 0.2 + precisionScore * 0.2 + pacingScore * 0.15 + povScore * 0.15 + extraneousScore * 0.15);
-
+    const dims=[toneScore,flowScore,precisionScore,pacingScore,extraneousScore];
+    if(povScore!==null)dims.push(povScore);
+    const score=clamp(mean(dims));
     return {
-      score,
-      tone: { score: toneScore, formalWords, casualWords, moodShifts },
-      flow: { score: flowScore, abruptShifts, abruptRate: Math.round(abruptRate * 100), monotoneRuns },
-      precision: { score: precisionScore, vagueWords, vagueRate: Math.round(vagueRate * 10) / 10, redundantMods },
-      pacing: { score: pacingScore, avgSentenceLength: Math.round(avgLen), stdDev: Math.round(stdDev * 10) / 10, longDialogueParagraphs: longDialogueParagraphs.length },
-      pov: { score: povScore, dominant, firstPerson, thirdPerson: thirdHeShe, slips: findings.filter(f => f.type === 'pov').length },
-      extraneous: { score: extraneousScore, beganTo, thatCount, thatRate: Math.round(thatRate * 10) / 10, overAttributed: dialogueLines > 0 && attributions / dialogueLines > 0.8 },
+      score,applicable:true,
+      methodology:'Evidence-normalized line-editing model; counts are normalized by manuscript length and POV is advisory.',
+      tone:{score:toneScore,formalWords:formal,casualWords:casual,registerMix,registerMixRate:+registerMixRate.toFixed(2)},
+      flow:{score:flowScore,unsupportedBoundaries:unsupported,unsupportedRate:+unsupportedRate.toFixed(1),evidence:flowEvidence},
+      precision:{score:precisionScore,vagueWords:vagueMatches.length,vagueRatePerK:+vagueRate.toFixed(1),redundantMods:redundant.length,redundantRatePerK:+redundantRate.toFixed(1)},
+      pacing:{score:pacingScore,avgSentenceLength:+avgLen.toFixed(1),stdDev:+stdDev.toFixed(1),longDialogueParagraphs:longDialogue.length,longDialogueRate:+longDialogueRate.toFixed(1)},
+      pov:{score:povScore,advisory:isNF,dominant,firstPerson:first,secondPerson:second,thirdPerson:third,shares:{first:Math.round(shares.first*100),second:Math.round(shares.second*100),third:Math.round(shares.third*100)},mixedCandidate:mixedNarration},
+      extraneous:{score:extraneousScore,filterPhrases:filterMatches.length,filterRatePerK:+filterRate.toFixed(1),thatCount,thatRatePerK:+thatRate.toFixed(1)},
       findings
     };
   },
@@ -3565,20 +3232,12 @@ const Analyzer = {
   // COPY EDITING SCORE
   // ========================
   scoreCopyEditing(issues, totalWords) {
-    // Only score copy-editing issue types, not style/structure issues
-    const copyTypes = new Set(['passive', 'adverb', 'cliche', 'wordy', 'confused-word', 'repetition', 'grammar']);
-    const copyIssues = issues.filter(i => copyTypes.has(i.type));
-    const issuesPerThousand = (copyIssues.length / Math.max(totalWords, 1)) * 1000;
-    // Impact-weighted scoring: a manuscript with 2000+ issues shouldn't floor to 30.
-    // Each penalty band caps; the floor here is 100 - 30 - 15 - 8 = 47, which keeps
-    // a noisy-but-readable manuscript in the C+ range instead of failing it outright.
-    let score = 100;
-    score -= Math.min(30, issuesPerThousand * 2);
-    const highSev = copyIssues.filter(i => i.severity === 'high').length;
-    const medSev = copyIssues.filter(i => i.severity === 'medium').length;
-    score -= Math.min(15, highSev * 1.5);
-    score -= Math.min(8, medSev * 0.4);
-    return Math.min(100, Math.max(0, Math.round(score)));
+    const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition','grammar']);
+    const copyIssues=issues.filter(i=>copyTypes.has(i.type));
+    const perK=copyIssues.length/Math.max(totalWords,1)*1000;
+    // A transparent density index: 0 validated findings = 100. The curve is monotonic
+    // and length-normalized; no hidden floor or absolute-count penalty.
+    return Math.max(0,Math.min(100,Math.round(100/(1+perK/25))));
   },
 
   // ========================
@@ -3711,7 +3370,7 @@ const Analyzer = {
     // Backfill readerPerspective.dnfRisk from new engine for backward compat
     readerPerspective.dnfRisk = dnfAnalysis.dnf_risk;
     const pacing = this.analyzePacing(aText);
-    const characters = this.analyzeCharacters(aText);
+    const characters = this.analyzeCharacters(aText, genre);
     const blurbs = this.generateBlurbs(aText, characters, genre, mode);
     const scifiWorld = this.analyzeSciFiWorldbuilding(aText, genre);
     const genreElements = this.analyzeGenreElements(aText, genre);
@@ -3736,8 +3395,10 @@ const Analyzer = {
     }
     const lineScore = lineEditing.score;
     // Show/Tell: normalize per 1000 NARRATIVE words so long manuscripts aren't unfairly floored to 0.
-    const showTellPerK = (showTellIssues.length / Math.max(narrativeWords, 1)) * 1000;
-    const showTellScore = Math.max(0, Math.round(100 - showTellPerK * 2.5));
+    const showTellPerK=(showTellIssues.length/Math.max(narrativeWords,1))*1000;
+    // These are deterministic "telling-pattern candidates", not proof that a passage
+    // violates a universal show-don't-tell rule. Keep the index transparent and monotonic.
+    const showTellScore=Math.max(0,Math.min(100,Math.round(100/(1+showTellPerK/12))));
 
     // Grammar score: penalize based on grammar issue density within the narrative.
     // Boilerplate (copyright blocks, ISBN lines) trips grammar heuristics constantly and
@@ -3811,16 +3472,16 @@ const Analyzer = {
       showTell: { score: showTellScore, issues: showTellIssues },
       issues: allIssues,
       rawIssues, // unfiltered concatenated detector outputs (telemetry / debugging only)
-      issueCounts: {
-        passive: passiveIssues.length, adverb: adverbIssues.length,
-        cliche: clicheIssues.length, 'weak-verb': weakVerbIssues.length,
-        wordy: wordyIssues.length, repetition: repetitionIssues.length,
-        'sentence-length': longSentenceIssues.length, 'show-tell': showTellIssues.length,
-        'confused-word': confusedWordIssues.length,
-        grammar: grammarIssues.length,
-        pov: lineEditing.findings ? lineEditing.findings.filter(f => f.type === 'pov').length : 0,
-        dialogue: dialogue.findings ? dialogue.findings.length : 0
-      }
+      issueCounts: (() => {
+        // Canonical UI counts come from the validated issue collection, not raw detector
+        // output. This guarantees every displayed number corresponds to a real, locatable
+        // finding in the manuscript.
+        const counts={passive:0,adverb:0,cliche:0,'weak-verb':0,wordy:0,repetition:0,'sentence-length':0,'show-tell':0,'confused-word':0,grammar:0};
+        allIssues.forEach(i=>{if(Object.prototype.hasOwnProperty.call(counts,i.type)) counts[i.type]++;});
+        counts.pov=lineEditing.findings ? lineEditing.findings.filter(f=>f.type==='pov').length : 0;
+        counts.dialogue=dialogue.findings ? dialogue.findings.length : 0;
+        return counts;
+      })()
     };
   },
 
