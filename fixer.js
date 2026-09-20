@@ -69,7 +69,9 @@ const Fixer = {
       });
     }
 
-    const choice = picked[Math.floor(Math.random() * picked.length)];
+    // Deterministic: the same finding always yields the same replacement. A random pick
+    // from a fixed list was never a judgement about the sentence.
+    const choice = picked[0];
     if (!choice) return candidates[0];
     if (original[0] === original[0].toUpperCase()) {
       return choice.charAt(0).toUpperCase() + choice.slice(1);

@@ -408,44 +408,112 @@ const Analyzer = {
   // ========================
   // WEAK VERB DETECTION
   // ========================
+  // A generic verb is only a fault when the author leans on it. Each entry names the
+  // alternatives we can offer and the wider family of specific verbs an author may already
+  // be using. The detector measures THIS manuscript's reliance on the generic verb against
+  // that family and says nothing when the author already varies. Where it does speak it
+  // quotes the count, so the author can disagree with the reading. Whether the passage is
+  // one where vividness is even a virtue is decided afterwards by prose-norms.js.
   WEAK_VERBS: {
-    'walked':'strode, ambled, trudged, sauntered',
-    'looked':'glanced, peered, gazed, scrutinized','went':'hurried, wandered, dashed, strolled',
-    'got':'obtained, acquired, seized, snatched','put':'placed, positioned, deposited, set',
-    'made':'crafted, fashioned, constructed, forged','came':'arrived, emerged, appeared, materialized',
-    'thought':'pondered, mused, considered, reflected','saw':'noticed, observed, spotted, witnessed',
-    'ran':'sprinted, dashed, bolted, jogged','moved':'shifted, glided, crept, lunged',
-    'turned':'pivoted, swiveled, whirled, rotated',
-    'seemed':'appeared, suggested, indicated, implied','started':'began, commenced, initiated, launched',
-    'stood':'towered, loomed, perched, positioned',
-    'sat':'perched, settled, reclined, lounged','held':'clutched, gripped, grasped, cradled'
+    walked:  { doing:'walking',  alts:'strode, ambled, trudged, sauntered',       family:['strode','ambled','trudged','sauntered','paced','marched','strolled','wandered','shuffled','stalked','crept','limped','hiked','trekked','stepped','tramped','plodded'] },
+    looked:  { doing:'looking',  alts:'glanced, peered, gazed, scrutinized',      family:['glanced','peered','gazed','scrutinized','scrutinised','stared','watched','studied','eyed','glared','squinted','surveyed','regarded','scanned','searched','inspected','examined'] },
+    went:    { doing:'going',    alts:'hurried, wandered, dashed, strolled',      family:['hurried','wandered','dashed','strolled','headed','travelled','traveled','drove','rode','flew','crossed','climbed','descended','departed','marched','trudged','made for'] },
+    got:     { doing:'getting',  alts:'obtained, acquired, seized, snatched',     family:['obtained','acquired','seized','snatched','grabbed','fetched','received','earned','bought','caught','gathered','collected','secured','won'] },
+    put:     { doing:'placing',  alts:'placed, positioned, deposited, set',       family:['placed','positioned','deposited','laid','dropped','tucked','slid','shoved','stuffed','rested','propped','hung','planted','set down','slipped'] },
+    made:    { doing:'making',   alts:'crafted, fashioned, constructed, forged',  family:['crafted','fashioned','constructed','forged','built','shaped','assembled','formed','created','produced','carved','stitched','brewed','baked','cooked','drew','moulded','molded'] },
+    came:    { doing:'arriving', alts:'arrived, emerged, appeared, materialized', family:['arrived','emerged','appeared','materialized','materialised','approached','entered','returned','reached','surfaced','drifted','burst','crept','slipped','stumbled in','walked in'] },
+    thought: { doing:'thinking', alts:'pondered, mused, considered, reflected',   family:['pondered','mused','considered','reflected','wondered','realized','realised','suspected','decided','reasoned','weighed','imagined','recalled','remembered','brooded','deliberated'] },
+    saw:     { doing:'seeing',   alts:'noticed, observed, spotted, witnessed',    family:['noticed','observed','spotted','witnessed','glimpsed','watched','recognized','recognised','spied','discerned','sighted','caught sight','made out'] },
+    ran:     { doing:'running',  alts:'sprinted, dashed, bolted, jogged',         family:['sprinted','dashed','bolted','jogged','raced','fled','hurried','rushed','charged','tore','scrambled','darted','loped','galloped','pelted'] },
+    moved:   { doing:'moving',   alts:'shifted, glided, crept, lunged',           family:['shifted','glided','crept','lunged','slid','edged','drifted','swayed','stepped','shuffled','eased','swung','leaned','rolled','inched'] },
+    turned:  { doing:'turning',  alts:'pivoted, swiveled, whirled, rotated',      family:['pivoted','swiveled','swivelled','whirled','rotated','spun','wheeled','twisted','swung','faced','veered','rounded','swerved'] },
+    seemed:  { doing:'seeming',  alts:'appeared, suggested, indicated, implied',  family:['appeared','suggested','indicated','implied','looked','sounded','struck'] },
+    started: { doing:'starting', alts:'began, commenced, initiated, launched',    family:['began','commenced','initiated','launched','opened','set out','set off','took up','embarked','kicked off'] },
+    stood:   { doing:'standing', alts:'towered, loomed, perched, positioned',     family:['towered','loomed','perched','positioned','rose','waited','lingered','leaned','hovered','straightened','remained','planted','braced','froze'] },
+    sat:     { doing:'sitting',  alts:'perched, settled, reclined, lounged',      family:['perched','settled','reclined','lounged','slumped','sank','crouched','squatted','knelt','sprawled','rested','dropped','hunched'] },
+    held:    { doing:'holding',  alts:'clutched, gripped, grasped, cradled',      family:['clutched','gripped','grasped','cradled','clasped','squeezed','hugged','carried','pinned','hoisted','balanced','steadied','clung'] }
+  },
+  // Constructions in which the generic verb is not doing the sentence's main work, or sits
+  // in an idiom no "vivid" verb can replace ("made sense", "looked after", "turned out").
+  WEAK_VERB_PARTICLES: /^(up|out|off|over|down|into|through|away|back|around|round|along|forward|aside|after|like|as if|as though)\b/i,
+  WEAK_VERB_IDIOMS: {
+    made:['sense','sure','it','of','do','use','room','time','money','peace','clear','good','well','certain','fun','love','light','way','a point','a decision','a difference','a living','a mistake','a fool','an effort','an appearance','an exception','the most','the best','the case','the cut','matters','amends','ends meet','his way','her way','their way','my way','our way','its way','me','him','her','them','us','you','himself','herself','themselves','myself','yourself','ourselves','itself'],
+    got:['rid','used','married','lost','ready','tired','sick','hurt','caught','stuck','dressed','home','here','there','hold','wind','word','on with','the better','the message','the point','the idea','the hang','the feeling','the impression','the sense','in the way','under way','underway','going'],
+    came:['across','about','true','apart','upon','first','second','last','close','of','undone','alive','loose','clean','to terms','to light','to life','to rest','to pass','to a head','to an end','to mind','to the conclusion','to nothing','to blows','to power','to grief','to the point','with'],
+    went:['on','ahead','wrong','well','badly','mad','quiet','silent','still','cold','white','pale','red','dark','blank','numb','without','by','about','for','to sleep','to bed','to war','to work','to school','to church','to court','to great lengths','out of','missing','unanswered','unnoticed','unheard','unsaid','so far','too far','further','on to'],
+    looked:['forward','the part','the other way','it','tired','pale','older','younger','different','fine','good','bad','well','lost','alike','sad','happy','worried','confused','surprised','exhausted','beautiful','terrible','awful','ridiculous','small','tiny','huge','thin','sick','ill','dead','alive','young','old','new','strange','odd','familiar','unhappy','angry','afraid','scared','nervous','calm','relieved','pleased','embarrassed','ashamed','proud','grim','serious','stern','kind','gentle','cold','warm','as'],
+    put:['together','an end','a stop','it','him','her','them','me','us','you','pressure','weight','faith','trust','effort','money','words','simply','bluntly','plainly','differently','another way','to bed','to sleep','to death','to use','to work','to rest','to shame','to the test','up with','paid','right','straight','on'],
+    turned:['against','to','toward','towards','red','pale','white','cold','sour','bad','a corner','a profit','a blind eye','the corner','the page','the tables','the tide','the key','the lock','the handle','the wheel','the volume','heads','tail','turtle','left','right','on','in','it','him','her','them','me','us','you','sixty','seventy','forty','fifty','thirty','twenty','eighteen','twenty-one','a year','two','three','four','five','six','seven','eight','nine','ten'],
+    started:['again','from','with','on','in','as','at','by','the car','the engine','the fire','a fire','a fight','a family','a business','a company','a conversation','a war','something','it','trouble','work','school','college','university','life','over'],
+    seemed:['to','like','that','so','as'],
+    stood:['still','firm','fast','ground','his ground','her ground','their ground','my ground','trial','a chance','in for','on end','on ceremony','corrected','accused','a round','the test','to reason','watch','guard','by','for','alone','together','apart','tall','there','here','at','in','on','before','behind','beside','between','near','next','over','under','with','and','to','a','an','the'],
+    sat:['still','tight','through','by','with','at','beside','next','across','opposite','on','in','for','the exam','the test','well','badly','right','wrong','quietly','silently','alone','together','there','here','and','a','an','the','up','down','back','out'],
+    held:['together','still','fast','firm','tight','good','true','sway','court','office','hands','breath','his breath','her breath','their breath','my breath','our breath','the line','the door','the floor','the fort','a grudge','a meeting','a candle','an election','a position','a record','the record','the view','the belief','the opinion','that','it','him','her','them','me','us','you','forth','a moment','the key','on to','onto','back','in','up','out','off','over','down','at bay','to','with','for','sway','water'],
+    thought:['better','twice','aloud','out loud','hard','long','little','much','nothing','for a moment','through','ahead','otherwise','differently','police','crime','leader','experiment','process','bubble','it','he','she','they','we','you','i','the','this','there','that','of','about','so','not','to','with','and','myself','himself','herself','themselves','ourselves','yourself','maybe','perhaps','how','what','why','where','when','who','which','if','as'],
+    saw:['to','through','off','fit','red','the light','the point','the world','the doctor','a doctor','the dentist','the last of','the back of','eye to eye','the end of','action','service','sense','reason','the funny side','the error','the writing'],
+    ran:['late','low','high','dry','short','wild','deep','smooth','rough','free','riot','aground','amok','the risk','the show','the shop','the business','the company','the numbers','the country','the household','the meeting','the race','a hand','a finger','a bath','a fever','a temperature','a business','a shop','an errand','errands','a tab','a check','a test','tests','in the family','its course','his course','her course','their course','a mile','miles','the length','in circles','a red light','a story','an ad','an article','a headline','a program','a programme','a scan','a report','a piece','for','with','on','to','from','at','in','past','by','across','between','and','a','an','the','it','him','her','them','me','us','you'],
+    moved:['on','in','past','toward','towards','to tears','to action','to speak','to say','to write','to ask','to help','to laughter','house','home','abroad','ahead','closer','nearer','that','the motion','the goalposts','the needle','the meeting','the date','the deadline','the time','heaven and earth','mountains','the crowd','the audience','the jury','the reader','me','him','her','them','us','you','deeply','profoundly','greatly','with','by','at','and','to','a','an','the','it','his','her','their','my','our','its','from']
   },
 
   findWeakVerbs(text, genre) {
     const issues = [];
-    // Nonfiction softening. This multiplies SEVERITY WEIGHT, never confidence: confidence is
-    // a claim about whether the detection is real, and the validation layer discards anything
-    // under 0.6. Multiplying confidence by 0.3-0.5 therefore deleted every one of these
-    // findings for nonfiction instead of softening them. Register-appropriate instances are
-    // now handled contextually by prose-norms.js, with a reason the author can read.
-    const nfSoften = this.isNonfiction(genre);
-    const nfWeight = 1;
-    const PER_VERB_LIMIT = 5; // cap flags per verb to avoid noise in long manuscripts
-    for (const [verb, alternatives] of Object.entries(this.WEAK_VERBS)) {
+    const SHOWN_PER_VERB = 8;    // highlights per verb: a display cap, stated in the finding
+    const MIN_USES = 3;          // fewer than this is not a habit
+    const RELIANCE = 0.6;        // share of the family the generic verb must carry to be raised
+    const totalWords = Math.max(1, (text.match(/\b\w+\b/g) || []).length);
+    const lower = text.toLowerCase();
+    const countAll = word => {
+      const m = lower.match(new RegExp('\\b' + word.replace(/\s+/g, '\\s+') + '\\b', 'g'));
+      return m ? m.length : 0;
+    };
+
+    for (const [verb, entry] of Object.entries(this.WEAK_VERBS)) {
       const regex = new RegExp(`\\b${verb}\\b`, 'gi');
+      const clean = [];
       let match;
-      let count = 0;
-      while ((match = regex.exec(text)) !== null && count < PER_VERB_LIMIT) {
-        count++;
+      while ((match = regex.exec(text)) !== null) {
+        if (this._weakVerbIsIdiomatic(text, verb, match.index)) continue;
+        clean.push(match);
+      }
+      const uses = clean.length;
+      if (uses < MIN_USES) continue;
+      const family = entry.family.reduce((sum, w) => sum + countAll(w), 0);
+      const reliance = uses / (uses + family);
+      if (reliance < RELIANCE) continue;  // the author already varies; nothing to say
+      const perK = Math.round(uses / totalWords * 1000 * 10) / 10;
+      const message = `"${verb}" carries ${uses} of the ${uses + family} ${entry.doing} verbs in this manuscript (${perK} per 1,000 words). A more specific verb would show the action.`;
+      const shown = Math.min(uses, SHOWN_PER_VERB);
+      const suggestion = `Alternatives to weigh: ${entry.alts}.` + (uses > shown ? ` Showing ${shown} of ${uses} uses.` : '');
+      // Spread the shown instances across the manuscript rather than taking the first few,
+      // so a habit in chapter twenty is as visible as one in chapter one.
+      for (let k = 0; k < shown; k++) {
+        const m = clean[Math.floor(k * uses / shown)];
         issues.push({
-          type: 'weak-verb', text: match[0], index: match.index, length: match[0].length,
-          severity: 'low', confidence: 0.9 * nfWeight,
-          message: `Weak verb "${match[0]}" — a more specific verb creates vivid imagery.`,
-          suggestion: `Try: ${alternatives}`
+          type: 'weak-verb', text: m[0], index: m.index, length: m[0].length,
+          severity: 'low', confidence: 0.9, message, suggestion,
+          detail: { verb, uses, family, reliance: Math.round(reliance * 100) / 100, perK }
         });
       }
     }
     return issues;
+  },
+
+  // True where the verb is not carrying the sentence, or sits in an idiom. Rules first
+  // (participle, passive, aspectual "started to", a clause after "thought"), then the
+  // per-verb idiom list.
+  _weakVerbIsIdiomatic(text, verb, index) {
+    const before = text.slice(Math.max(0, index - 14), index);
+    if (/[,;:—–-]\s*$/.test(before)) return true;                    // ", made quietly"
+    if (/\b(am|is|are|was|were|be|been|being|get|gets|got|getting|having|to)\s+$/i.test(before)) return true;
+    if (verb === 'got' && /\b(have|has|had|'ve|'s|'d|’ve|’s|’d)\s+$/i.test(before)) return true;
+    const afterTrim = text.slice(index + verb.length, index + verb.length + 40).replace(/^\s+/, '');
+    if (!afterTrim) return false;
+    if (this.WEAK_VERB_PARTICLES.test(afterTrim)) return true;
+    if (/^to\s+[a-z]+/i.test(afterTrim) && ['started', 'seemed', 'came', 'got', 'went'].includes(verb)) return true;
+    if (verb === 'started' && /^[a-z]+ing\b/i.test(afterTrim)) return true;
+    const lowerAfter = afterTrim.toLowerCase();
+    return (this.WEAK_VERB_IDIOMS[verb] || []).some(p =>
+      lowerAfter.startsWith(p) && !/[a-z]/.test(lowerAfter.charAt(p.length)));
   },
 
   // ========================
@@ -581,14 +649,25 @@ const Analyzer = {
       'out','about','just','very','all','also','how','what','when','where','which','who']);
     const synMap={said:['stated','replied','remarked','noted','added'],looked:['glanced','gazed','peered','watched','studied'],walked:['strode','moved','paced','strolled','crossed'],made:['created','crafted','formed','produced','built'],came:['arrived','appeared','emerged','approached','entered'],went:['headed','moved','traveled','crossed','departed'],turned:['pivoted','shifted','swung','rotated','spun'],stood:['rose','remained','lingered','waited','stayed'],knew:['understood','recognized','realized','sensed','grasped'],thought:['considered','wondered','reflected','believed','imagined'],felt:['sensed','experienced','noticed','detected','perceived'],took:['grabbed','seized','claimed','accepted','retrieved'],gave:['offered','handed','presented','provided','delivered'],started:['began','initiated','launched','commenced','opened'],seemed:['appeared','looked','sounded','suggested','indicated'],told:['informed','explained','revealed','instructed','described'],asked:['questioned','inquired','wondered','requested','demanded'],eyes:['gaze','stare','glance','look','vision'],face:['expression','features','countenance','visage','look'],hand:['grip','palm','fingers','fist','grasp'],head:['mind','thoughts','skull','brow','temple'],voice:['tone','words','speech','whisper','sound'],door:['entrance','doorway','threshold','entry','gate'],room:['chamber','space','quarters','hall','area'],time:['moment','occasion','instance','period','while'],back:['spine','rear','return','retreat','behind'],long:['extended','prolonged','lengthy','enduring','sustained'],dark:['dim','shadowed','unlit','gloomy','murky'],small:['little','slight','tiny','compact','modest'],found:['discovered','located','uncovered','encountered','spotted'],called:['named','summoned','addressed','hailed','dubbed'],people:['individuals','figures','crowd','group','folk'],world:['realm','domain','land','sphere','landscape'],place:['location','spot','position','site','area'],still:['motionless','calm','quiet','unmoving','yet'],words:['speech','language','phrases','remarks','terms'],thing:['object','matter','item','element','detail'],woman:['figure','lady','person','character','she'],before:['earlier','previously','prior','ahead','formerly'],every:['each','all','entire','whole','total'],never:['rarely','seldom','hardly','not once','at no point'],always:['constantly','perpetually','inevitably','forever','endlessly'],around:['surrounding','about','nearby','encircling','throughout']};
     const seen = new Set();
+    // Names repeat because they are names. A capitalised word whose lowercase form never
+    // occurs anywhere in this manuscript is treated as one and never raised; "Alice" is a
+    // name, "The" and "Poverty" at a sentence start are not.
+    const lowercaseForms = new Set(text.match(/\b[a-z]{4,}\b/g) || []);
 
     for (let i = 0; i < sentBounds.length - 1; i++) {
       const s1 = sentBounds[i], s2 = sentBounds[i + 1];
       const words1 = s1.raw.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
       const words2 = s2.raw.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
       const set1 = new Set(words1.filter(w => !stopWords.has(w)));
+      const names = new Set();
+      for (const raw of [s1.raw, s2.raw]) {
+        (raw.match(/\b[A-Z][a-z]{3,}\b/g) || []).forEach(tok => {
+          const w = tok.toLowerCase();
+          if (!lowercaseForms.has(w)) names.add(w);
+        });
+      }
       for (const word of words2) {
-        if (set1.has(word) && !stopWords.has(word)) {
+        if (set1.has(word) && !stopWords.has(word) && !names.has(word)) {
           // Find the word position within the second sentence's known bounds
           const wordIdx = lower.indexOf(word, s2.start);
           if (wordIdx === -1 || wordIdx >= s2.end) continue;
@@ -1430,11 +1509,22 @@ const Analyzer = {
   // ========================
   // PACING ANALYSIS
   // ========================
+  // The heatmap colours each 200-word stretch by the kind of prose it is. Where the
+  // five-mode passage classifier is available (it always is in the app and its worker) each
+  // segment takes the mode that covers most of its characters, and an ambiguous stretch is
+  // called mixed rather than forced. The keyword fallback below is only for environments
+  // without the classifier.
   analyzePacing(text) {
     // Fixed-size windows are retained for a stable heatmap, but every block now carries
     // provenance (word range + excerpt) and classifications are based on observed signals.
     const tokens = (text.match(/\S+/g) || []);
     const segmentSize = 200;
+    if (typeof ProseContext !== 'undefined') {
+      try {
+        const passages = ProseContext.classify(text);
+        if (passages && passages.length) return this._pacingFromPassages(text, passages, segmentSize);
+      } catch (e) { /* fall through to the keyword estimate */ }
+    }
     const segments = [];
     for (let i = 0; i < tokens.length; i += segmentSize) {
       const slice = tokens.slice(i, i + segmentSize);
@@ -1473,52 +1563,103 @@ const Analyzer = {
         excerpt:chunk.slice(0,180)
       });
     }
-    const counts={action:0,dialogue:0,description:0,exposition:0,reflection:0};
+    const counts={action:0,dialogue:0,description:0,exposition:0,reflection:0,mixed:0};
     segments.forEach(s=>{counts[s.type]=(counts[s.type]||0)+1;});
-    return { segments, segmentSize, counts, totalSegments:segments.length };
+    return { segments, segmentSize, counts, totalSegments:segments.length, source: 'keyword-estimate' };
+  },
+
+  // Each 200-word segment takes the passage mode that covers most of its characters; an
+  // ambiguous stretch is called mixed rather than forced. Every block keeps its word range
+  // and an excerpt so the colour can be checked against the text.
+  _pacingFromPassages(text, passages, segmentSize) {
+    const tokenRe = /\S+/g;
+    const tokens = [];
+    let t;
+    while ((t = tokenRe.exec(text)) !== null) tokens.push({ start: t.index, end: t.index + t[0].length });
+    const segments = [];
+    const counts = { action: 0, dialogue: 0, description: 0, exposition: 0, reflection: 0, mixed: 0 };
+    let p = 0;
+    for (let i = 0; i < tokens.length; i += segmentSize) {
+      const last = Math.min(i + segmentSize, tokens.length) - 1;
+      const segStart = tokens[i].start, segEnd = tokens[last].end;
+      const weight = {};
+      while (p > 0 && passages[p].start > segStart) p--;
+      for (let q = p; q < passages.length && passages[q].start < segEnd; q++) {
+        const overlap = Math.min(segEnd, passages[q].end) - Math.max(segStart, passages[q].start);
+        if (overlap > 0) weight[passages[q].mode] = (weight[passages[q].mode] || 0) + overlap;
+        if (passages[q].end <= segStart) p = q;
+      }
+      const ranked = Object.entries(weight).sort((a, b) => b[1] - a[1]);
+      const total = ranked.reduce((sum, [, w]) => sum + w, 0) || 1;
+      const type = ranked.length ? ranked[0][0] : 'mixed';
+      counts[type] = (counts[type] || 0) + 1;
+      segments.push({ type, share: Math.round(ranked.length ? ranked[0][1] / total * 100 : 0),
+        startWord: i + 1, endWord: last + 1, wordCount: last - i + 1, excerpt: text.slice(segStart, Math.min(segEnd, segStart + 180)) });
+    }
+    return { segments, segmentSize, counts, totalSegments: segments.length, source: 'passage-classifier' };
   },
 
   // ========================
   // CHARACTER TRACKING
   // ========================
+  // A capitalised word is evidence of a name only where grammar did not force the capital.
+  // Two tests, both read off the manuscript rather than a list of names:
+  //   1. a word that also occurs in lowercase anywhere in the text is a common word
+  //      ("Your", "Consider", "Research", "Poverty"), however often it opens a sentence;
+  //   2. a word must be capitalised mid-sentence at least twice, or carry direct person
+  //      evidence (a possessive, a speech attribution); one that is only ever
+  //      sentence-initial is not a name.
+  // Calendar words and manuscript furniture are the only fixed exclusions. Character
+  // tracking is a narrative dimension: expository nonfiction reports it as not applicable.
   analyzeCharacters(text, genre) {
-    // Character tracking is a fiction/person detector, not a capitalization counter.
-    // Concept-heavy nonfiction was previously turning words such as "Your", "Poverty",
-    // "United" and "States" into characters.
-    const genreKey=typeof genre==='string'?genre:(genre?.primary||'');
-    if (this.isNonfiction(genre) && !['memoir','biography','trueCrime'].includes(genreKey)) return {list:[],applicable:false};
-
-    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
-    const skip=new Set(('The A An In On At To For It He She They We You Your Yours I My His Her Our Their This That These Those But And Or If So Yet Not Was Were Is Are Has Had Have Do Does Did Will Would Could Should May Might Can Just Now Then Here There When Where How What Who Why Which After Before During While Although Because Since Until Unless Chapter Part Section One Two Three Four Five Every Some Most None People Think Self Patience Poverty Take Start Whether Reflection Confidence Write Action About Family Education Social Use Consider Mark Gates United States Nigeria America Europe Africa Asia Monday Tuesday Wednesday Thursday Friday Saturday Sunday January February March April May June July August September October November December').split(/\s+/));
-    const candidates=new Map();
-    const nameRe=/\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b/g;
-    let m;
-    while((m=nameRe.exec(text))!==null){
-      const name=m[1];
-      if(name.split(/\s+/).some(w=>skip.has(w))) continue;
-      const before=text.slice(Math.max(0,m.index-2),m.index);
-      const sentenceStart=m.index===0||/[.!?]\s*$/.test(text.slice(Math.max(0,m.index-4),m.index));
-      const after=text.slice(m.index+name.length,m.index+name.length+45);
-      const beforeCtx=text.slice(Math.max(0,m.index-45),m.index);
-      const possessive=/^[’']s\b/.test(after);
-      const speech=new RegExp('^[\\s,]*(said|asked|whispered|replied|muttered|shouted|cried|answered|called|told|nodded|smiled|laughed|sighed|turned|walked|ran|looked|stared|grabbed|pulled|pushed)\\b','i').test(after);
-      const addressed=new RegExp('\\b(said|asked|told|called|with|from|to)\\s+$','i').test(beforeCtx);
-      const multi=name.includes(' ');
-      const row=candidates.get(name)||{mentions:0,paragraphs:new Set(),dialogueCount:0,evidence:0,sentenceStartOnly:true};
-      row.mentions++;
-      if(!sentenceStart) row.sentenceStartOnly=false;
-      if(possessive||speech||addressed||multi) row.evidence++;
-      if(speech) row.dialogueCount++;
-      let cursor=0;
-      for(let p=0;p<paragraphs.length;p++){cursor+=paragraphs[p].length+2;if(m.index<cursor){row.paragraphs.add(p);break;}}
-      candidates.set(name,row);
+    const genreKey = typeof genre === 'string' ? genre : (genre && genre.primary) || '';
+    if (this.isNonfiction(genre) && !['memoir', 'biography', 'trueCrime'].includes(genreKey)) return { list: [], applicable: false };
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+    const paraBounds = [];
+    let cursor = 0;
+    for (const p of paragraphs) { const at = text.indexOf(p, cursor); paraBounds.push({ start: at, end: at + p.length }); cursor = at + p.length; }
+    const lowercaseForms = new Set(text.match(/\b[a-z]{3,}\b/g) || []);
+    const fixedSkips = /^(Chapter|Part|Section|Book|Prologue|Epilogue|Introduction|Preface|Foreword|Afterword|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|January|February|March|April|June|July|August|September|October|November|December)$/;
+    const passes = w => !lowercaseForms.has(w.toLowerCase()) && !fixedSkips.test(w);
+    const candidates = {};
+    const nameRegex = /\b([A-Z][a-z]{2,})((?:\s+[A-Z][a-z]{2,}){0,2})\b/g;
+    let match, pi = 0;
+    while ((match = nameRegex.exec(text)) !== null) {
+      // Trim words that fail the tests from either end of a capitalised run, so "Then Philip
+      // Gates" yields "Philip Gates" and "Every Morning" yields nothing.
+      let parts = (match[1] + match[2]).split(/\s+/);
+      let offset = 0;
+      while (parts.length && !passes(parts[0])) { offset += parts[0].length + 1; parts.shift(); }
+      while (parts.length && !passes(parts[parts.length - 1])) parts.pop();
+      if (!parts.length) continue;
+      const name = parts.join(' ');
+      const at = match.index + offset;
+      const before = text.slice(Math.max(0, at - 8), at);
+      const after = text.slice(at + name.length, at + name.length + 3);
+      const sentenceInitial = at === 0 || /(?:[.!?\u2026]["\u201D\u2019')\]]*\s+|\n\s*|["\u201C\u2018(\[]\s*|:\s+)$/.test(before);
+      const c = candidates[name] || (candidates[name] = { mentions: 0, mid: 0, possessive: 0, paragraphs: new Set(), dialogueCount: 0 });
+      c.mentions++;
+      if (!sentenceInitial || parts.length > 1) c.mid++;
+      if (/^[\u2019']s\b/.test(after)) c.possessive++;
+      while (pi < paraBounds.length - 1 && at >= paraBounds[pi].end) pi++;
+      c.paragraphs.add(pi);
     }
-    const list=[...candidates.entries()]
-      .filter(([name,d])=>d.mentions>=3 && (d.evidence>=1 || (!d.sentenceStartOnly && d.mentions>=5)))
-      .sort((a,b)=>b[1].mentions-a[1].mentions)
-      .slice(0,40)
-      .map(([name,d])=>({name,mentions:d.mentions,paragraphs:[...d.paragraphs].sort((a,b)=>a-b),dialogueCount:d.dialogueCount,evidenceCount:d.evidence}));
-    return {list,applicable:true};
+    // Dialogue attribution (\u2026" Zara said) is direct evidence of a person.
+    const dialogueAttr = text.match(/["\u201D]\s*([A-Z][a-z]+)\s+(said|asked|whispered|replied|muttered|exclaimed|shouted|cried)/g) || [];
+    dialogueAttr.forEach(d => {
+      const nameMatch = d.match(/["\u201D]\s*([A-Z][a-z]+)/);
+      if (nameMatch && candidates[nameMatch[1]]) candidates[nameMatch[1]].dialogueCount++;
+    });
+    const list = Object.entries(candidates)
+      .filter(([_, d]) => d.mentions >= 3 && (d.mid >= 2 || d.dialogueCount >= 1 || d.possessive >= 1))
+      .sort((a, b) => (b[1].mid + b[1].dialogueCount + b[1].possessive) - (a[1].mid + a[1].dialogueCount + a[1].possessive) || b[1].mentions - a[1].mentions)
+      .slice(0, 40)
+      .map(([name, d]) => ({
+        name, mentions: d.mentions, midSentence: d.mid, evidenceCount: d.mid + d.dialogueCount + d.possessive,
+        paragraphs: Array.from(d.paragraphs).sort((a, b) => a - b),
+        dialogueCount: d.dialogueCount
+      }));
+    return { list, applicable: true };
   },
 
   // ========================
@@ -2045,8 +2186,10 @@ const Analyzer = {
       if(!supported&&flowEvidence.length<20) flowEvidence.push({fromSentence:i,toSentence:i+1,excerpt:sentences[i].slice(0,140)});
     }
     const unsupportedRate=unsupported/Math.max(sentences.length-1,1)*100;
-    let flowScore=clamp(100-Math.min(45,unsupportedRate*1.2));
-    if(unsupportedRate>25) findings.push({type:'flow',severity:'medium',count:unsupported,rate:+unsupportedRate.toFixed(1),message:unsupported+' sentence boundaries ('+unsupportedRate.toFixed(1)+'%) lack an explicit connector or repeated content term. Inspect these boundaries before revising.',evidence:flowEvidence});
+    // Word overlap between sentences is the wrong test for instructional and rhetorical prose
+    // (short punches, deliberate turns, anaphora): nonfiction is not scored on it.
+    let flowScore=isNF?null:clamp(100-Math.min(45,unsupportedRate*1.2));
+    if(!isNF&&unsupportedRate>25) findings.push({type:'flow',severity:'medium',count:unsupported,rate:+unsupportedRate.toFixed(1),message:unsupported+' sentence boundaries ('+unsupportedRate.toFixed(1)+'%) lack an explicit connector or repeated content term. Inspect these boundaries before revising.',evidence:flowEvidence});
 
     // Precision: normalize all penalties by manuscript length. Common words are candidates,
     // not automatically "bad"; the score responds only to unusually high density.
@@ -2062,7 +2205,8 @@ const Analyzer = {
     // uniformity; do not declare 5–12 words of standard deviation universally "ideal."
     const lengths=sentences.map(s=>(s.match(/\b[\w’'-]+\b/g)||[]).length).filter(Boolean);
     const avgLen=mean(lengths), stdDev=sd(lengths);
-    const dialogueParas=paragraphs.filter(p=>/[“"]/.test(p));
+    // A dialogue paragraph carries a spoken line (capital after the quote, punctuation before the close), not merely a quoted term.
+    const dialogueParas=paragraphs.filter(p=>/["\u201C][A-Z][^"\u201D\n]{18,}[.,!?\u2026][\u201D"]/.test(p));
     const longDialogue=dialogueParas.filter(p=>(p.match(/\b[\w’'-]+\b/g)||[]).length>100);
     let pacingScore=100;
     if(lengths.length>=10&&stdDev<2.5) pacingScore-=30;
@@ -2096,14 +2240,15 @@ const Analyzer = {
     let extraneousScore=clamp(100-Math.min(40,Math.max(0,filterRate-2)*6));
     if(filterRate>3) findings.push({type:'extraneous',severity:'low',count:filterMatches.length,ratePerK:+filterRate.toFixed(1),message:filterMatches.length+' filter-phrase candidates ('+filterRate.toFixed(1)+' per 1K words). Review for places where the direct verb is stronger.'});
 
-    const dims=[toneScore,flowScore,precisionScore,pacingScore,extraneousScore];
+    const dims=[toneScore,precisionScore,pacingScore,extraneousScore];
+    if(flowScore!==null)dims.push(flowScore);
     if(povScore!==null)dims.push(povScore);
     const score=clamp(mean(dims));
     return {
       score,applicable:true,
       methodology:'Evidence-normalized line-editing model; counts are normalized by manuscript length and POV is advisory.',
       tone:{score:toneScore,formalWords:formal,casualWords:casual,registerMix,registerMixRate:+registerMixRate.toFixed(2)},
-      flow:{score:flowScore,unsupportedBoundaries:unsupported,unsupportedRate:+unsupportedRate.toFixed(1),evidence:flowEvidence},
+      flow:{score:flowScore,advisory:isNF,unsupportedBoundaries:unsupported,unsupportedRate:+unsupportedRate.toFixed(1),evidence:flowEvidence},
       precision:{score:precisionScore,vagueWords:vagueMatches.length,vagueRatePerK:+vagueRate.toFixed(1),redundantMods:redundant.length,redundantRatePerK:+redundantRate.toFixed(1)},
       pacing:{score:pacingScore,avgSentenceLength:+avgLen.toFixed(1),stdDev:+stdDev.toFixed(1),longDialogueParagraphs:longDialogue.length,longDialogueRate:+longDialogueRate.toFixed(1)},
       pov:{score:povScore,advisory:isNF,dominant,firstPerson:first,secondPerson:second,thirdPerson:third,shares:{first:Math.round(shares.first*100),second:Math.round(shares.second*100),third:Math.round(shares.third*100)},mixedCandidate:mixedNarration},
@@ -3379,20 +3524,9 @@ const Analyzer = {
 
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const copyScore = this.scoreCopyEditing(narrativeIssues, narrativeWords);
+    // Nonfiction handling (flow not judged on word overlap, POV not applicable) lives inside
+    // analyzeLineEditing so the sub-scores and the composite always agree.
     const lineEditing = this.analyzeLineEditing(aText, genre);
-    // Nonfiction flow softening: sentence-to-sentence word-overlap is the wrong metric for
-    // instructional/rhetorical prose (short punchy sentences, deliberate topic shifts, anaphora).
-    // Clamp flowScore to minimum 45 and recompute composite score so it can't torpedo the line score.
-    if (isNF && lineEditing.flow && lineEditing.flow.score < 45) {
-      lineEditing.flow.score = 45;
-      lineEditing.findings = lineEditing.findings.filter(f => f.type !== 'flow');
-      // Recompute composite using the same weights as analyzeLineEditing
-      lineEditing.score = Math.round(
-        (lineEditing.tone?.score||0)*0.15 + 45*0.2 +
-        (lineEditing.precision?.score||0)*0.2 + (lineEditing.pacing?.score||0)*0.15 +
-        (lineEditing.pov?.score||0)*0.15 + (lineEditing.extraneous?.score||0)*0.15
-      );
-    }
     const lineScore = lineEditing.score;
     // Show/Tell: normalize per 1000 NARRATIVE words so long manuscripts aren't unfairly floored to 0.
     const showTellPerK=(showTellIssues.length/Math.max(narrativeWords,1))*1000;
@@ -3441,8 +3575,9 @@ const Analyzer = {
       subScores.languageQuality = Math.round((sh.clarityReadability||0)*0.4+(sh.voiceAuthority||0)*0.3+grammarScore*0.3);
     }
 
-    // Issue density normalized per 1000 words
-    const issuesPerK = Math.round(allIssues.length / Math.max(totalWords, 1) * 1000 * 10) / 10;
+    // Issue density normalized per 1000 words, over the findings that actually scored.
+    const issuesPerK = Math.round(scoredIssues.length / Math.max(totalWords, 1) * 1000 * 10) / 10;
+    const countScored = t => scoredIssues.reduce((n, i) => n + (i.type === t ? 1 : 0), 0);
 
     return {
       overall, genre, totalWords, manuscriptMode, issuesPerK,
@@ -3472,16 +3607,18 @@ const Analyzer = {
       showTell: { score: showTellScore, issues: showTellIssues },
       issues: allIssues,
       rawIssues, // unfiltered concatenated detector outputs (telemetry / debugging only)
-      issueCounts: (() => {
-        // Canonical UI counts come from the validated issue collection, not raw detector
-        // output. This guarantees every displayed number corresponds to a real, locatable
-        // finding in the manuscript.
-        const counts={passive:0,adverb:0,cliche:0,'weak-verb':0,wordy:0,repetition:0,'sentence-length':0,'show-tell':0,'confused-word':0,grammar:0};
-        allIssues.forEach(i=>{if(Object.prototype.hasOwnProperty.call(counts,i.type)) counts[i.type]++;});
-        counts.pov=lineEditing.findings ? lineEditing.findings.filter(f=>f.type==='pov').length : 0;
-        counts.dialogue=dialogue.findings ? dialogue.findings.length : 0;
-        return counts;
-      })()
+      // Counts are of findings that survived validation and were not set aside for their
+      // passage, so the number beside a score is the number that produced it.
+      issueCounts: {
+        passive: countScored('passive'), adverb: countScored('adverb'),
+        cliche: countScored('cliche'), 'weak-verb': countScored('weak-verb'),
+        wordy: countScored('wordy'), repetition: countScored('repetition'),
+        'sentence-length': countScored('sentence-length'), 'show-tell': countScored('show-tell'),
+        'confused-word': countScored('confused-word'),
+        grammar: countScored('grammar'),
+        pov: lineEditing.findings ? lineEditing.findings.filter(f => f.type === 'pov').length : 0,
+        dialogue: dialogue.findings ? dialogue.findings.length : 0
+      }
     };
   },
 
