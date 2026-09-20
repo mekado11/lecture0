@@ -577,7 +577,7 @@ function renderGoalBar(r){
     // Dialogue goal hidden when score is null (nonfiction with low dialogue ratio)
     ...(scores.dialogue!=null?[{id:'dialogue',icon:'\uD83D\uDCAC',label:'Boost Dialogue',score:scores.dialogue,action:()=>{showDetail('dialogue')}}]:[]),
     {id:'hook',icon:'\u26A1',label:'Strengthen Hook',score:rp.hookStrength||0,action:()=>showOpeningCoach()},
-    {id:'pacing',icon:'\uD83C\uDFC3',label:'Fix Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),action:()=>{showDetail('pacing')}},
+    {id:'transitions',icon:'\uD83C\uDFC3',label:'Review Transitions',score:scores.transitions??100,action:()=>{showDetail('transitions')}},
     // Show vs Tell goal hidden for nonfiction
     ...(!isNF?[{id:'showTell',icon:'\uD83D\uDC41',label:'Show Don\'t Tell',score:scores.showTell||0,action:()=>{showDetail('showTell')}}]:[])
   ];
@@ -605,8 +605,8 @@ function renderSceneIntel(r){
   const energy=(wq.engagementScore||0)>70?'High':(wq.engagementScore||0)>40?'Medium':'Low';
   // Tension
   const tensionQuarters=r.plot?.quarters||[];
-  const lastTension=tensionQuarters.length>0?tensionQuarters[tensionQuarters.length-1].tension:0;
-  const prevTension=tensionQuarters.length>1?tensionQuarters[tensionQuarters.length-2].tension:0;
+  const lastTension=tensionQuarters.length>0?(tensionQuarters[tensionQuarters.length-1].tensionPerK??0):0;
+  const prevTension=tensionQuarters.length>1?(tensionQuarters[tensionQuarters.length-2].tensionPerK??0):0;
   const tensionDir=lastTension>prevTension?'Rising \uD83D\uDD3A':lastTension<prevTension?'Falling \uD83D\uDD3B':'Steady \u27A1';
   // Goals checklist
   const plot=r.plot||{};const scores=r.scores||{};const dl=r.dialogue||{};
@@ -881,7 +881,7 @@ function renderLeft(r){
   const isSHLeft=r.genre?.primary==='selfHelp';
   const shL=r.selfHelpScores||{};
   const _hookIssueCount=(r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0);
-  const _pacingScore=isSHLeft?Math.round(shL.emotionalMomentum||0):Math.round(((scores.plot||0)+(scores.transitions||0))/2);
+  const _pacingScore=isSHLeft?Math.round(shL.emotionalMomentum||0):(scores.transitions??0);
   // Badge must agree with the number — never show "Good" next to a red/yellow score.
   // pacingFeel (paragraph-rhythm heuristic) only supplies the Rushed/Slow qualifier.
   const _pacingBadge=(rp.pacingFeel||'').includes('Rushed')?'Rushed'
@@ -896,7 +896,7 @@ function renderLeft(r){
     {name:isSHLeft?'Reader Buy-In':'Engagement Score',score:isSHLeft?Math.round(((shL.readerIdentification||0)+(shL.emotionalMomentum||0))/2):rp.engagementScore||0,sub:isSHLeft?'Reader ID + Momentum':'How hooked will readers be?',action:'+ Improve Opening',bar:true},
     {name:isSHLeft?'Promise Strength':'Hook Strength',score:isSHLeft?Math.round(shL.readerIdentification||0):rp.hookStrength||0,sub:_hookIssueCount+(_hookIssueCount===1?' Issue':' Issues'),action:'+ Improve Opening',bar:false},
     {name:isSHLeft?'Clarity & Polish':'Clarity',score:isSHLeft?Math.round(shL.clarityReadability||0):rp.clarityScore||0,sub:isSHLeft?'Readability + flow':'Weak transitions',bar:true},
-    {name:isSHLeft?'Reader Momentum':'Pacing',score:_pacingScore,sub:_pacingSub,badge:_pacingBadge},
+    {name:isSHLeft?'Reader Momentum':'Transition Support',score:_pacingScore,sub:isSHLeft?_pacingSub:((r.transitions?.smoothTransitions??0)+' of '+(r.transitions?.details?.length??0)+' paragraph boundaries supported'),badge:isSHLeft?_pacingBadge:null},
     {name:'Readability',score:fkEase,sub:fkSub,bar:true}
   ];
   $('lp-cards').innerHTML=cards.map((c,i)=>{
@@ -945,18 +945,18 @@ function renderRight(r){
       {k:'sh_clarity',   name:'Clarity & Polish',      score:Math.round(sh.clarityReadability||0),   density:_density(copyRaw),                    issues:copyRaw,              weight:'15%'},
       {k:'sh_reader',    name:'Promise Strength',       score:Math.round(sh.readerIdentification||0), density:null,                                 issues:0,                   weight:'15%'},
       {k:'sh_practical', name:'Practical Application', score:Math.round(sh.practicalApplication||0), density:null,                                 issues:0,                   weight:'15%'},
-      {k:'sh_structure', name:'Argument Progression',  score:Math.round(sh.structureProgression||0), density:null,                                 issues:countType('pov'),    weight:'15%'},
+      {k:'sh_structure', name:'Argument Progression',  score:Math.round(sh.structureProgression||0), density:null,                                 issues:0,                   weight:'15%'},
       {k:'sh_insight',   name:'Insight Quality',        score:Math.round(sh.insightQuality||0),       density:null,                                 issues:0,                   weight:'15%'},
-      {k:'sh_voice',     name:'Authority & Voice',      score:Math.round(sh.voiceAuthority||0),       density:_density(countType('weak-verb')),      issues:countType('weak-verb'),weight:'10%'},
+      {k:'sh_voice',     name:'Authority & Voice',      score:Math.round(sh.voiceAuthority||0),       density:null,                                 issues:0,                   weight:'10%'},
       {k:'sh_momentum',  name:'Reader Momentum',        score:Math.round(sh.emotionalMomentum||0),    density:null,                                 issues:0,                   weight:'10%'},
       {k:'sh_evidence',  name:'Evidence & Support',     score:Math.round(sh.evidenceSupport||0),      density:null,                                 issues:0,                   weight:'5%'},
     ];
   }else{
     cats=[
-      {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,density:null,issues:countType('pov'),weight:'9%'},
-      {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),density:_density(countType('sentence-length')),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'7%'},
+      {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,density:null,issues:0,weight:'9%'},
+      {k:'transitions',name:'Transitions',score:scores.transitions||0,density:null,issues:(r.transitions?.details||[]).filter(x=>!x.supported).length,weight:'7%'},
       {k:'hook',name:'Hook Strength',score:hookScore,density:null,issues:displayedHookIssues,weight:'9%'},
-      {k:'style',name:'Style & Voice',score:scores.style||0,density:_density(countType('weak-verb')),issues:countType('weak-verb'),weight:'7%'},
+      {k:'style',name:'Style & Voice',score:scores.style||0,density:null,issues:0,weight:'7%'},
       // Dialogue: only show if score is non-null (nonfiction with low dialogue ratio gets N/A and is hidden)
       ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,density:null,issues:countType('dialogue'),weight:'6%'}]:[]),
       // Show vs Tell: fiction-only concept; hide for nonfiction
@@ -1156,12 +1156,6 @@ function showDetail(cat){
     if(cat==='sh_clarity'){
       const ci=(r.issues||[]).filter(i=>copyTypes.has(i.type)).slice(0,5);
       if(ci.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Top copy issues</div>'+ci.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(i.text.substring(0,50))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div></div>').join('');
-    }else if(cat==='sh_voice'){
-      const wi=(r.issues||[]).filter(i=>i.type==='weak-verb').slice(0,5);
-      if(wi.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Weak verbs weaken authority</div>'+wi.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(i.text.substring(0,50))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div></div>').join('');
-    }else if(cat==='sh_structure'){
-      const pi=(r.lineEditing?.findings||[]).filter(f=>f.type==='pov').slice(0,5);
-      if(pi.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Structure signals</div>'+pi.map(f=>'<div class="rpd-issue"><div class="rpd-desc">'+esc(f.message)+'</div></div>').join('');
     }
     d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+shTitles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">score: <b style="color:'+col+'">'+score+'/100</b></span></div>'+
       '<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+shWhy[cat]+'</div>'+
@@ -1169,9 +1163,9 @@ function showDetail(cat){
     return;
   }
 
-  const titles={plot:isNF?'Argument Structure':'Plot Structure',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
+  const titles={plot:isNF?'Argument Structure':'Plot Structure',transitions:'Transitions',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
   const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar',pov:'POV Issue',hook:'Opening Problem',tags:'Dialogue Tags',conciseness:'Conciseness',showing:'Show Don\'t Tell',purpose:'Dialogue Purpose',naturalness:'Naturalness'};
-  const catWhy={pacing:'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Generic verbs ("made", "went", "got") miss an opportunity to create vivid, specific imagery.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing catches the mechanical issues — passive voice, adverbs, clichés, wordy phrasing, and word confusion.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:isNF?'Strong nonfiction needs a clear thesis, evidence to support it, logical transitions, and a conclusion that synthesizes.':'Readers need forward momentum — clear stakes, rising tension, and consistent point of view.'};
+  const catWhy={transitions:'This section measures whether adjacent paragraphs have explicit connective, lexical, or referential support. Unsupported boundaries are review candidates, not automatic errors.',pacing:'Pacing is described from observed manuscript segments rather than a borrowed quality score.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Generic verbs ("made", "went", "got") miss an opportunity to create vivid, specific imagery.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing catches the mechanical issues — passive voice, adverbs, clichés, wordy phrasing, and word confusion.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:isNF?'Strong nonfiction needs a clear thesis, evidence to support it, logical transitions, and a conclusion that synthesizes.':'Readers need forward momentum — clear stakes, rising tension, and consistent point of view.'};
 
   // Canonical issue source per category — both card and detail derive from the same data
   const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
@@ -1180,12 +1174,14 @@ function showDetail(cat){
     issues=(r.openingDiagnosis?.problems||[]).map(p=>({type:'hook',text:p.desc||p.title||'',suggestion:p.fix||p.desc||'',severity:p.severity||'medium',index:0,length:0}));
   }else if(cat==='dialogue'){
     issues=(r.dialogue?.findings||[]).map(f=>({type:f.type||'dialogue',text:f.message||'',suggestion:f.message||'',severity:f.severity||'medium',index:0,length:0}));
-  }else if(cat==='plot'){
-    issues=(r.lineEditing?.findings||[]).filter(f=>f.type==='pov').map(f=>({type:'pov',text:f.message||'',suggestion:f.message||'',severity:f.severity||'medium',index:0,length:0}));
+  }else if(cat==='transitions'){
+    issues=(r.transitions?.details||[]).filter(x=>!x.supported).map(x=>({type:'transition',text:'Paragraphs '+x.fromParagraph+' → '+x.toParagraph,suggestion:'No explicit connective and insufficient lexical/referential carryover was measured at this boundary. Review it in context.',severity:'low',index:0,length:0}));
+  }else if(cat==='plot'||cat==='style'){
+    issues=[];
   }else if(cat==='copy'){
     issues=r.issues.filter(i=>copyTypes.has(i.type));
   }else{
-    const directMap={pacing:'sentence-length',style:'weak-verb',showTell:'show-tell',grammar:'grammar'};
+    const directMap={pacing:'sentence-length',showTell:'show-tell',grammar:'grammar'};
     const t=directMap[cat];
     issues=t?r.issues.filter(i=>i.type===t):[];
   }
@@ -1207,7 +1203,7 @@ function showDetail(cat){
   d.innerHTML=progressHtml+
     '<div class="rpd-title"><span style="font-size:1.1rem">'+titles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">'+totalForCat+' issue'+(totalForCat===1?'':'s')+'</span></div>'+
     (catWhy[cat]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+catWhy[cat]+'</div>':'')+
-    (shown.length===0?(cat==='plot'&&r.scores.plot<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the plot structure score is <strong style="color:var(--yellow)">'+r.scores.plot+'/100</strong>.</p><p style="margin-top:.3rem">The engine evaluates arc progression, conflict setup, and tension distribution. Consider whether your opening establishes clear stakes and whether tension builds through the middle.</p></div>':cat==='dialogue'&&r.scores.dialogue<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the dialogue score is <strong style="color:var(--yellow)">'+r.scores.dialogue+'/100</strong>.</p><p style="margin-top:.3rem">Review dialogue for natural rhythm, distinct character voices, and balance between dialogue and narration.</p></div>':'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No issues in this category. Nice work!</p>'):
+    (shown.length===0?'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No locatable findings are mapped to this category. Use the measured evidence in Detailed rather than treating absence of findings as a quality verdict.</p>':
     shown.map((iss,idx)=>{
       const canAIFix=_REWRITE_TYPES.has(iss.type)&&_isPaid();
       const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Apply Fix</button>':canAIFix?'<button class="rpd-fix-btn rpd-ai-fix-btn">Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
