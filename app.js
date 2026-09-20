@@ -1321,7 +1321,7 @@ function renderDetailed(r){
   lineRows.push(sr('Sentence Flow',(le.flow?.score??0)+'/100'));
   lineRows.push(sr('Word Precision',(le.precision?.score??0)+'/100'));
   lineRows.push(sr('Pacing Rhythm',(le.pacing?.score??0)+'/100'));
-  lineRows.push(sr('POV Discipline',(le.pov?.score??0)+'/100'));
+  lineRows.push(sr('POV Discipline',le.pov?.score==null?'N/A — not a nonfiction dimension':le.pov.score+'/100'));
   lineRows.push(sr('Extraneous Language',(le.extraneous?.score??0)+'/100'));
   // Show findings
   if(le.findings&&le.findings.length>0){
@@ -1335,7 +1335,7 @@ function renderDetailed(r){
   lineRows.push(sr('Readability Grade',r.readability?.grade||'N/A'));
   lineRows.push(sr('Flesch Ease',(r.readability?.ease||0)+'/100'));
   h+=secWithTip('Line Editing',r.scores?.line||0,lineRows,'line');
-  h+=sec('Style & Voice',r.scores?.style||0,[sr('POV',r.style?.pov||'N/A'),sr('Lexical Diversity',(r.style?.lexicalDiversity||0)+'/100'),sr('Unique Words',(r.style?.uniqueWords||0).toLocaleString())]);
+  h+=sec('Style & Voice',r.scores?.style||0,[sr('POV',r.style?.pov||'N/A'),sr('Lexical Diversity',(r.style?.lexicalDiversity||0)+'% distinct words per '+(r.style?.lexicalWindow||500)+'-word window'),sr('Unique Words',(r.style?.uniqueWords||0).toLocaleString())]);
   // Dialogue (deep analysis)
   const dl=r.dialogue||{count:0,ratio:0};
   const dlRows=[dl.count===0?'No dialogue detected.':''];
@@ -1364,10 +1364,11 @@ function renderDetailed(r){
   }
   if(r.scores?.dialogue!=null)h+=sec('Dialogue',r.scores.dialogue,dlRows);
   // Pacing heatmap
-  if(r.pacing){const cols={action:'#c0392b',dialogue:'#2980b9',description:'#27ae60',exposition:'#f39c12',reflection:'#8e44ad'};
-  h+='<div class="a-sec"><h3>Pacing Heatmap</h3><div class="hm-wrap">'+r.pacing.segments.map((s,i)=>'<div class="hm-blk" style="background:'+cols[s.type]+'" title="Seg '+(i+1)+': '+s.type+'"></div>').join('')+'</div><div class="hm-leg"><span><span class="hm-dot" style="background:#c0392b"></span>Action</span><span><span class="hm-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="hm-dot" style="background:#27ae60"></span>Description</span><span><span class="hm-dot" style="background:#f39c12"></span>Exposition</span><span><span class="hm-dot" style="background:#8e44ad"></span>Reflection</span></div></div>'}
-  // Characters
-  if(r.characters?.list?.length>0){const mx=Math.max(...r.characters.list.map(c=>c.mentions));h+='<div class="a-sec"><h3>Characters</h3><div class="ch-grid">'+r.characters.list.map(c=>'<div class="ch-card"><div class="ch-name">'+esc(c.name)+'</div><div class="ch-cnt">'+c.mentions+' mentions</div><div class="ch-bar"><div class="ch-fill" style="width:'+Math.round(c.mentions/mx*100)+'%"></div></div></div>').join('')+'</div></div>'}
+  if(r.pacing){const cols={action:'#c0392b',dialogue:'#2980b9',description:'#27ae60',exposition:'#f39c12',reflection:'#8e44ad',mixed:'#7f8c8d'};
+  const hmNote=r.pacing.source==='passage-classifier'?'Each block is 200 words, coloured by the kind of prose that covers most of it.':'Keyword estimate.';
+  h+='<div class="a-sec"><h3>Pacing Heatmap</h3><div class="hm-wrap">'+r.pacing.segments.map((s,i)=>'<div class="hm-blk" style="background:'+(cols[s.type]||cols.mixed)+'" title="Seg '+(i+1)+': '+s.type+(s.share?' ('+s.share+'%)':'')+'"></div>').join('')+'</div><div class="hm-leg"><span><span class="hm-dot" style="background:#c0392b"></span>Action</span><span><span class="hm-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="hm-dot" style="background:#27ae60"></span>Description</span><span><span class="hm-dot" style="background:#f39c12"></span>Exposition</span><span><span class="hm-dot" style="background:#8e44ad"></span>Reflection</span><span><span class="hm-dot" style="background:#7f8c8d"></span>Mixed</span></div><p style="font-size:.7rem;color:var(--muted);margin-top:.3rem">'+hmNote+'</p></div>'}
+  // Names: only words capitalised where grammar did not force it (see Analyzer.analyzeCharacters)
+  if(r.characters?.list?.length>0){const mx=Math.max(...r.characters.list.map(c=>c.mentions));const chTitle=Analyzer.isNonfiction(r.genre)?'Names in the text':'Characters';h+='<div class="a-sec"><h3>'+chTitle+'</h3><div class="ch-grid">'+r.characters.list.map(c=>'<div class="ch-card" title="'+c.midSentence+' mid-sentence, '+c.dialogueCount+' speech attributions"><div class="ch-name">'+esc(c.name)+'</div><div class="ch-cnt">'+c.mentions+' mentions</div><div class="ch-bar"><div class="ch-fill" style="width:'+Math.round(c.mentions/mx*100)+'%"></div></div></div>').join('')+'</div></div>'}
   // Genre-Specific Elements Scanner
   if(r.genreElements&&r.genreElements.applicable){
     const ge=r.genreElements;
