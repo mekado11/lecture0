@@ -3828,16 +3828,16 @@ const Analyzer = {
       showTell: { score: showTellScore, issues: showTellIssues },
       issues: allIssues,
       rawIssues, // unfiltered concatenated detector outputs (telemetry / debugging only)
-      issueCounts: {
-        passive: passiveIssues.length, adverb: adverbIssues.length,
-        cliche: clicheIssues.length, 'weak-verb': weakVerbIssues.length,
-        wordy: wordyIssues.length, repetition: repetitionIssues.length,
-        'sentence-length': longSentenceIssues.length, 'show-tell': showTellIssues.length,
-        'confused-word': confusedWordIssues.length,
-        grammar: grammarIssues.length,
-        pov: lineEditing.findings ? lineEditing.findings.filter(f => f.type === 'pov').length : 0,
-        dialogue: dialogue.findings ? dialogue.findings.length : 0
-      }
+      issueCounts: (() => {
+        // Canonical UI counts come from the validated issue collection, not raw detector
+        // output. This guarantees every displayed number corresponds to a real, locatable
+        // finding in the manuscript.
+        const counts={passive:0,adverb:0,cliche:0,'weak-verb':0,wordy:0,repetition:0,'sentence-length':0,'show-tell':0,'confused-word':0,grammar:0};
+        allIssues.forEach(i=>{if(Object.prototype.hasOwnProperty.call(counts,i.type)) counts[i.type]++;});
+        counts.pov=lineEditing.findings ? lineEditing.findings.filter(f=>f.type==='pov').length : 0;
+        counts.dialogue=dialogue.findings ? dialogue.findings.length : 0;
+        return counts;
+      })()
     };
   },
 
