@@ -1420,40 +1420,59 @@ function sec(t,s,items){return '<div class="a-sec"><h3>'+t+' <span style="color:
 function sr(l,v){return '<div class="sr"><span class="sr-l">'+l+'</span><span class="sr-v">'+v+'</span></div>'}
 
 // Improvement suggestions for low-scoring areas
-const improveTips={
-  plot:{
-    low:'Your plot feels flat. Add a clear inciting incident early, raise the stakes in the middle, and build to a decisive climax. Every scene should either advance the plot or reveal character — cut anything that does neither.',
-    mid:'Your plot has structure but needs sharpening. Ensure each act has a clear turning point. Check if your climax delivers on the promises made in the setup.'
-  },
-  transitions:{
-    low:'Transitions between paragraphs feel abrupt. Use bridging phrases ("Meanwhile", "Later that day"), echo the last image of one paragraph in the first line of the next, or connect scenes through a character\'s emotional state.',
-    mid:'Some transitions work, but others jar the reader. Read each paragraph break aloud — if the shift feels sudden, add a beat or re-order the paragraphs.'
-  },
-  copy:{
-    low:'Heavy copy editing issues. Focus on: (1) Convert passive voice to active ("was opened" → "opened"), (2) Cut adverbs after strong verbs ("ran quickly" → "sprinted"), (3) Replace cliches with original imagery, (4) Split sentences over 30 words.',
-    mid:'Good foundation, but tighten further. Search for "was/were" + past participle and rewrite. Audit every -ly adverb — keep only those that change meaning.'
-  },
-  line:{
-    low:'Line editing needs work. Focus on: varying sentence length (mix 5-word punches with 20-word flowing sentences), cutting filter words ("she felt", "he noticed"), and ensuring each paragraph has a clear energy direction.',
-    mid:'Prose is functional but could be more musical. Try reading difficult sections aloud. Where you stumble, rewrite. Where you rush, slow down with sensory detail.'
-  },
-  style:{
-    low:'Style feels generic. Develop a distinctive voice by: (1) choosing unusual but precise words, (2) developing a consistent rhythm, (3) finding metaphors unique to your world/character. Read authors with strong voice (Chandler, Morrison, Pratchett) and notice HOW they sound different.',
-    mid:'Voice is emerging but inconsistent. Identify your 5 strongest paragraphs and analyze what makes them work — then apply those patterns to the weaker sections.'
-  },
-  dialogue:{
-    low:'Dialogue needs significant work. Rules: (1) Every line should either advance plot or reveal character, (2) Cut small talk, (3) Each character should sound different, (4) "Said" is invisible — don\'t replace it with fancy tags, (5) Show subtext — what characters DON\'T say matters more.',
-    mid:'Dialogue is serviceable but could be sharper. Read each exchange and ask: "Would a real person actually say this?" Cut any line that\'s just delivering information the reader already knows.'
-  },
-  showTell:{
-    low:'Heavy telling instead of showing. Replace "She felt angry" with physical cues: "Her jaw clenched. She set down the glass too hard." Let readers INFER emotions from behavior, body language, and dialogue — don\'t name the emotion directly.',
-    mid:'Some telling remains. Search for "felt", "was [emotion]", "seemed", "obviously" — each one is an opportunity to show through action instead.'
+function evidenceTip(r,key,score){
+  // Recommendations must be generated from findings actually observed in this manuscript.
+  const issues=r.issues||[], le=r.lineEditing||{}, trans=r.transitions||{}, style=r.style||{}, plot=r.plot||{};
+  const top=arr=>arr.filter(Boolean).slice(0,3).join(' ');
+  if(key==='copy'){
+    const counts=r.issueCounts||{}; const ranked=[
+      ['passive',counts.passive,'Revise the validated passive-voice findings shown in the editor.'],
+      ['adverb',counts.adverb,'Review the validated adverbs and keep only those that materially change meaning.'],
+      ['repetition',counts.repetition,'Review repeated words flagged in close proximity.'],
+      ['wordy',counts.wordy,'Tighten the wordy phrases already flagged in the manuscript.'],
+      ['cliche',counts.cliche,'Replace the clichés already identified with manuscript-specific language.']
+    ].filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]);
+    return ranked.length?top(ranked.map(x=>x[1]+' '+x[0]+' finding'+(x[1]===1?'':'s')+'. '+x[2])):'No validated copy-editing issue currently drives this section.';
   }
-};
-function secWithTip(t,s,items,key){
+  if(key==='transitions'){
+    const weak=(trans.details||[]).filter(d=>!d.supported);
+    if(!weak.length) return 'No unsupported paragraph boundary was detected by the transition model.';
+    return 'Review '+weak.length+' unsupported paragraph boundar'+(weak.length===1?'y':'ies')+'. Start with paragraphs '+weak.slice(0,3).map(d=>d.fromParagraph+'→'+d.toParagraph).join(', ')+'. These boundaries had no explicit connective and insufficient lexical/referential carryover.';
+  }
+  if(key==='line'){
+    const fs=(le.findings||[]).slice().sort((a,b)=>({high:0,medium:1,low:2}[a.severity]??2)-({high:0,medium:1,low:2}[b.severity]??2));
+    return fs.length?top(fs.map(f=>f.message)):'No specific line-editing finding currently supports a recommendation.';
+  }
+  if(key==='style'){
+    const rec=[];
+    if((style.sentenceLengthStdDev??99)<3) rec.push('Sentence lengths are unusually uniform (SD '+style.sentenceLengthStdDev+').');
+    if((style.paragraphLengthStdDev??99)<8) rec.push('Paragraph lengths are unusually uniform (SD '+style.paragraphLengthStdDev+').');
+    if((style.lexicalDiversity??100)<45) rec.push('MSTTR-100 lexical diversity is '+style.lexicalDiversity+'%.');
+    return rec.length?top(rec):'No measured style-control weakness currently supports a recommendation.';
+  }
+  if(key==='plot'){
+    const rec=[];
+    if(plot.hasRisingAction===false) rec.push('The plot detector did not find a rising-action pattern.');
+    if(plot.hasClimax===false) rec.push('The full-manuscript detector did not find a climax signal.');
+    if(plot.hasResolution===false) rec.push('The full-manuscript detector did not find a resolution signal.');
+    return rec.length?top(rec):'No measured plot-structure weakness currently supports a recommendation.';
+  }
+  if(key==='dialogue'){
+    const fs=(r.dialogue?.findings||[]);
+    return fs.length?top(fs.map(f=>f.message)):'No dialogue-specific finding currently supports a recommendation.';
+  }
+  if(key==='showTell'){
+    const n=(r.showTell?.issues||[]).length;
+    return n?n+' validated show-vs-tell finding'+(n===1?' is':'s are')+' available in the editor. Work from those exact passages rather than a generic rule.':'No validated show-vs-tell finding currently supports a recommendation.';
+  }
+  return '';
+}
+function secWithTip(t,s,items,key,r){
   let tip='';
-  if(s<50&&improveTips[key]){tip='<div style="background:var(--surface2);border-left:3px solid var(--gold);border-radius:0 var(--rs) var(--rs) 0;padding:.5rem .65rem;margin-top:.4rem"><div style="font-size:.68rem;font-weight:600;color:var(--gold-l);margin-bottom:.2rem">How to Improve</div><div style="font-size:.72rem;color:var(--text);line-height:1.5">'+improveTips[key].low+'</div></div>'}
-  else if(s<70&&improveTips[key]){tip='<div style="background:var(--surface2);border-left:3px solid var(--gold);border-radius:0 var(--rs) var(--rs) 0;padding:.5rem .65rem;margin-top:.4rem"><div style="font-size:.68rem;font-weight:600;color:var(--gold-l);margin-bottom:.2rem">How to Improve</div><div style="font-size:.72rem;color:var(--text);line-height:1.5">'+improveTips[key].mid+'</div></div>'}
+  if(s<70&&key&&r){
+    const msg=evidenceTip(r,key,s);
+    if(msg)tip='<div style="background:var(--surface2);border-left:3px solid var(--gold);border-radius:0 var(--rs) var(--rs) 0;padding:.5rem .65rem;margin-top:.4rem"><div style="font-size:.68rem;font-weight:600;color:var(--gold-l);margin-bottom:.2rem">Evidence-Based Next Step</div><div style="font-size:.72rem;color:var(--text);line-height:1.5">'+esc(msg)+'</div></div>';
+  }
   return '<div class="a-sec"><h3>'+t+' <span style="color:'+sc(s)+'">'+s+'/100</span></h3>'+items.filter(Boolean).map(i=>typeof i==='string'?(i?'<p>'+i+'</p>':''):i).join('')+tip+'</div>';
 }
 
