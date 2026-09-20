@@ -1663,77 +1663,94 @@ const Analyzer = {
   // PACING ANALYSIS
   // ========================
   analyzePacing(text) {
-    const words = text.split(/\s+/);
+    // Fixed-size windows are retained for a stable heatmap, but every block now carries
+    // provenance (word range + excerpt) and classifications are based on observed signals.
+    const tokens = (text.match(/\S+/g) || []);
     const segmentSize = 200;
     const segments = [];
-    for (let i = 0; i < words.length; i += segmentSize) {
-      const chunk = words.slice(i, i + segmentSize).join(' ');
-      const chunkLower = chunk.toLowerCase();
-      const wordCount = Math.min(segmentSize, words.length - i);
-      // Action density
-      const actionWords = (chunkLower.match(/\b(ran|jumped|fought|grabbed|threw|slammed|crashed|bolted|sprinted|dodged|punched|kicked|fired|chased|escaped|attacked|blocked|dove|lunged|swung|struck|smashed|raced|rushed|burst|charged|leaped|dashed)\b/g) || []).length;
-      // Dialogue density
-      const dialogueLines = (chunk.match(/[""\u201C][^""\u201D]*[""\u201D]/g) || []).length;
-      // Description density
-      const descWords = (chunkLower.match(/\b(beautiful|vast|dark|bright|ancient|massive|tiny|enormous|gleaming|shadowy|crimson|golden|silver|towering|sprawling|weathered|ornate|rustic|pristine|desolate)\b/g) || []).length;
-      const actionDensity = actionWords / wordCount * 100;
-      const dialogueDensity = dialogueLines * 10 / wordCount * 100;
-      const descriptionDensity = descWords / wordCount * 100;
-      let type = 'exposition';
-      if (actionDensity > 2) type = 'action';
-      else if (dialogueDensity > 3) type = 'dialogue';
-      else if (descriptionDensity > 2) type = 'description';
-      else if ((chunkLower.match(/\b(thought|felt|wondered|realized|remembered|considered|reflected|pondered|mused)\b/g) || []).length > 2) type = 'reflection';
-      segments.push({ type, actionDensity: Math.round(actionDensity * 10) / 10, dialogueDensity: Math.round(dialogueDensity * 10) / 10, descriptionDensity: Math.round(descriptionDensity * 10) / 10, wordCount });
+    for (let i = 0; i < tokens.length; i += segmentSize) {
+      const slice = tokens.slice(i, i + segmentSize);
+      const chunk = slice.join(' ');
+      const lower = chunk.toLowerCase();
+      const wordCount = slice.length;
+      const sentences = chunk.split(/[.!?]+/).filter(s => s.trim());
+      const dialogueMatches = chunk.match(/[“"][^”"]*[”"]/g) || [];
+      const dialogueWords = dialogueMatches.reduce((n,d)=>n+(d.match(/\b[\w’'-]+\b/g)||[]).length,0);
+      const actionHits = (lower.match(/\b(ran|run|jumped|fought|grabbed|threw|slammed|crashed|bolted|sprinted|dodged|punched|kicked|fired|chased|escaped|attacked|blocked|dove|lunged|swung|struck|smashed|raced|rushed|burst|charged|leaped|dashed|pulled|pushed|climbed|fell|turned|moved)\b/g)||[]).length;
+      const reflectionHits = (lower.match(/\b(thought|felt|wondered|realized|realised|remembered|considered|reflected|pondered|mused|believed|feared|hoped|imagined)\b/g)||[]).length;
+      const descriptionHits = (lower.match(/\b(looked|appeared|seemed|color|colour|light|dark|bright|shadow|tall|small|large|wide|narrow|cold|warm|hot|quiet|loud|smell|scent|sound|voice|sky|room|street|building|landscape)\b/g)||[]).length;
+      const expositionHits = (lower.match(/\b(because|therefore|means|meant|explained|history|reason|result|example|according|known|understood|information|fact|process)\b/g)||[]).length;
+      const scores = {
+        action: actionHits / Math.max(wordCount,1),
+        dialogue: dialogueWords / Math.max(wordCount,1),
+        description: descriptionHits / Math.max(wordCount,1),
+        reflection: reflectionHits / Math.max(wordCount,1),
+        exposition: expositionHits / Math.max(wordCount,1)
+      };
+      // Dialogue is measured as word share; other modes are lexical signals. Require
+      // evidence before assigning a specialized mode; otherwise exposition is the neutral fallback.
+      let type='exposition';
+      const ranked=Object.entries(scores).filter(([k])=>k!=='exposition').sort((a,b)=>b[1]-a[1]);
+      if(scores.dialogue>=0.12) type='dialogue';
+      else if(scores.action>=0.018 && ranked[0]?.[0]==='action') type='action';
+      else if(scores.reflection>=0.015 && ranked[0]?.[0]==='reflection') type='reflection';
+      else if(scores.description>=0.018 && ranked[0]?.[0]==='description') type='description';
+      segments.push({
+        type,
+        startWord:i+1,endWord:i+wordCount,wordCount,
+        actionDensity:Math.round(scores.action*1000)/10,
+        dialogueDensity:Math.round(scores.dialogue*1000)/10,
+        descriptionDensity:Math.round(scores.description*1000)/10,
+        reflectionDensity:Math.round(scores.reflection*1000)/10,
+        excerpt:chunk.slice(0,180)
+      });
     }
-    return { segments };
+    const counts={action:0,dialogue:0,description:0,exposition:0,reflection:0};
+    segments.forEach(s=>{counts[s.type]=(counts[s.type]||0)+1;});
+    return { segments, segmentSize, counts, totalSegments:segments.length };
   },
 
   // ========================
   // CHARACTER TRACKING
   // ========================
-  analyzeCharacters(text) {
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    // Find proper nouns (capitalized words not at sentence start)
-    const candidates = {};
-    const sentenceStartWords = new Set();
-    text.split(/[.!?]+/).forEach(s => {
-      const first = s.trim().split(/\s+/)[0];
-      if (first) sentenceStartWords.add(first);
-    });
-    // Common non-name capitalized words
-    const skipWords = new Set(['The','A','An','In','On','At','To','For','It','He','She','They','We','You','I','My','His','Her','Our','Their','This','That','These','Those','But','And','Or','If','So','Yet','Not','Was','Were','Is','Are','Has','Had','Have','Do','Does','Did','Will','Would','Could','Should','May','Might','Can','Just','Now','Then','Here','There','When','Where','How','What','Who','Why','Which','After','Before','During','While','Although','Because','Since','Until','Unless','Chapter','Part','Section','One','Two','Three','Four','Five']);
-    const nameRegex = /\b([A-Z][a-z]{2,})\b/g;
-    let match;
-    while ((match = nameRegex.exec(text)) !== null) {
-      const name = match[0];
-      if (!skipWords.has(name)) {
-        if (!candidates[name]) candidates[name] = { mentions: 0, paragraphs: new Set(), dialogueCount: 0 };
-        candidates[name].mentions++;
-        // Find which paragraph
-        let charCount = 0;
-        for (let p = 0; p < paragraphs.length; p++) {
-          charCount += paragraphs[p].length + 2;
-          if (match.index < charCount) { candidates[name].paragraphs.add(p); break; }
-        }
-      }
+  analyzeCharacters(text, genre) {
+    // Character tracking is a fiction/person detector, not a capitalization counter.
+    // Concept-heavy nonfiction was previously turning words such as "Your", "Poverty",
+    // "United" and "States" into characters.
+    const genreKey=typeof genre==='string'?genre:(genre?.primary||'');
+    if (this.isNonfiction(genre) && !['memoir','biography','trueCrime'].includes(genreKey)) return {list:[],applicable:false};
+
+    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
+    const skip=new Set(('The A An In On At To For It He She They We You Your Yours I My His Her Our Their This That These Those But And Or If So Yet Not Was Were Is Are Has Had Have Do Does Did Will Would Could Should May Might Can Just Now Then Here There When Where How What Who Why Which After Before During While Although Because Since Until Unless Chapter Part Section One Two Three Four Five Every Some Most None People Think Self Patience Poverty Take Start Whether Reflection Confidence Write Action About Family Education Social Use Consider Mark Gates United States Nigeria America Europe Africa Asia Monday Tuesday Wednesday Thursday Friday Saturday Sunday January February March April May June July August September October November December').split(/\s+/));
+    const candidates=new Map();
+    const nameRe=/\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b/g;
+    let m;
+    while((m=nameRe.exec(text))!==null){
+      const name=m[1];
+      if(name.split(/\s+/).some(w=>skip.has(w))) continue;
+      const before=text.slice(Math.max(0,m.index-2),m.index);
+      const sentenceStart=m.index===0||/[.!?]\s*$/.test(text.slice(Math.max(0,m.index-4),m.index));
+      const after=text.slice(m.index+name.length,m.index+name.length+45);
+      const beforeCtx=text.slice(Math.max(0,m.index-45),m.index);
+      const possessive=/^[’']s\b/.test(after);
+      const speech=new RegExp('^[\\s,]*(said|asked|whispered|replied|muttered|shouted|cried|answered|called|told|nodded|smiled|laughed|sighed|turned|walked|ran|looked|stared|grabbed|pulled|pushed)\\b','i').test(after);
+      const addressed=new RegExp('\\b(said|asked|told|called|with|from|to)\\s+$','i').test(beforeCtx);
+      const multi=name.includes(' ');
+      const row=candidates.get(name)||{mentions:0,paragraphs:new Set(),dialogueCount:0,evidence:0,sentenceStartOnly:true};
+      row.mentions++;
+      if(!sentenceStart) row.sentenceStartOnly=false;
+      if(possessive||speech||addressed||multi) row.evidence++;
+      if(speech) row.dialogueCount++;
+      let cursor=0;
+      for(let p=0;p<paragraphs.length;p++){cursor+=paragraphs[p].length+2;if(m.index<cursor){row.paragraphs.add(p);break;}}
+      candidates.set(name,row);
     }
-    // Check dialogue attribution
-    const dialogueAttr = text.match(/[""\u201D]\s*([A-Z][a-z]+)\s+(said|asked|whispered|replied|muttered|exclaimed|shouted|cried)/g) || [];
-    dialogueAttr.forEach(d => {
-      const nameMatch = d.match(/[""\u201D]\s*([A-Z][a-z]+)/);
-      if (nameMatch && candidates[nameMatch[1]]) candidates[nameMatch[1]].dialogueCount++;
-    });
-    // Filter to recurring characters (3+ mentions)
-    const list = Object.entries(candidates)
-      .filter(([_, data]) => data.mentions >= 3)
-      .sort((a, b) => b[1].mentions - a[1].mentions)
-      .map(([name, data]) => ({
-        name, mentions: data.mentions,
-        paragraphs: Array.from(data.paragraphs).sort((a,b) => a-b),
-        dialogueCount: data.dialogueCount
-      }));
-    return { list };
+    const list=[...candidates.entries()]
+      .filter(([name,d])=>d.mentions>=3 && (d.evidence>=1 || (!d.sentenceStartOnly && d.mentions>=5)))
+      .sort((a,b)=>b[1].mentions-a[1].mentions)
+      .slice(0,40)
+      .map(([name,d])=>({name,mentions:d.mentions,paragraphs:[...d.paragraphs].sort((a,b)=>a-b),dialogueCount:d.dialogueCount,evidenceCount:d.evidence}));
+    return {list,applicable:true};
   },
 
   // ========================
@@ -3711,7 +3728,7 @@ const Analyzer = {
     // Backfill readerPerspective.dnfRisk from new engine for backward compat
     readerPerspective.dnfRisk = dnfAnalysis.dnf_risk;
     const pacing = this.analyzePacing(aText);
-    const characters = this.analyzeCharacters(aText);
+    const characters = this.analyzeCharacters(aText, genre);
     const blurbs = this.generateBlurbs(aText, characters, genre, mode);
     const scifiWorld = this.analyzeSciFiWorldbuilding(aText, genre);
     const genreElements = this.analyzeGenreElements(aText, genre);
