@@ -159,10 +159,13 @@ const IntelligenceWindow = (() => {
     try { report = typeof ChapterMetrics !== 'undefined' ? ChapterMetrics.analyze(data.parsed, data.analysis) : null; }
     catch (_) { report = null; }
     const footer = '<button class="ws-item" data-open-review><b>Manuscript health</b><small>Full scores and editorial detail</small></button>';
-    if (!report) return footer;
-    if (!report.applicable) return empty(report.reason) + footer;
+    // Context adjustments are book-wide, so they are reported whether or not any individual
+    // chapter stands out.
+    const context = renderContextAdjustments(data);
+    if (!report) return context + footer;
+    if (!report.applicable) return empty(report.reason) + context + footer;
     if (!report.outliers.length && !report.lengthNotes.length) {
-      return empty('No chapter stands out from the rest of your book on the measures we track. That is a good sign for consistency, not a verdict on quality.') + footer;
+      return empty('No chapter stands out from the rest of your book on the measures we track. That is a good sign for consistency, not a verdict on quality.') + context + footer;
     }
     const rows = report.outliers.map(o => {
       const comparison = o.uniqueToChapter
@@ -177,7 +180,54 @@ const IntelligenceWindow = (() => {
       + n.wordCount.toLocaleString() + ' vs ' + Math.round(n.median).toLocaleString() + ' words)</small></button>').join('');
     return '<p class="workspace-nav-hint">Compared across all ' + report.chapterCount
       + ' chapters of this book — not against any outside standard. Click a chapter to open it.</p>'
-      + rows + lengths + footer;
+      + rows + lengths + context + footer;
+  }
+
+  // What the engine reweighted because of the kind of passage a finding sat in, and why.
+  // A bare count would be an unfalsifiable claim, so this always shows the grouping and the
+  // reason behind each adjustment.
+  const MODE_WORDS = { dialogue:'dialogue', action:'action', reflection:'reflective',
+    description:'descriptive', exposition:'explanatory' };
+  function renderContextAdjustments(data) {
+    const context = data.analysis && data.analysis.proseContext;
+    const issues = (data.analysis && data.analysis.issues) || [];
+    if (!context || !context.applicable) return '';
+    const adjusted = issues.filter(i => i && i._context);
+    const mix = context.distribution || {};
+    const mixText = Object.keys(mix)
+      .filter(mode => mode !== 'mixed' && mix[mode] >= 5)
+      .sort((a, b) => mix[b] - mix[a])
+      .map(mode => mix[mode] + '% ' + (MODE_WORDS[mode] || mode))
+      .join(' · ');
+
+    if (!adjusted.length) {
+      return !mixText ? '' : '<p class="workspace-nav-hint ws-context-head">Prose mix — ' + esc(mixText)
+        + '. No finding needed reweighting for the kind of passage it was in.</p>';
+    }
+    // Group by what was done, to what, where — one row per distinct judgement.
+    const groups = new Map();
+    for (const issue of adjusted) {
+      const key = issue._context.action + '|' + issue.type + '|' + issue._context.mode;
+      const group = groups.get(key) || { count: 0, action: issue._context.action,
+        type: issue.type, mode: issue._context.mode, reason: issue._context.reason };
+      group.count++;
+      groups.set(key, group);
+    }
+    const label = { 'sentence-length':'Long sentences', passive:'Passive voice', repetition:'Repetition',
+      'show-tell':'Telling, not showing', adverb:'Adverbs', wordy:'Wordy phrases', cliche:'Clichés' };
+    const rows = [...groups.values()].sort((a, b) => b.count - a.count).map(group =>
+      '<div class="ws-note" data-action="' + esc(group.action) + '">'
+      + '<b>' + esc(label[group.type] || group.type) + ' in ' + esc(MODE_WORDS[group.mode] || group.mode) + ' passages</b>'
+      + '<small>' + group.count + (group.action === 'suppress' ? ' set aside · ' : ' raised · ')
+      + esc(group.reason) + '</small></div>').join('');
+
+    const setAside = adjusted.filter(i => i._context.action === 'suppress').length;
+    const raised = adjusted.length - setAside;
+    const summary = [setAside ? setAside + ' set aside as your register' : '',
+      raised ? raised + ' raised as out of register' : ''].filter(Boolean).join(' · ');
+    return '<p class="workspace-nav-hint ws-context-head">Prose mix' + (mixText ? ' — ' + esc(mixText) : '')
+      + '.<br>' + esc(summary) + '. Set-aside findings stay visible in the editor but do not affect your scores.</p>'
+      + rows;
   }
 
   async function renderNavigator(nextMode = mode) {

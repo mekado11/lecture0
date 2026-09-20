@@ -120,5 +120,6 @@ const ProseContext = (() => {
   return { classify, classifyParagraph, passageAt, distribution, MODES };
 })();
 
+if (typeof globalThis !== 'undefined') globalThis.ProseContext = ProseContext;   // window, worker self, and Node
 if (typeof window !== 'undefined') window.ProseContext = ProseContext;
 if (typeof module !== 'undefined' && module.exports) module.exports = ProseContext;

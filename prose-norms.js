@@ -10,7 +10,7 @@ const ProseNorms = (() => {
   'use strict';
   const context = (typeof module !== 'undefined' && module.exports)
     ? require('./prose-context')
-    : (typeof window !== 'undefined' ? window.ProseContext : globalThis.ProseContext);
+    : (typeof ProseContext !== 'undefined' ? ProseContext : globalThis.ProseContext);
 
   function median(values) {
     if (!values.length) return 0;
@@ -121,5 +121,6 @@ const ProseNorms = (() => {
   return { apply, sentenceNorms, judge, median };
 })();
 
+if (typeof globalThis !== 'undefined') globalThis.ProseNorms = ProseNorms;   // window, worker self, and Node
 if (typeof window !== 'undefined') window.ProseNorms = ProseNorms;
 if (typeof module !== 'undefined' && module.exports) module.exports = ProseNorms;

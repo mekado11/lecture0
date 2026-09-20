@@ -137,5 +137,6 @@ const ChapterMetrics = (() => {
   return { analyze, METRICS, median, mad };
 })();
 
+if (typeof globalThis !== 'undefined') globalThis.ChapterMetrics = ChapterMetrics;   // window, worker self, and Node
 if (typeof window !== 'undefined') window.ChapterMetrics = ChapterMetrics;
 if (typeof module !== 'undefined' && module.exports) module.exports = ChapterMetrics;
