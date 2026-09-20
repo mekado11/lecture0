@@ -152,6 +152,34 @@ const IntelligenceWindow = (() => {
       }
     });
   }
+  // Review tab: where this manuscript is unlike ITSELF. Every figure is a comparison against
+  // the author's own other chapters, so nothing here implies a standard we have not measured.
+  function renderReview(data) {
+    let report = null;
+    try { report = typeof ChapterMetrics !== 'undefined' ? ChapterMetrics.analyze(data.parsed, data.analysis) : null; }
+    catch (_) { report = null; }
+    const footer = '<button class="ws-item" data-open-review><b>Manuscript health</b><small>Full scores and editorial detail</small></button>';
+    if (!report) return footer;
+    if (!report.applicable) return empty(report.reason) + footer;
+    if (!report.outliers.length && !report.lengthNotes.length) {
+      return empty('No chapter stands out from the rest of your book on the measures we track. That is a good sign for consistency, not a verdict on quality.') + footer;
+    }
+    const rows = report.outliers.map(o => {
+      const comparison = o.uniqueToChapter
+        ? o.count + ' in this chapter, none anywhere else'
+        : o.ratio + '× the rest of your book (' + o.value + ' vs ' + o.median + ' per 1,000 words)';
+      return '<button class="ws-item" data-chapter="' + esc(o.chapterId) + '" data-severity="' + esc(o.severity) + '">'
+        + '<b>' + esc(o.title) + '</b><small>' + esc(o.label) + ' · ' + esc(comparison) + '</small></button>';
+    }).join('');
+    const lengths = report.lengthNotes.map(n =>
+      '<button class="ws-item" data-chapter="' + esc(n.chapterId) + '">'
+      + '<b>' + esc(n.title) + '</b><small>Much ' + esc(n.direction) + ' than your other chapters ('
+      + n.wordCount.toLocaleString() + ' vs ' + Math.round(n.median).toLocaleString() + ' words)</small></button>').join('');
+    return '<p class="workspace-nav-hint">Compared across all ' + report.chapterCount
+      + ' chapters of this book — not against any outside standard. Click a chapter to open it.</p>'
+      + rows + lengths + footer;
+  }
+
   async function renderNavigator(nextMode = mode) {
     mode=nextMode;
     const token=++renderId, host=$('workspace-nav-content');
@@ -196,7 +224,7 @@ const IntelligenceWindow = (() => {
     }
     else if(mode==='characters')host.innerHTML=data.intel.characterLedger.characters.map(c=>item('data-character',c.id,c.name,`${c.chapterIds.length} chapters · ${c.threads.length} threads`)).join('')||empty('No recurring characters detected.');
     else if(mode==='threads')host.innerHTML=data.intel.narrativeMomentum.arcs.map(t=>item('data-thread',t.id,t.label,`${t.pressure} · ${t.recurrence} signals`)).join('')||empty('No narrative threads detected.');
-    else if(mode==='review')host.innerHTML='<button class="ws-item" data-open-review><b>Manuscript health</b><small>Review the evidence and editorial suggestions</small></button>';
+    else if(mode==='review')host.innerHTML=renderReview(data);
     else host.innerHTML=data.parsed.chapters.map(c=>item('data-chapter',c.id,c.title,`${c.wordCount} words`)).join('');
     host.querySelectorAll('[data-chapter]').forEach(b=>b.addEventListener('click',()=>focusChapter(b.dataset.chapter)));
     host.querySelectorAll('[data-character]').forEach(b=>b.addEventListener('click',()=>renderContext('character',b.dataset.character)));
