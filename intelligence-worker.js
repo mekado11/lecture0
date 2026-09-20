@@ -8,7 +8,7 @@ importScripts(
   'document-intelligence.js',
   'story-intelligence.js?v=2',
   'continuity-intelligence.js?v=2',
-  'timeline-intelligence.js?v=2',
+  'timeline-intelligence.js?v=3',
   'narrative-momentum.js?v=2',
   'relationship-intelligence.js?v=2',
   'character-ledger.js?v=2'

@@ -122,6 +122,37 @@ const GenreExpectations = (() => {
         + ' per 1,000 words across the book (' + trend.direction + ').', detail: trend };
   };
 
+  // Some genres are defined by what they keep OUT. A cosy mystery that reads like a
+  // procedural has broken its promise even though nothing is technically wrong.
+  const densityCeiling = ({ re, label, ceiling, note }) => (ctx) => {
+    const chapters = chaptersOf(ctx.parsed);
+    if (!chapters.length) return unknown('No chapters were available to measure.');
+    const whole = chapters.map(c => c.body || c.text).join('\n\n');
+    const rate = Math.round(density(whole, re) * 10) / 10;
+    return { status: rate <= ceiling ? 'met' : rate <= ceiling * 2 ? 'partial' : 'unmet',
+      observation: label + ' runs at ' + rate + ' per 1,000 words. ' + note, detail: { rate, ceiling } };
+  };
+
+  // How much of the book is spent in motion, as distinct from scene generally.
+  const actionShare = ({ metAt = 25, partialAt = 12 }) => (ctx) => {
+    const mix = modeMix(ctx.analysis);
+    if (!mix) return unknown('Passage modes were not available for this manuscript.');
+    return { status: mix.action >= metAt ? 'met' : mix.action >= partialAt ? 'partial' : 'unmet',
+      observation: 'Action passages are ' + mix.action + '% of the book, description ' + mix.description + '%.',
+      detail: mix };
+  };
+
+  // Chronology actually tracked through the book, from extracted time cues.
+  const timeTracked = ({ subject = 'The account' }) => (ctx) => {
+    const events = (ctx.intel && ctx.intel.timeline && ctx.intel.timeline.events) || [];
+    const total = chaptersOf(ctx.parsed).length || 1;
+    const covered = new Set(events.map(e => e.chapterId)).size;
+    if (!events.length) return unknown(subject + ' has no explicit time cues, so its chronology could not be read. Time carried by implication will not show up here.');
+    return { status: covered / total >= 0.5 ? 'met' : 'partial',
+      observation: events.length + ' explicit time cue' + (events.length === 1 ? '' : 's') + ' across '
+        + covered + ' of ' + total + ' chapters.', detail: { events: events.length, covered, total } };
+  };
+
   // Nonfiction structure that document-intelligence already extracts per chapter.
   const nonfictionCoverage = ({ key, singular, plural }) => (ctx) => {
     const nf = ctx.intel && ctx.intel.nonfiction;
@@ -141,6 +172,10 @@ const GenreExpectations = (() => {
   const DREAD = /\b(wrong|strange|cold|silence|silent|watching|watched|behind|shadow|whisper|scratch|creak|stain|rot|wet|breathing|still|empty|alone|closer|something)\b/gi;
   const WONDER = /\b(magic|spell|rune|relic|beast|dragon|realm|kingdom|prophecy|curse|ancient|forbidden|ritual|blade|throne|sorcer|witch|god|temple|enchant)\b/gi;
   const TECH = /\b(ship|orbit|station|drive|reactor|module|protocol|system|colony|planet|signal|data|neural|implant|android|drone|quantum|hull|airlock|terraform)\b/gi;
+  const GORE = /\b(blood|bloody|gore|corpse|mutilat|dismember|torture|scream|butcher|stab|slash|entrails|viscera|rotting|decay)\b/gi;
+  const FRONTIER = /\b(saddle|rifle|holster|sheriff|marshal|ranch|cattle|prairie|canyon|mesa|homestead|stagecoach|saloon|spurs|corral|rustler|frontier|territory|wagon)\b/gi;
+  const JOURNEY = /\b(road|trail|river|mountain|harbour|harbor|port|sail|march|crossing|map|compass|horizon|distance|onward|league|expedition|voyage|camp)\b/gi;
+  const ARGUMENT = /\b(therefore|thus|hence|it follows|suppose|assume|premise|conclusion|argument|objection|counter|consider|granted|entails|implies|contradiction|necessarily|sufficient)\b/gi;
   const PERIOD = /\b(carriage|lantern|telegram|corset|parlour|parlor|regiment|musket|shilling|steamer|cobbles|bonnet|servant|estate|manor|coachman|petticoat|gaslight)\b/gi;
 
   // ---- genre models --------------------------------------------------------------------
@@ -440,6 +475,203 @@ const GenreExpectations = (() => {
         { id: 'promise-delivered', evidence: EVIDENCE.AI,
           expectation: 'The book delivers the change it promises',
           why: 'Whether a reader would actually be changed is the whole question, and the one least suited to counting.' }
+      ]
+    }
+,
+
+    romantasy: {
+      label: 'Romantasy',
+      promise: 'A reader opens a romantasy for both halves of the bargain: a relationship that carries the book, and a world with rules of its own. Neither is decoration for the other.',
+      expectations: [
+        { id: 'together', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The two leads share the page',
+          why: 'The relationship is half the promise. A world, however rich, does not substitute for it.',
+          measure: (ctx) => {
+            const co = coOccurrence(ctx.intel, ctx.parsed);
+            if (!co) return unknown('Two recurring characters could not be identified with confidence.');
+            const share = co.sharedChapters / Math.max(co.totalChapters, 1);
+            return { status: co.sharedChapters === 0 ? 'unmet' : share >= 0.5 ? 'met' : 'partial',
+              observation: co.sharedChapters === 0 ? co.a + ' and ' + co.b + ' never appear in the same chapter.'
+                : co.a + ' and ' + co.b + ' share ' + co.sharedChapters + ' of ' + co.totalChapters + ' chapters.',
+              detail: co };
+          } },
+        { id: 'lived-in-world', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The world is inhabited, not explained',
+          why: 'The other half of the bargain. Worldbuilding delivered as lecture stalls the romance as surely as it stalls a fantasy.',
+          measure: sceneBalance({ noun: 'The world', easeAt: 25, lectureAt: 45 }) },
+        { id: 'interiority', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The reader is inside the feeling',
+          why: 'Romantasy readers come for longing as much as spectacle.',
+          measure: interiority({ metAt: 15, partialAt: 7 }) },
+        { id: 'stakes-entwined', evidence: EVIDENCE.AI,
+          expectation: 'The world\u2019s danger and the relationship bear on each other',
+          why: 'When the plot and the romance run on separate tracks the book reads as two books. Whether they are entwined is a judgement about meaning.' }
+      ]
+    },
+
+    cozyMystery: {
+      label: 'Cozy Mystery',
+      promise: 'A reader opens a cosy for a puzzle solved somewhere they want to be. They expect an amateur they like, a community who recur, and violence kept firmly off the page.',
+      expectations: [
+        { id: 'community', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'There is a community, not just a case',
+          why: 'The place and its people are the reason the reader returns. A cosy with a thin cast is a procedural in a village.',
+          measure: castRecurrence({ minRecurring: 4 }) },
+        { id: 'sleuth-present', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The reader stays with the amateur sleuth',
+          why: 'The pleasure is watching an ordinary person work it out.',
+          measure: leadPresence({ role: 'The sleuth' }) },
+        { id: 'violence-off-page', evidence: EVIDENCE.PROXY,
+          expectation: 'The violence stays off the page',
+          why: 'This is the genre\u2019s defining restraint. Measured as the density of graphic vocabulary, which reads word choice rather than what a scene actually depicts.',
+          measure: densityCeiling({ re: GORE, label: 'Graphic vocabulary', ceiling: 1.5,
+            note: 'Cosy readers expect the aftermath, not the act.' }) },
+        { id: 'fair-play', evidence: EVIDENCE.AI,
+          expectation: 'The solution was reachable from the page',
+          why: 'Fairness is the puzzle\u2019s contract, and whether clues were genuinely planted cannot be counted.' }
+      ]
+    },
+
+    adventure: {
+      label: 'Adventure',
+      promise: 'A reader opens an adventure to be taken somewhere and kept moving. They expect momentum, physical consequence, and a journey that goes somewhere rather than circling.',
+      expectations: [
+        { id: 'in-motion', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The book spends its time in motion',
+          why: 'Momentum is the promise. Reflection and explanation are the brakes.',
+          measure: actionShare({ metAt: 25, partialAt: 12 }) },
+        { id: 'journey', evidence: EVIDENCE.PROXY,
+          expectation: 'The journey keeps moving through new ground',
+          why: 'Adventure flags when the setting stops changing. Measured as the spread of travel and landscape vocabulary, a crude stand-in for actual movement.',
+          measure: trendMeasure({ re: JOURNEY, label: 'Language of journey', risingIsGood: false,
+            absentNote: 'No travel or landscape vocabulary was found, so movement through the world could not be read.' }) },
+        { id: 'someone-to-follow', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'A person carries the journey',
+          why: 'Events without someone to be anxious for are a travelogue.',
+          measure: leadPresence({ role: 'The central figure' }) },
+        { id: 'consequence', evidence: EVIDENCE.AI,
+          expectation: 'The journey costs something',
+          why: 'Peril without consequence stops mattering. That is a judgement about meaning, not a count.' }
+      ]
+    },
+
+    western: {
+      label: 'Western',
+      promise: 'A reader opens a western for landscape, a code under pressure, and a confrontation that has been earned. They expect the country itself to be present on the page.',
+      expectations: [
+        { id: 'landscape', evidence: EVIDENCE.PROXY,
+          expectation: 'The country is present throughout',
+          why: 'Landscape is a character in this genre. Measured as frontier vocabulary across the arc, which catches only its most literal surface.',
+          measure: trendMeasure({ re: FRONTIER, label: 'Frontier detail', risingIsGood: false,
+            absentNote: 'No frontier vocabulary was found, so the presence of the country could not be read.' }) },
+        { id: 'lived-not-recounted', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The world is lived in, not recounted',
+          why: 'History and setting delivered as explanation flatten a form built on immediacy.',
+          measure: sceneBalance({ noun: 'The country', easeAt: 25, lectureAt: 45 }) },
+        { id: 'someone-to-follow', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The reader stays with one figure',
+          why: 'The western runs on a person tested by a place.',
+          measure: leadPresence({ role: 'The central figure' }) },
+        { id: 'code', evidence: EVIDENCE.AI,
+          expectation: 'A code is tested, not just stated',
+          why: 'What separates the genre from costume is whether principle costs the character something. A judgement about meaning.' }
+      ]
+    },
+
+    biography: {
+      label: 'Biography',
+      promise: 'A reader opens a biography for a real life made legible. They expect the subject present throughout, claims that rest on evidence, and a life shaped into a story rather than a chronology.',
+      expectations: [
+        { id: 'subject-present', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The subject is present throughout',
+          why: 'Biographies drift into context and lose the person. This reports how much of the book the subject actually occupies.',
+          measure: leadPresence({ role: 'The subject' }) },
+        { id: 'evidenced', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'Claims rest on evidence',
+          why: 'Authority is the genre\u2019s currency. This counts the attributed claims the book actually supplies.',
+          measure: nonfictionCoverage({ key: 'claims', singular: 'attributed claim', plural: 'attributed claims' }) },
+        { id: 'chronology', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The reader can place events in time',
+          why: 'A life told without temporal anchors becomes a set of anecdotes. This counts explicit time cues across chapters.',
+          measure: timeTracked({ subject: 'This biography' }) },
+        { id: 'shape', evidence: EVIDENCE.AI,
+          expectation: 'The life has been given a shape',
+          why: 'Chronology is not structure. Whether a life has been made into a story is a judgement about meaning.' }
+      ]
+    },
+
+    historyNF: {
+      label: 'History',
+      promise: 'A reader opens a history to understand what happened and why it mattered. They expect evidence, a chronology they can follow, and interpretation that is distinguishable from record.',
+      expectations: [
+        { id: 'evidenced', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'Claims are attributed',
+          why: 'History without attribution is assertion. This counts the attributed claims present in the text.',
+          measure: nonfictionCoverage({ key: 'claims', singular: 'attributed claim', plural: 'attributed claims' }) },
+        { id: 'chronology', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The reader can follow the sequence',
+          why: 'Chronological footing is what lets a reader hold a period in mind. This counts explicit time cues across chapters.',
+          measure: timeTracked({ subject: 'This history' }) },
+        { id: 'narrative', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'Analysis is carried by narrative',
+          why: 'History that never lands in scene becomes an argument the reader cannot picture.',
+          measure: sceneBalance({ noun: 'The account', easeAt: 40, lectureAt: 65 }) },
+        { id: 'interpretation-marked', evidence: EVIDENCE.AI,
+          expectation: 'Interpretation is distinguishable from record',
+          why: 'Readers must be able to tell evidence from the historian\u2019s reading of it. That distinction is a judgement about meaning.' }
+      ]
+    },
+
+    trueCrime: {
+      label: 'True Crime',
+      promise: 'A reader opens true crime for a real case handled responsibly. They expect sourcing, a sequence they can follow, and victims treated as people rather than plot devices.',
+      expectations: [
+        { id: 'sourced', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The account is sourced',
+          why: 'Real cases carry real consequences for real people. This counts the attributed claims the book supplies.',
+          measure: nonfictionCoverage({ key: 'claims', singular: 'attributed claim', plural: 'attributed claims' }) },
+        { id: 'chronology', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The sequence is followable',
+          why: 'A case the reader cannot order is a case they cannot assess. This counts explicit time cues across chapters.',
+          measure: timeTracked({ subject: 'This account' }) },
+        { id: 'restraint', evidence: EVIDENCE.PROXY,
+          expectation: 'Detail serves understanding rather than spectacle',
+          why: 'The genre\u2019s ethical line. Measured only as the density of graphic vocabulary, which cannot tell dwelling from reporting \u2014 read it as a prompt to look, not a verdict.',
+          measure: densityCeiling({ re: GORE, label: 'Graphic vocabulary', ceiling: 3,
+            note: 'Worth checking whether the detail is doing work for the reader.' }) },
+        { id: 'victims', evidence: EVIDENCE.AI,
+          expectation: 'Victims are people, not plot devices',
+          why: 'This is the responsibility the genre carries, and no count can speak to it.' }
+      ]
+    },
+
+    philosophy: {
+      label: 'Philosophy / Religion',
+      promise: 'A reader opens philosophy to follow an argument they can test. They expect reasoning made visible, examples that illuminate rather than decorate, and objections met rather than avoided.',
+      expectations: [
+        { id: 'reasoning-visible', evidence: EVIDENCE.PROXY,
+          expectation: 'The reasoning is visible on the page',
+          why: 'A reader must be able to follow the steps in order to disagree with them. This is a proxy: it counts argumentative connectives, which show the shape of an argument and say nothing whatever about whether it is any good.',
+          measure: (ctx) => {
+            const chapters = chaptersOf(ctx.parsed);
+            if (!chapters.length) return unknown('No chapters were available to measure.');
+            const rate = Math.round(density(chapters.map(c => c.body || c.text).join('\n\n'), ARGUMENT) * 10) / 10;
+            return { status: rate >= 3 ? 'met' : rate >= 1 ? 'partial' : 'unmet',
+              observation: 'Argumentative connectives (therefore, suppose, it follows) run at ' + rate
+                + ' per 1,000 words. Sparse scaffolding can mean the steps are implicit rather than absent.',
+              detail: { rate } };
+          } },
+        { id: 'examples', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'Abstractions are brought down to cases',
+          why: 'Examples are how an argument becomes checkable. This counts the illustrative passages the text supplies.',
+          measure: nonfictionCoverage({ key: 'personalEvidence', singular: 'illustrative passage', plural: 'illustrative passages' }) },
+        { id: 'not-only-assertion', evidence: EVIDENCE.STRUCTURAL,
+          expectation: 'The book is more than sustained assertion',
+          why: 'Philosophy delivered as unbroken exposition asks for agreement rather than assent.',
+          measure: sceneBalance({ noun: 'The argument', easeAt: 50, lectureAt: 75 }) },
+        { id: 'objections', evidence: EVIDENCE.AI,
+          expectation: 'The strongest objection is met',
+          why: 'Whether an argument engages its best opponent is the measure of its seriousness, and it cannot be counted.' }
       ]
     }
   };
