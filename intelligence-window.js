@@ -161,7 +161,7 @@ const IntelligenceWindow = (() => {
     const footer = '<button class="ws-item" data-open-review><b>Manuscript health</b><small>Full scores and editorial detail</small></button>';
     // Context adjustments are book-wide, so they are reported whether or not any individual
     // chapter stands out.
-    const context = renderContextAdjustments(data);
+    const context = renderGenreExpectations(data) + renderContextAdjustments(data);
     if (!report) return context + footer;
     if (!report.applicable) return empty(report.reason) + context + footer;
     if (!report.outliers.length && !report.lengthNotes.length) {
@@ -181,6 +181,30 @@ const IntelligenceWindow = (() => {
     return '<p class="workspace-nav-hint">Compared across all ' + report.chapterCount
       + ' chapters of this book — not against any outside standard. Click a chapter to open it.</p>'
       + rows + lengths + context + footer;
+  }
+
+  // What a reader of this genre comes for, and what this manuscript actually does about it.
+  // Each row carries how it was evidenced, because "measured from your chapters" and
+  // "a machine guessed from word choice" deserve different amounts of the author's trust.
+  const EVIDENCE_NOTE = { structural:'measured from your text', proxy:'word-choice signal only',
+    ai:'needs the AI reader', author:'only you can answer' };
+  function renderGenreExpectations(data) {
+    const analysis = data.analysis;
+    const primary = analysis && analysis.genre && analysis.genre.primary;
+    if (!primary || typeof GenreExpectations === 'undefined') return '';
+    let report;
+    try {
+      report = GenreExpectations.evaluate(primary, { parsed: data.parsed, intel: data.intel, analysis });
+    } catch (_) { return ''; }
+    if (!report || !report.applicable) return '';
+    const rows = report.expectations.map(item =>
+      '<div class="ws-note" data-status="' + esc(item.status) + '">'
+      + '<b>' + esc(item.expectation) + '</b>'
+      + '<small>' + esc(item.observation || item.why) + '</small>'
+      + '<small class="ws-evidence">' + esc(EVIDENCE_NOTE[item.evidence] || item.evidence) + '</small>'
+      + '</div>').join('');
+    return '<p class="workspace-nav-hint ws-context-head"><b>' + esc(report.label) + ' — what readers come for</b><br>'
+      + esc(report.promise) + '</p>' + rows;
   }
 
   // What the engine reweighted because of the kind of passage a finding sat in, and why.
