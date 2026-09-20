@@ -152,6 +152,108 @@ const IntelligenceWindow = (() => {
       }
     });
   }
+  // Review tab: where this manuscript is unlike ITSELF. Every figure is a comparison against
+  // the author's own other chapters, so nothing here implies a standard we have not measured.
+  function renderReview(data) {
+    let report = null;
+    try { report = typeof ChapterMetrics !== 'undefined' ? ChapterMetrics.analyze(data.parsed, data.analysis) : null; }
+    catch (_) { report = null; }
+    const footer = '<button class="ws-item" data-open-review><b>Manuscript health</b><small>Full scores and editorial detail</small></button>';
+    // Context adjustments are book-wide, so they are reported whether or not any individual
+    // chapter stands out.
+    const context = renderGenreExpectations(data) + renderContextAdjustments(data);
+    if (!report) return context + footer;
+    if (!report.applicable) return empty(report.reason) + context + footer;
+    if (!report.outliers.length && !report.lengthNotes.length) {
+      return empty('No chapter stands out from the rest of your book on the measures we track. That is a good sign for consistency, not a verdict on quality.') + context + footer;
+    }
+    const rows = report.outliers.map(o => {
+      const comparison = o.uniqueToChapter
+        ? o.count + ' in this chapter, none anywhere else'
+        : o.ratio + '× the rest of your book (' + o.value + ' vs ' + o.median + ' per 1,000 words)';
+      return '<button class="ws-item" data-chapter="' + esc(o.chapterId) + '" data-severity="' + esc(o.severity) + '">'
+        + '<b>' + esc(o.title) + '</b><small>' + esc(o.label) + ' · ' + esc(comparison) + '</small></button>';
+    }).join('');
+    const lengths = report.lengthNotes.map(n =>
+      '<button class="ws-item" data-chapter="' + esc(n.chapterId) + '">'
+      + '<b>' + esc(n.title) + '</b><small>Much ' + esc(n.direction) + ' than your other chapters ('
+      + n.wordCount.toLocaleString() + ' vs ' + Math.round(n.median).toLocaleString() + ' words)</small></button>').join('');
+    return '<p class="workspace-nav-hint">Compared across all ' + report.chapterCount
+      + ' chapters of this book — not against any outside standard. Click a chapter to open it.</p>'
+      + rows + lengths + context + footer;
+  }
+
+  // What a reader of this genre comes for, and what this manuscript actually does about it.
+  // Each row carries how it was evidenced, because "measured from your chapters" and
+  // "a machine guessed from word choice" deserve different amounts of the author's trust.
+  const EVIDENCE_NOTE = { structural:'measured from your text', proxy:'word-choice signal only',
+    ai:'needs the AI reader', author:'only you can answer' };
+  function renderGenreExpectations(data) {
+    const analysis = data.analysis;
+    const primary = analysis && analysis.genre && analysis.genre.primary;
+    if (!primary || typeof GenreExpectations === 'undefined') return '';
+    let report;
+    try {
+      report = GenreExpectations.evaluate(primary, { parsed: data.parsed, intel: data.intel, analysis });
+    } catch (_) { return ''; }
+    if (!report || !report.applicable) return '';
+    const rows = report.expectations.map(item =>
+      '<div class="ws-note" data-status="' + esc(item.status) + '">'
+      + '<b>' + esc(item.expectation) + '</b>'
+      + '<small>' + esc(item.observation || item.why) + '</small>'
+      + '<small class="ws-evidence">' + esc(EVIDENCE_NOTE[item.evidence] || item.evidence) + '</small>'
+      + '</div>').join('');
+    return '<p class="workspace-nav-hint ws-context-head"><b>' + esc(report.label) + ' — what readers come for</b><br>'
+      + esc(report.promise) + '</p>' + rows;
+  }
+
+  // What the engine reweighted because of the kind of passage a finding sat in, and why.
+  // A bare count would be an unfalsifiable claim, so this always shows the grouping and the
+  // reason behind each adjustment.
+  const MODE_WORDS = { dialogue:'dialogue', action:'action', reflection:'reflective',
+    description:'descriptive', exposition:'explanatory' };
+  function renderContextAdjustments(data) {
+    const context = data.analysis && data.analysis.proseContext;
+    const issues = (data.analysis && data.analysis.issues) || [];
+    if (!context || !context.applicable) return '';
+    const adjusted = issues.filter(i => i && i._context);
+    const mix = context.distribution || {};
+    const mixText = Object.keys(mix)
+      .filter(mode => mode !== 'mixed' && mix[mode] >= 5)
+      .sort((a, b) => mix[b] - mix[a])
+      .map(mode => mix[mode] + '% ' + (MODE_WORDS[mode] || mode))
+      .join(' · ');
+
+    if (!adjusted.length) {
+      return !mixText ? '' : '<p class="workspace-nav-hint ws-context-head">Prose mix — ' + esc(mixText)
+        + '. No finding needed reweighting for the kind of passage it was in.</p>';
+    }
+    // Group by what was done, to what, where — one row per distinct judgement.
+    const groups = new Map();
+    for (const issue of adjusted) {
+      const key = issue._context.action + '|' + issue.type + '|' + issue._context.mode;
+      const group = groups.get(key) || { count: 0, action: issue._context.action,
+        type: issue.type, mode: issue._context.mode, reason: issue._context.reason };
+      group.count++;
+      groups.set(key, group);
+    }
+    const label = { 'sentence-length':'Long sentences', passive:'Passive voice', repetition:'Repetition',
+      'show-tell':'Telling, not showing', adverb:'Adverbs', wordy:'Wordy phrases', cliche:'Clichés' };
+    const rows = [...groups.values()].sort((a, b) => b.count - a.count).map(group =>
+      '<div class="ws-note" data-action="' + esc(group.action) + '">'
+      + '<b>' + esc(label[group.type] || group.type) + ' in ' + esc(MODE_WORDS[group.mode] || group.mode) + ' passages</b>'
+      + '<small>' + group.count + (group.action === 'suppress' ? ' set aside · ' : ' raised · ')
+      + esc(group.reason) + '</small></div>').join('');
+
+    const setAside = adjusted.filter(i => i._context.action === 'suppress').length;
+    const raised = adjusted.length - setAside;
+    const summary = [setAside ? setAside + ' set aside as your register' : '',
+      raised ? raised + ' raised as out of register' : ''].filter(Boolean).join(' · ');
+    return '<p class="workspace-nav-hint ws-context-head">Prose mix' + (mixText ? ' — ' + esc(mixText) : '')
+      + '.<br>' + esc(summary) + '. Set-aside findings stay visible in the editor but do not affect your scores.</p>'
+      + rows;
+  }
+
   async function renderNavigator(nextMode = mode) {
     mode=nextMode;
     const token=++renderId, host=$('workspace-nav-content');
@@ -196,7 +298,7 @@ const IntelligenceWindow = (() => {
     }
     else if(mode==='characters')host.innerHTML=data.intel.characterLedger.characters.map(c=>item('data-character',c.id,c.name,`${c.chapterIds.length} chapters · ${c.threads.length} threads`)).join('')||empty('No recurring characters detected.');
     else if(mode==='threads')host.innerHTML=data.intel.narrativeMomentum.arcs.map(t=>item('data-thread',t.id,t.label,`${t.pressure} · ${t.recurrence} signals`)).join('')||empty('No narrative threads detected.');
-    else if(mode==='review')host.innerHTML='<button class="ws-item" data-open-review><b>Manuscript health</b><small>Review the evidence and editorial suggestions</small></button>';
+    else if(mode==='review')host.innerHTML=renderReview(data);
     else host.innerHTML=data.parsed.chapters.map(c=>item('data-chapter',c.id,c.title,`${c.wordCount} words`)).join('');
     host.querySelectorAll('[data-chapter]').forEach(b=>b.addEventListener('click',()=>focusChapter(b.dataset.chapter)));
     host.querySelectorAll('[data-character]').forEach(b=>b.addEventListener('click',()=>renderContext('character',b.dataset.character)));
