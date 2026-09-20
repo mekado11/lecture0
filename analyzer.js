@@ -1133,76 +1133,30 @@ const Analyzer = {
   // PLOT STRUCTURE ANALYSIS
   // ========================
   analyzePlot(text, mode, genre) {
-    if (this.isNonfiction(genre)) return this._analyzeArgumentStructure(text, mode);
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    const totalParagraphs = paragraphs.length;
-    if (totalParagraphs < 3) {
-      return { score: 50, arc: 'too-short', details: 'Text too short for plot analysis.', hasRisingAction: false, hasClimax: false, hasResolution: false, hasCliffhanger: false, hasSceneGoal: false, paragraphCount: totalParagraphs, quarters: [] };
+    if(this.isNonfiction(genre)) return this._analyzeArgumentStructure(text,mode);
+    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
+    if(paragraphs.length<3)return {score:null,applicable:false,arc:'insufficient-data',details:'Too little narrative text for structural measurement.',paragraphCount:paragraphs.length,quarters:[]};
+    const qSize=Math.ceil(paragraphs.length/4);
+    const tensionRe=/\b(conflict|struggle|fight|danger|threat|problem|challenge|crisis|desperate|fear|terror|panic|attack|escape|chase|betray|confront|demand|risk|urgent|trapped|failed|loss|enemy|pressure)\b/gi;
+    const resolutionRe=/\b(resolved|forgive|forgiven|healed|returned|reunited|safe|calm|accepted|reconciled|settled|answered|solution|peace)\b/gi;
+    const actionRe=/\b(ran|rushed|grabbed|threw|struck|fought|attacked|escaped|chased|drove|pulled|pushed|fell|burst|charged|fired|slammed|crashed)\b/gi;
+    const quarters=[];
+    for(let i=0;i<4;i++){
+      const ps=paragraphs.slice(i*qSize,Math.min((i+1)*qSize,paragraphs.length));
+      const txt=ps.join(' '), wc=(txt.match(/\b[\w’'-]+\b/g)||[]).length;
+      const tension=(txt.match(tensionRe)||[]).length, resolution=(txt.match(resolutionRe)||[]).length, action=(txt.match(actionRe)||[]).length;
+      quarters.push({quarter:i+1,paragraphStart:i*qSize+1,paragraphEnd:Math.min((i+1)*qSize,paragraphs.length),wordCount:wc,tensionSignals:tension,resolutionSignals:resolution,actionSignals:action,tensionPerK:+(tension/Math.max(wc,1)*1000).toFixed(2),resolutionPerK:+(resolution/Math.max(wc,1)*1000).toFixed(2),actionPerK:+(action/Math.max(wc,1)*1000).toFixed(2)});
     }
-    const tensionWords = ['but','however','suddenly','unfortunately','despite','conflict',
-      'struggle','fight','danger','threat','problem','challenge','crisis','desperate',
-      'fear','terror','shock','scream','panic','crash','explosion','death','kill',
-      'attack','escape','chase','reveal','secret','betray','confront','demand'];
-    const resolutionWords = ['finally','resolved','peace','understand','accept','together',
-      'smile','hope','light','dawn','new','begin','realize','truth','answer',
-      'embrace','forgive','heal','return','home','safe','calm'];
-    const quarterSize = Math.ceil(totalParagraphs / 4);
-    const quarters = [];
-    for (let i = 0; i < 4; i++) {
-      const start = i * quarterSize;
-      const end = Math.min(start + quarterSize, totalParagraphs);
-      const section = paragraphs.slice(start, end).join(' ').toLowerCase();
-      let tension = 0, resolution = 0;
-      tensionWords.forEach(w => { const m = section.match(new RegExp(`\\b${w}\\b`, 'g')); if (m) tension += m.length; });
-      resolutionWords.forEach(w => { const m = section.match(new RegExp(`\\b${w}\\b`, 'g')); if (m) resolution += m.length; });
-      quarters.push({ tension, resolution, wordCount: section.split(/\s+/).length });
-    }
-    const hasRisingAction = quarters[1].tension > quarters[0].tension;
-    const hasClimax = quarters[2].tension >= quarters[1].tension || quarters[2].tension >= quarters[0].tension;
-    const hasResolution = quarters[3].resolution > quarters[2].resolution || quarters[3].tension < quarters[2].tension;
-
-    // Chapter-level: check for scene goal and cliffhanger ending
-    const lastPara = paragraphs[paragraphs.length - 1].toLowerCase();
-    const hasCliffhanger = /\?$/.test(lastPara.trim()) || /\b(but|however|suddenly|then|until|never|everything changed)\b/.test(lastPara);
-    const firstPara = paragraphs[0].toLowerCase();
-    const hasSceneGoal = /\b(need|must|had to|wanted|determined|searching|looking for|trying to)\b/.test(firstPara);
-
-    const totalTension = quarters.reduce((s, q) => s + q.tension, 0);
-    const totalResolution = quarters.reduce((s, q) => s + q.resolution, 0);
-    const tensionDensity = totalTension / Math.max(totalParagraphs, 1);
-    let score = 10;
-    if (mode === 'chapter' || mode === 'excerpt') {
-      if (hasSceneGoal) score += 15;
-      if (hasRisingAction) score += 18;
-      if (hasClimax) score += 15;
-      if (hasCliffhanger) score += 15;
-      if (hasResolution) score += 5;
-    } else {
-      if (hasRisingAction) score += 20;
-      if (hasClimax) score += 20;
-      if (hasResolution) score += 18;
-      if (!hasRisingAction && !hasClimax && !hasResolution) score -= 5;
-    }
-    if (tensionDensity > 1.5) score += 8;
-    else if (tensionDensity > 0.8) score += 4;
-    else if (tensionDensity < 0.2) score -= 5;
-    const wordCounts = quarters.map(q => q.wordCount);
-    const avgWords = wordCounts.reduce((a, b) => a + b, 0) / 4;
-    const paceVariance = wordCounts.reduce((sum, w) => sum + Math.pow(w - avgWords, 2), 0) / 4;
-    if (paceVariance < avgWords * avgWords * 0.25) score += 4;
-
-    let arcType = 'flat';
-    if (mode === 'chapter' || mode === 'excerpt') {
-      if (hasSceneGoal && hasRisingAction && hasCliffhanger) arcType = 'strong-scene';
-      else if (hasRisingAction && hasCliffhanger) arcType = 'building';
-      else if (hasRisingAction) arcType = 'rising';
-      else if (hasCliffhanger) arcType = 'hook-ending';
-    } else {
-      if (hasRisingAction && hasClimax && hasResolution) arcType = 'classic';
-      else if (hasRisingAction && hasClimax) arcType = 'rising';
-      else if (hasResolution) arcType = 'resolution-focused';
-    }
-    return { score: Math.min(100, Math.max(0, score)), arc: arcType, quarters, hasRisingAction, hasClimax, hasResolution, hasCliffhanger, hasSceneGoal, paragraphCount: totalParagraphs };
+    const curve=quarters.map(q=>q.tensionPerK+q.actionPerK*.5);
+    const risingCandidate=curve[1]>curve[0];
+    const peak=Math.max(...curve),peakQuarter=curve.indexOf(peak)+1;
+    const climaxCandidate=peakQuarter===3||peakQuarter===4;
+    const resolutionCandidate=quarters[3].resolutionPerK>Math.max(quarters[0].resolutionPerK,quarters[1].resolutionPerK);
+    // Structural score reflects only measured arc-shape evidence. Labels remain candidates:
+    // deterministic lexical signals cannot prove a literary climax or resolution.
+    const measured=[risingCandidate,climaxCandidate,resolutionCandidate];
+    const score=Math.round(measured.filter(Boolean).length/measured.length*100);
+    return {score,applicable:true,arc:'measured-arc-signals',methodology:'Quarter-normalized tension/action/resolution signals; structural labels are candidates, not facts.',quarters,paragraphCount:paragraphs.length,risingActionCandidate:risingCandidate,climaxCandidate,resolutionCandidate,peakQuarter,hasRisingAction:risingCandidate,hasClimax:climaxCandidate,hasResolution:resolutionCandidate,hasCliffhanger:null,hasSceneGoal:null};
   },
 
   // ========================
@@ -1210,65 +1164,26 @@ const Analyzer = {
   // Scores: thesis clarity, evidence density, logical transitions, conclusion synthesis
   // ========================
   _analyzeArgumentStructure(text, mode) {
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    const totalParagraphs = paragraphs.length;
-    if (totalParagraphs < 3) {
-      return { score: 50, arc: 'too-short', details: 'Text too short for argument analysis.', hasThesis: false, hasEvidence: false, hasTransitions: false, hasConclusion: false, paragraphCount: totalParagraphs, quarters: [] };
-    }
-    const lower = text.toLowerCase();
-    const totalWords = (text.match(/\b\w+\b/g) || []).length;
-
-    // Thesis: opening establishes a premise / question / claim
-    const opening = paragraphs.slice(0, 3).join(' ').toLowerCase();
-    const thesisSignals = (opening.match(/\b(this book|this chapter|here is|the truth is|i argue|i believe|the question|the problem|the issue|consider|imagine|suppose|let me|what if|why|how|because)\b/g) || []).length;
-    const hasThesis = thesisSignals >= 2 || opening.includes('?');
-
-    // Evidence density: data, examples, citations, "for example", quoted material
-    const evidenceMatches = (lower.match(/\b(for example|for instance|research|study|studies|data|evidence|according to|statistics|percent|percentage|consider|case in point|specifically|in fact|notably)\b/g) || []).length;
-    const citationMatches = (text.match(/\(\d{4}\)|\[\d+\]|\bpage \d+/gi) || []).length;
-    const evidencePerK = ((evidenceMatches + citationMatches) / Math.max(totalWords, 1)) * 1000;
-    const hasEvidence = evidencePerK >= 1.5;
-
-    // Logical transitions: first/second/finally/therefore/consequently/however/moreover
-    const transitionMatches = (lower.match(/\b(first|second|third|finally|therefore|consequently|however|moreover|furthermore|in addition|on the other hand|in contrast|as a result|nevertheless|thus|hence|accordingly|meanwhile|subsequently)\b/g) || []).length;
-    const transitionPerK = (transitionMatches / Math.max(totalWords, 1)) * 1000;
-    const hasTransitions = transitionPerK >= 2;
-
-    // Conclusion: final paragraphs synthesize / summarize / call to action
-    const closing = paragraphs.slice(-3).join(' ').toLowerCase();
-    const conclusionSignals = (closing.match(/\b(in conclusion|in summary|to summarize|the takeaway|finally|ultimately|the lesson|the point is|remember this|now you|action|next step|begin|start|do this)\b/g) || []).length;
-    const hasConclusion = conclusionSignals >= 1;
-
-    // Quarter-by-quarter argument density (parallel structure to plot quarters)
-    const q = Math.floor(totalParagraphs / 4);
-    const quarters = [0, 1, 2, 3].map(i => {
-      const start = i * q;
-      const end = i === 3 ? totalParagraphs : (i + 1) * q;
-      const slice = paragraphs.slice(start, end).join(' ').toLowerCase();
-      const sliceWords = (slice.match(/\b\w+\b/g) || []).length;
-      const sliceEvidence = (slice.match(/\b(for example|research|study|data|evidence|according to|specifically)\b/g) || []).length;
-      return { density: sliceWords > 0 ? sliceEvidence / sliceWords * 1000 : 0 };
-    });
-
-    let score = 10;
-    if (hasThesis) score += 25;
-    if (hasEvidence) score += 25;
-    if (hasTransitions) score += 20;
-    if (hasConclusion) score += 15;
-    // Bonus for high-quality evidence density
-    if (evidencePerK > 4) score += 5;
-
-    return {
-      score: Math.min(100, Math.max(0, score)),
-      arc: 'nonfiction',
-      hasThesis, hasEvidence, hasTransitions, hasConclusion,
-      evidencePerK: Math.round(evidencePerK * 10) / 10,
-      transitionPerK: Math.round(transitionPerK * 10) / 10,
-      paragraphCount: totalParagraphs,
-      quarters,
-      // Plot-shape compatibility fields (so existing UI doesn't crash):
-      hasRisingAction: hasEvidence, hasClimax: hasConclusion, hasResolution: hasConclusion, hasCliffhanger: false, hasSceneGoal: hasThesis
-    };
+    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
+    const words=text.match(/\b[\w’'-]+\b/g)||[], totalWords=words.length;
+    if(paragraphs.length<3)return {score:null,applicable:false,arc:'nonfiction',details:'Too little text for argument-structure measurement.',paragraphCount:paragraphs.length,quarters:[]};
+    const opening=paragraphs.slice(0,Math.min(3,paragraphs.length)).join(' ');
+    const closing=paragraphs.slice(-Math.min(3,paragraphs.length)).join(' ');
+    const claimRe=/\b(i argue|this book argues|this chapter argues|the central claim|the thesis|the problem is|the question is|we will show|i will show|this book shows|this chapter shows)\b/gi;
+    const evidenceRe=/\b(for example|for instance|according to|research|study|studies|data|evidence|statistics|case study|survey|experiment|analysis found|results show)\b/gi;
+    const transitionRe=/\b(first|second|third|finally|therefore|consequently|however|moreover|furthermore|in addition|on the other hand|in contrast|as a result|nevertheless|thus|hence|accordingly|meanwhile|subsequently)\b/gi;
+    const synthesisRe=/\b(in conclusion|in summary|to summarize|taken together|overall|ultimately|the takeaway|the evidence shows|we have seen|this means)\b/gi;
+    const thesisSignals=(opening.match(claimRe)||[]).length;
+    const evidenceSignals=(text.match(evidenceRe)||[]).length+(text.match(/\([^)]*\b(19|20)\d{2}\b[^)]*\)|\[\d+\]/g)||[]).length;
+    const transitionSignals=(text.match(transitionRe)||[]).length;
+    const synthesisSignals=(closing.match(synthesisRe)||[]).length;
+    const evidencePerK=+(evidenceSignals/Math.max(totalWords,1)*1000).toFixed(2);
+    const transitionPerK=+(transitionSignals/Math.max(totalWords,1)*1000).toFixed(2);
+    const observed=[thesisSignals>0,evidenceSignals>0,transitionSignals>0,synthesisSignals>0];
+    const score=Math.round(observed.filter(Boolean).length/observed.length*100);
+    const qSize=Math.ceil(paragraphs.length/4);
+    const quarters=[0,1,2,3].map(i=>{const t=paragraphs.slice(i*qSize,Math.min((i+1)*qSize,paragraphs.length)).join(' '),wc=(t.match(/\b[\w’'-]+\b/g)||[]).length,e=(t.match(evidenceRe)||[]).length;return {quarter:i+1,wordCount:wc,evidenceSignals:e,evidencePerK:+(e/Math.max(wc,1)*1000).toFixed(2)}});
+    return {score,applicable:true,arc:'nonfiction',methodology:'Observed claim, evidence, transition, and closing-synthesis signals.',thesisSignals,evidenceSignals,transitionSignals,synthesisSignals,evidencePerK,transitionPerK,hasThesis:thesisSignals>0,hasEvidence:evidenceSignals>0,hasTransitions:transitionSignals>0,hasConclusion:synthesisSignals>0,paragraphCount:paragraphs.length,quarters,hasRisingAction:null,hasClimax:null,hasResolution:null,hasCliffhanger:null,hasSceneGoal:null};
   },
 
   // ========================
@@ -3463,20 +3378,12 @@ const Analyzer = {
   // COPY EDITING SCORE
   // ========================
   scoreCopyEditing(issues, totalWords) {
-    // Only score copy-editing issue types, not style/structure issues
-    const copyTypes = new Set(['passive', 'adverb', 'cliche', 'wordy', 'confused-word', 'repetition', 'grammar']);
-    const copyIssues = issues.filter(i => copyTypes.has(i.type));
-    const issuesPerThousand = (copyIssues.length / Math.max(totalWords, 1)) * 1000;
-    // Impact-weighted scoring: a manuscript with 2000+ issues shouldn't floor to 30.
-    // Each penalty band caps; the floor here is 100 - 30 - 15 - 8 = 47, which keeps
-    // a noisy-but-readable manuscript in the C+ range instead of failing it outright.
-    let score = 100;
-    score -= Math.min(30, issuesPerThousand * 2);
-    const highSev = copyIssues.filter(i => i.severity === 'high').length;
-    const medSev = copyIssues.filter(i => i.severity === 'medium').length;
-    score -= Math.min(15, highSev * 1.5);
-    score -= Math.min(8, medSev * 0.4);
-    return Math.min(100, Math.max(0, Math.round(score)));
+    const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition','grammar']);
+    const copyIssues=issues.filter(i=>copyTypes.has(i.type));
+    const perK=copyIssues.length/Math.max(totalWords,1)*1000;
+    // A transparent density index: 0 validated findings = 100. The curve is monotonic
+    // and length-normalized; no hidden floor or absolute-count penalty.
+    return Math.max(0,Math.min(100,Math.round(100/(1+perK/25))));
   },
 
   // ========================
