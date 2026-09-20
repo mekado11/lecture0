@@ -616,9 +616,10 @@ function renderSceneIntel(r){
   if(!isNF&&q.length>=2&&Number.isFinite(q[q.length-1].tensionPerK)&&Number.isFinite(q[q.length-2].tensionPerK)){
     const last=q[q.length-1].tensionPerK,prev=q[q.length-2].tensionPerK;
     const dir=last>prev*1.1?'Rising':last<prev*0.9?'Falling':'Steady';
-    h+='<div class="si-row"><span class="si-label">Tension, Q3 \u2192 Q4</span><span class="si-val">'+dir+' ('+prev+' \u2192 '+last+' per 1K)</span></div>';
+    h+='<div class="si-row" title="Tension words per 1,000 words, third quarter to fourth"><span class="si-label">Tension Q3\u2192Q4</span><span class="si-val">'+dir+' \u00b7 '+prev+'\u2192'+last+'/1K</span></div>';
   }
   h+='</div>';
+  h+='<div id="lp-start" class="lp-cards"></div>'; // filled by renderLeft: the one "Start here" card
   h+='<div class="focus-toggle" id="focus-toggle">Focus Mode <span class="focus-badge off">OFF</span></div>';
   h+='<button class="sim-btn" id="sim-reader-btn">\uD83D\uDC41 Simulate Reader Experience</button>';
   el.innerHTML=h;
@@ -842,6 +843,13 @@ function _renderSubScores(r){
   // "Narrative" is the wrong word for nonfiction — call the content-side score "Message"
   const _nhLabel=Analyzer.isNonfiction(r.genre)?'Message':'Narrative';
   const bits=[part(_nhLabel,ss.narrativeHealth),part('Language',ss.languageQuality)].filter(Boolean);
+  // Readability sits with the verdict: a Flesch-Kincaid grade is a descriptor of the whole book.
+  const fk=r.readability;
+  if(fk&&Number.isFinite(fk.ease)){
+    const ease=Math.max(0,Math.min(100,Math.round(fk.ease)));
+    const label=ease>=80?'Easy Read':ease>=60?'Standard':ease>=40?'Demanding':'Dense';
+    bits.push('Grade '+Math.round(fk.grade||0)+' <span title="Flesch reading ease '+ease+'">'+label+'</span>');
+  }
   const fmWords=r.segmentation?.frontMatterWords||0;
   const fmNote=fmWords>50?'<span style="color:var(--dim)" title="Copyright pages, disclaimers, dedication, and contents are excluded from narrative scoring">'+fmWords.toLocaleString()+' words of front matter excluded</span>':'';
   el.innerHTML=bits.join(' &middot; ')+(bits.length&&fmNote?'<br>':'')+fmNote;
@@ -886,116 +894,107 @@ function updateScoresOnly(r){
 }
 
 // LEFT SIDEBAR
+// One list of dimensions for both rails. The right rail shows all of them as the workbench;
+// the left rail shows only the one whose fix would move the overall most ("Start here").
+// Every field here is an existing measurement; nothing is computed for display alone.
+function _dimensionCards(r){
+  const rp=r.readerPerspective||{};const scores=r.scores||{};
+  const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
+  const perPage=n=>{if(!n)return null;const d=n/Math.max(1,(r.totalWords||0)/250);return (d>=10?Math.round(d):Math.round(d*10)/10)+'/pg'};
+  const stIssues=r.showTell&&r.showTell.issues?r.showTell.issues.length:countType('show-tell');
+  const copyRaw=countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word')+countType('repetition');
+  const isNF=Analyzer.isNonfiction(r.genre);const isSH=r.genre?.primary==='selfHelp';const sh=r.selfHelpScores||{};
+  const hookScore=rp.hookStrength||0;const hookProblems=r.openingDiagnosis?.problems?.length||0;
+  if(isSH&&r.selfHelpScores){
+    const ev=sh.evidence||{};
+    return [
+      {k:'sh_clarity',  name:'Clarity & Polish',     score:Math.round(sh.clarityReadability||0),  density:perPage(copyRaw),issues:copyRaw,weight:'15%',evidence:ev.clarity},
+      {k:'sh_reader',   name:'Promise Strength',      score:Math.round(sh.readerIdentification||0),density:null,issues:hookScore<80?hookProblems:0,weight:'15%',evidence:ev.reader},
+      {k:'sh_practical',name:'Practical Application',score:Math.round(sh.practicalApplication||0),density:null,issues:0,weight:'15%',evidence:ev.practical},
+      {k:'sh_structure',name:'Argument Progression', score:Math.round(sh.structureProgression||0),density:null,issues:0,weight:'15%',evidence:ev.structure},
+      {k:'sh_insight',  name:'Insight Quality',       score:Math.round(sh.insightQuality||0),      density:null,issues:0,weight:'15%',evidence:ev.insight},
+      {k:'sh_voice',    name:'Authority & Voice',     score:Math.round(sh.voiceAuthority||0),      density:null,issues:0,weight:'10%',evidence:ev.voice},
+      {k:'sh_momentum', name:'Reader Momentum',       score:Math.round(sh.emotionalMomentum||0),   density:null,issues:0,weight:'10%',evidence:ev.momentum},
+      {k:'sh_evidence', name:'Evidence & Support',    score:Math.round(sh.evidenceSupport||0),     density:null,issues:0,weight:'5%', evidence:ev.evidence}
+    ];
+  }
+  const p=r.plot||{};const q=p.quarters||[];
+  const plotEv=isNF
+    ? (p.thesisSignals||0)+' thesis \u00B7 '+(p.evidenceSignals||0)+' evidence \u00B7 '+(p.transitionSignals||0)+' transition \u00B7 '+(p.synthesisSignals||0)+' synthesis signals'
+    : (q.length?'tension per 1K by quarter '+q.map(x=>x.tensionPerK??'\u2014').join(' \u2192 '):'');
+  const t=r.transitions||{};
+  const dl=r.dialogue||{};
+  const st=r.style||{};
+  return [
+    {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,density:null,issues:0,weight:'9%',evidence:plotEv},
+    {k:'transitions',name:'Transitions',score:scores.transitions||0,density:null,issues:(t.details||[]).filter(x=>!x.supported).length,weight:'7%',evidence:t.smoothRate!=null?t.smoothRate+'% of paragraph boundaries supported':''},
+    {k:'hook',name:'Hook Strength',score:hookScore,density:null,issues:hookScore<80?hookProblems:0,weight:'9%',evidence:hookProblems?hookProblems+' opening problem'+(hookProblems===1?'':'s')+' diagnosed':'no opening problems diagnosed'},
+    {k:'style',name:'Style & Voice',score:scores.style||0,density:null,issues:0,weight:'7%',evidence:st.lexicalDiversity!=null?'lexical diversity '+st.lexicalDiversity+'% \u00B7 sentence SD '+(st.sentenceLengthStdDev??'\u2014'):''},
+    ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,density:null,issues:countType('dialogue'),weight:'6%',evidence:dl.candidatesPer100!=null?dl.candidatesPer100+' candidates per 100 lines \u00B7 '+(dl.count||0)+' lines':''}]:[]),
+    ...(!isNF?[{k:'showTell',name:'Show vs Tell',score:scores.showTell||0,density:perPage(stIssues),issues:stIssues,weight:'7%',evidence:''}]:[]),
+    {k:'copy',name:'Copy Editing',score:scores.copy||0,density:perPage(copyRaw),issues:copyRaw,weight:'10%',evidence:''},
+    {k:'grammar',name:'Grammar',score:scores.grammar||0,density:perPage(countType('grammar')),issues:countType('grammar'),weight:'10%',evidence:''}
+  ];
+}
+// The line under a dimension: its issue density where one exists, otherwise the counts the
+// score was built from. Never a verdict word for a dimension nobody inspected.
+function _dimensionBasis(c){
+  if(c.density)return c.density+(c.issues?' \u00B7 '+c.issues+' finding'+(c.issues===1?'':'s'):'');
+  if(c.issues>0)return c.issues+' finding'+(c.issues===1?'':'s')+(c.evidence?' \u00B7 '+c.evidence:'');
+  return c.evidence||'';
+}
+// "Start here": the dimension whose repair would move the overall most, i.e. the largest
+// (100 - score) x weight. A weaker score with a small weight does not outrank a middling one
+// that carries three times the weight.
+function _startHere(cats){
+  let best=null;
+  for(const c of cats){
+    if(!Number.isFinite(c.score))continue;
+    const gain=(100-c.score)*(parseFloat(c.weight)||0)/100;
+    if(!best||gain>best.gain)best={...c,gain};
+  }
+  return best;
+}
+function _activateDimension(k){
+  const container=$('rp-scores');if(!container)return;
+  container.querySelectorAll('.rsc').forEach(e=>e.classList.toggle('active',e.dataset.cat===k));
+  _activeDetailCat=k;showDetail(k);
+  $('rp-detail')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// LEFT SIDEBAR: the verdict. The gauge (rendered elsewhere), the genre contract and prose
+// mix (renderSceneIntel), and one card: where to start. The five score cards that used to
+// sit here were the right rail's list shown a second time.
 function renderLeft(r){
   if(!r)return;
-  const rp=r.readerPerspective||{};
-  const ic=r.issueCounts||{};const scores=r.scores||{};
-  // Readability from Flesch-Kincaid — a real, peer-reviewed metric grounded in actual reading research
-  const fk=r.readability||{ease:0,grade:0};
-  const fkEase=Math.max(0,Math.min(100,Math.round(fk.ease||0)));
-  const fkGrade=fk.grade||0;
-  const fkLabel=fkEase>=80?'Easy Read':fkEase>=60?'Standard':fkEase>=40?'Demanding':'Dense';
-  const fkSub='Grade '+Math.round(fkGrade)+' · '+fkLabel;
-  const isSHLeft=r.genre?.primary==='selfHelp';
-  const shL=r.selfHelpScores||{};
-  const _hookIssueCount=(r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0);
-  const _pacingScore=isSHLeft?Math.round(shL.emotionalMomentum||0):(scores.transitions??0);
-  // Badge must agree with the number — never show "Good" next to a red/yellow score.
-  // pacingFeel (paragraph-rhythm heuristic) only supplies the Rushed/Slow qualifier.
-  const _pacingBadge=(rp.pacingFeel||'').includes('Rushed')?'Rushed'
-    :(rp.pacingFeel||'').includes('Slow')?'Slow'
-    :_pacingScore>=70?'Good':_pacingScore>=45?'Uneven':'Needs work';
-  // Sub text must agree with the badge — "Uneven" next to "Well-paced" reads broken.
-  const _pacingSub=(_pacingBadge==='Rushed'||_pacingBadge==='Slow')?(rp.pacingFeel||'').split(' - ')[0]
-    :_pacingBadge==='Good'?'Well-paced'
-    :_pacingBadge==='Uneven'?'Momentum dips in places'
-    :'Loses momentum';
-  const cards=[
-    {name:isSHLeft?'Reader Buy-In':'Engagement Score',score:isSHLeft?Math.round(((shL.readerIdentification||0)+(shL.emotionalMomentum||0))/2):rp.engagementScore||0,sub:isSHLeft?'Reader ID + Momentum':'How hooked will readers be?',action:'+ Improve Opening',bar:true},
-    {name:isSHLeft?'Promise Strength':'Hook Strength',score:isSHLeft?Math.round(shL.readerIdentification||0):rp.hookStrength||0,sub:_hookIssueCount+(_hookIssueCount===1?' Issue':' Issues'),action:'+ Improve Opening',bar:false},
-    {name:isSHLeft?'Clarity & Polish':'Clarity',score:isSHLeft?Math.round(shL.clarityReadability||0):rp.clarityScore||0,sub:isSHLeft?'Readability + flow':'Weak transitions',bar:true},
-    {name:isSHLeft?'Reader Momentum':'Transition Support',score:_pacingScore,sub:isSHLeft?_pacingSub:((r.transitions?.smoothTransitions??0)+' of '+(r.transitions?.details?.length??0)+' paragraph boundaries supported'),badge:isSHLeft?_pacingBadge:null},
-    {name:'Readability',score:fkEase,sub:fkSub,bar:true}
-  ];
-  $('lp-cards').innerHTML=cards.map((c,i)=>{
-    const col=c.inv?scHex(100-c.score):scHex(c.score);
-    const id='lpc-ring-'+i;
-    return '<div class="lp-card"><div class="lp-card-head"><div class="lpc-ring"><canvas id="'+id+'" width="40" height="40"></canvas><span class="lpc-num" style="color:'+col+'">'+c.score+'</span></div><div class="lpc-info"><div class="lpc-name">'+c.name+'</div><div class="lpc-sub">'+esc(c.sub)+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="lpc-score" style="color:'+col+'">'+c.score+'</span>')+'</div>'+(c.bar?'<div class="lpc-bar"><div class="lpc-bar-fill" style="width:'+c.score+'%;background:'+col+'"></div></div>':'')+(c.action?'<span class="lpc-action">'+c.action+'</span>':'')+'</div>';
-  }).join('');
-  // Draw rings
-  cards.forEach((c,i)=>{const cvs=document.querySelectorAll('.lpc-ring canvas')[i];if(cvs)drawRing(cvs,c.inv?100-c.score:c.score,40)});
-  // Improve Opening buttons - open coaching panel
-  document.querySelectorAll('.lpc-action').forEach(btn=>{btn.addEventListener('click',()=>{
-    showOpeningCoach();
-  })});
+  const host=$('lp-start');if(!host)return;
+  const best=_startHere(_dimensionCards(r));
+  if(!best||best.gain<=0){host.innerHTML='';return}
+  const col=scHex(best.score);const basis=_dimensionBasis(best);
+  host.innerHTML='<div class="si-section lp-start"><h4>Start here</h4>'
+    +'<div class="lp-start-row"><span class="lp-start-score" style="color:'+col+'">'+best.score+'</span>'
+    +'<div class="lp-start-info"><div class="lp-start-name">'+esc(best.name)+'</div>'
+    +(basis?'<div class="lp-start-basis">'+esc(basis)+'</div>':'')
+    +'<div class="lp-start-why">'+esc(best.weight)+' of the overall \u00B7 the fix that moves it most</div></div></div>'
+    +'<button class="lpc-action" id="lp-start-open" data-cat="'+esc(best.k)+'">Open in workbench \u2192</button></div>';
+  $('lp-start-open')?.addEventListener('click',()=>_activateDimension(best.k));
 }
 
 // RIGHT SIDEBAR
 let _activeDetailCat=null;
 function renderRight(r){
   if(!r)return;
-  const stIssues=r.showTell&&r.showTell.issues?r.showTell.issues.length:(r.issueCounts?r.issueCounts['show-tell']:0)||0;
-  // Count high-severity issues per type for honest issue display
-  const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
-  const scores=r.scores||{};const rp=r.readerPerspective||{};
-  const totalWords=r.totalWords||1;
-  const estPages=Math.max(1,Math.round(totalWords/250));
-  // Per-page density helper: converts raw count to "X/page" — avoids frightening raw numbers like "2069 issues"
-  // Shows nothing when clean, a decimal for rare issues, integer for frequent ones
-  function _density(count){
-    if(!count||count===0)return null;
-    const perPage=count/estPages;
-    if(perPage<0.1)return null; // too sparse to display
-    if(perPage<1)return perPage.toFixed(1)+'/pg';
-    return Math.round(perPage)+'/pg';
-  }
-  const copyRaw=countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word')+countType('repetition');
-  const isNF=Analyzer.isNonfiction(r.genre);
-  const isSH=r.genre?.primary==='selfHelp';
-  const sh=r.selfHelpScores||{};
-  // Hook Strength: only show issue count if it's actually penalizing the score (avoids confusing "100 / 2 issues")
-  const hookScore=rp.hookStrength||0;
-  const displayedHookIssues=(hookScore<80)?(r.openingDiagnosis?.problems?.length||0):0;
-  let cats;
-  if(isSH&&r.selfHelpScores){
-    // Self-help: 8-dimension framework — problem → insight → belief → action. Each card
-    // carries the counts its score was built from.
-    const ev=sh.evidence||{};
-    cats=[
-      {k:'sh_clarity',   name:'Clarity & Polish',      score:Math.round(sh.clarityReadability||0),   density:_density(copyRaw),                    issues:copyRaw,              weight:'15%',evidence:ev.clarity},
-      {k:'sh_reader',    name:'Promise Strength',       score:Math.round(sh.readerIdentification||0), density:null,                                 issues:0,                   weight:'15%',evidence:ev.reader},
-      {k:'sh_practical', name:'Practical Application', score:Math.round(sh.practicalApplication||0), density:null,                                 issues:0,                   weight:'15%',evidence:ev.practical},
-      {k:'sh_structure', name:'Argument Progression',  score:Math.round(sh.structureProgression||0), density:null,                                 issues:0,                   weight:'15%',evidence:ev.structure},
-      {k:'sh_insight',   name:'Insight Quality',        score:Math.round(sh.insightQuality||0),       density:null,                                 issues:0,                   weight:'15%',evidence:ev.insight},
-      {k:'sh_voice',     name:'Authority & Voice',      score:Math.round(sh.voiceAuthority||0),       density:null,                                 issues:0,                   weight:'10%',evidence:ev.voice},
-      {k:'sh_momentum',  name:'Reader Momentum',        score:Math.round(sh.emotionalMomentum||0),    density:null,                                 issues:0,                   weight:'10%',evidence:ev.momentum},
-      {k:'sh_evidence',  name:'Evidence & Support',     score:Math.round(sh.evidenceSupport||0),      density:null,                                 issues:0,                   weight:'5%',evidence:ev.evidence},
-    ];
-  }else{
-    cats=[
-      {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,density:null,issues:0,weight:'9%'},
-      {k:'transitions',name:'Transitions',score:scores.transitions||0,density:null,issues:(r.transitions?.details||[]).filter(x=>!x.supported).length,weight:'7%'},
-      {k:'hook',name:'Hook Strength',score:hookScore,density:null,issues:displayedHookIssues,weight:'9%'},
-      {k:'style',name:'Style & Voice',score:scores.style||0,density:null,issues:0,weight:'7%',evidence:r.style?.lexicalDiversity!=null?'lexical diversity '+r.style.lexicalDiversity+'% · sentence SD '+(r.style.sentenceLengthStdDev??'—'):''},
-      // Dialogue: only show if score is non-null (nonfiction with low dialogue ratio gets N/A and is hidden)
-      ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,density:null,issues:countType('dialogue'),weight:'6%'}]:[]),
-      // Show vs Tell: fiction-only concept; hide for nonfiction
-      ...(!isNF?[{k:'showTell',name:'Show vs Tell',score:scores.showTell||0,density:_density(stIssues),issues:stIssues,weight:'7%'}]:[]),
-      {k:'copy',name:'Copy Editing',score:scores.copy||0,density:_density(copyRaw),issues:copyRaw,weight:'10%'},
-      {k:'grammar',name:'Grammar',score:scores.grammar||0,density:_density(countType('grammar')),issues:countType('grammar'),weight:'10%'}
-    ];
-  }
+  const cats=_dimensionCards(r);
   const container=$('rp-scores');
-  container.innerHTML=cats.map((c,i)=>{
-    const col=scHex(c.score);const id='rsc-ring-'+i;
-    // Under the name: the issue density where one exists, otherwise the counts the score was
-    // built from. Never a verdict word ("Clean") for a dimension nobody inspected.
-    const issueLabel=c.density?c.density:c.issues>0&&c.issues<=5?c.issues+' issue'+(c.issues===1?'':'s'):(c.evidence||'');
-    const issueColor=c.density||c.issues>0?(c.score<50?'var(--red)':c.score<70?'var(--yellow)':'var(--green)'):'var(--muted)';
-    return '<div class="rsc" data-cat="'+c.k+'"><div class="rsc-ring"><canvas id="'+id+'" width="34" height="34"></canvas><span class="rsc-n" style="color:'+col+'">'+c.score+'</span></div><div class="rsc-info"><div class="rsc-name">'+c.name+'<span style="font-size:.55rem;color:var(--dim);margin-left:4px">'+c.weight+'</span></div><div class="rsc-sub" style="color:'+issueColor+'" title="'+escA(issueLabel)+'">'+esc(issueLabel)+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="rsc-val" style="color:'+col+'">'+c.score+'</span>')+'</div>';
+  // A row per dimension, a third of the height of the old ring cards, so the findings for the
+  // selected dimension sit above the fold.
+  container.innerHTML=cats.map(c=>{
+    const col=scHex(c.score);const basis=_dimensionBasis(c);
+    return '<div class="rsc rsc-row" data-cat="'+c.k+'" title="'+escA(c.name+' \u00B7 weight '+c.weight+(basis?' \u00B7 '+basis:''))+'">'
+      +'<span class="rsc-name">'+esc(c.name)+'</span>'
+      +'<span class="rsc-basis">'+esc(basis)+'</span>'
+      +'<span class="rsc-score" style="color:'+col+'">'+c.score+'</span></div>';
   }).join('');
-  // Draw rings
-  cats.forEach((c,i)=>{const cvs=container.querySelectorAll('.rsc-ring canvas')[i];if(cvs)drawRing(cvs,c.score,34)});
   // Click handlers
   container.querySelectorAll('.rsc').forEach(el=>{el.addEventListener('click',()=>{container.querySelectorAll('.rsc').forEach(e=>e.classList.remove('active'));el.classList.add('active');_activeDetailCat=el.dataset.cat;showDetail(el.dataset.cat)})});
   // Preserve the user's selected category across re-renders — the 2s reanalyze loop
@@ -1149,6 +1148,24 @@ async function doRewrite(card) {
   }
 }
 
+// Per-chapter evidence for a dimension without locatable findings: the chapters where the
+// attributed claims (Evidence & Support) or explicit actions (Practical Application) are
+// fewest. Same extraction the Intelligence window shows; here it sits beside the score it explains.
+function _renderChapterEvidence(r,cat){
+  if(!$('rpd-chapters'))return;
+  if(typeof IntelligenceWindow==='undefined'||typeof IntelligenceWindow.data!=='function'){$('rpd-chapters')?.remove();return}
+  IntelligenceWindow.data(data=>{
+    const h=$('rpd-chapters');if(!h||_activeDetailCat!==cat)return;
+    const nf=data&&data.intel&&data.intel.nonfiction;const chapters=((data&&data.parsed&&data.parsed.chapters)||[]).filter(c=>c.kind!=='review');
+    if(!nf||!chapters.length){h.remove();return}
+    const key=cat==='sh_evidence'?'claims':'actions';const label=cat==='sh_evidence'?'attributed claim':'explicit action';
+    const counts=new Map(chapters.map(c=>[c.id,0]));
+    (nf[key]||[]).forEach(row=>{if(counts.has(row.chapterId))counts.set(row.chapterId,counts.get(row.chapterId)+1)});
+    const rows=chapters.map(c=>({c,n:counts.get(c.id)||0})).sort((a,b)=>a.n-b.n||a.c.index-b.c.index).slice(0,6);
+    h.outerHTML='<div class="rpd-sub">Chapters with the fewest '+esc(label)+'s</div>'+rows.map(x=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(x.c.title||x.c.id)+'</div><div class="rpd-desc">'+(x.n===0?'No '+esc(label)+' found in this chapter':x.n+' '+esc(label)+(x.n===1?'':'s'))+' · '+(x.c.wordCount||0).toLocaleString()+' words</div></div>').join('');
+  },extractedText,r);
+}
+
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
   const isNF=Analyzer.isNonfiction(r&&r.genre);
@@ -1171,16 +1188,28 @@ function showDetail(cat){
     const shScores={sh_clarity:sh.clarityReadability,sh_reader:sh.readerIdentification,sh_practical:sh.practicalApplication,sh_structure:sh.structureProgression,sh_insight:sh.insightQuality,sh_voice:sh.voiceAuthority,sh_momentum:sh.emotionalMomentum,sh_evidence:sh.evidenceSupport};
     const score=Math.round(shScores[cat]||0);
     const col=score>=80?'var(--green)':score>=60?'var(--yellow)':'var(--red)';
+    const card=_dimensionCards(r).find(c=>c.k===cat);const basis=card?_dimensionBasis(card):'';
     // For copy/voice/structure categories, also surface relevant issues
     const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
     let issueRows='';
     if(cat==='sh_clarity'){
       const ci=narrativeIssues(r).filter(i=>copyTypes.has(i.type)).slice(0,5);
-      if(ci.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Top copy issues</div>'+ci.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(i.text.substring(0,50))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div></div>').join('');
+      if(ci.length>0)issueRows='<div class="rpd-sub">Top copy issues</div>'+ci.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(i.text.substring(0,50))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div></div>').join('');
     }
+    // The opening diagnosis is the one place "+ Improve Opening" now lives: as a finding.
+    if(cat==='sh_reader'){
+      const probs=r.openingDiagnosis?.problems||[];
+      if(probs.length)issueRows+='<div class="rpd-sub">Opening diagnosis</div>'+probs.slice(0,4).map(p=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(p.title||'')+'</div><div class="rpd-desc">'+esc(p.fix||p.desc||'')+'</div></div>').join('')+'<button class="lpc-action" id="rpd-open-coach">Open the opening coach</button>';
+    }
+    // Dimensions with no locatable copy findings show where in the book the evidence is thin,
+    // from Document Intelligence's per-chapter extraction (filled once the build is ready).
+    if(cat==='sh_evidence'||cat==='sh_practical')issueRows+='<div id="rpd-chapters" class="rpd-desc">Reading chapters…</div>';
     d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+shTitles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">score: <b style="color:'+col+'">'+score+'/100</b></span></div>'+
+      (basis?'<div class="rpd-basis">Built from: '+esc(basis)+'</div>':'')+
       '<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+shWhy[cat]+'</div>'+
       issueRows;
+    $('rpd-open-coach')?.addEventListener('click',()=>showOpeningCoach());
+    if(cat==='sh_evidence'||cat==='sh_practical')_renderChapterEvidence(r,cat);
     return;
   }
 
@@ -1224,8 +1253,10 @@ function showDetail(cat){
   // Progress indicator
   const progressHtml=_issuesResolved>0?'<div style="padding:.3rem .7rem;font-size:.7rem;color:var(--green);background:rgba(93,186,125,.08);border-radius:4px;margin-bottom:.5rem">'+_issuesResolved+' issue'+ (_issuesResolved===1?'':'s')+' resolved this session</div>':'';
 
+  const fCard=_dimensionCards(r).find(c=>c.k===cat);const fBasis=fCard?_dimensionBasis(fCard):'';
   d.innerHTML=progressHtml+
     '<div class="rpd-title"><span style="font-size:1.1rem">'+titles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">'+totalForCat+' issue'+(totalForCat===1?'':'s')+'</span></div>'+
+    (fBasis?'<div class="rpd-basis">Built from: '+esc(fBasis)+'</div>':'')+
     (catWhy[cat]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+catWhy[cat]+'</div>':'')+
     (shown.length===0?'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No locatable findings are mapped to this category. Use the measured evidence in Detailed rather than treating absence of findings as a quality verdict.</p>':
     shown.map((iss,idx)=>{
@@ -1240,6 +1271,11 @@ function showDetail(cat){
         '<div class="rpd-btns">'+fixBtn+'<button class="tip-ign rpd-ign-btn">Dismiss</button>'+rwBtn+'</div></div>';
     }).join(''))+
     (totalForCat>8?'<div style="padding:.4rem .7rem;font-size:.7rem;color:var(--muted);text-align:center">Showing top 8 of '+totalForCat+' — fix these first for the biggest impact</div>':'');
+  // The opening coach is reached from its finding, not from a second button on the left rail.
+  if(cat==='hook'&&totalForCat>0){
+    d.insertAdjacentHTML('beforeend','<button class="lpc-action" id="rpd-open-coach">Open the opening coach</button>');
+    $('rpd-open-coach')?.addEventListener('click',()=>showOpeningCoach());
+  }
 
   // Wire events
   d.querySelectorAll('.rpd-navigate').forEach(q=>{q.addEventListener('click',()=>{

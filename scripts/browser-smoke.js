@@ -151,6 +151,17 @@ function pdf(){
     assert.ok(!/Strong dialogue|Fast pacing|Scene Type|Energy:/.test(rail),rail);
     assert.ok(!(await page.locator('#rp-scores').innerText()).includes('Clean'),'no verdict word for an uninspected dimension');
     console.log('PASS left rail: genre contract, prose mix, no "Clean" labels');
+    // Verdict and workbench: one "Start here" card on the left opens the matching dimension on
+    // the right, whose detail states what the score was built from; the Intelligence box is a button.
+    await page.locator('#lp-start-open').waitFor();
+    assert.match(await page.locator('#lp-start').innerText(),/Start here/);
+    assert.equal(await page.locator('#lp-cards, .lp-card').count(),0,'the five duplicate score cards are gone');
+    const startCat=await page.locator('#lp-start-open').getAttribute('data-cat');
+    await page.locator('#lp-start-open').click();
+    assert.equal(await page.locator('#rp-scores .rsc.active').getAttribute('data-cat'),startCat,'Start here opens its dimension in the workbench');
+    assert.match(await page.locator('#rp-detail').innerText(),/Built from:/);
+    assert.ok(!(await page.locator('#right-panel').innerText()).includes('What does your book know'),'the Intelligence box is now a button');
+    console.log('PASS verdict and workbench: Start here, Built from, Intelligence as a button');
     for(const mode of ['characters','threads','review','chapters']){
       await page.locator(`[data-wsnav="${mode}"]`).click();
       await page.locator(`#workspace-nav-content`).waitFor();
@@ -252,6 +263,9 @@ function pdf(){
     assert.match(nfRail,/Self-Help reader comes for/i,nfRail);
     assert.ok(!/Strong dialogue|Fast pacing|Build tension/.test(nfRail),'a self-help book is not judged against fiction goals');
     assert.match(await page.locator('#rp-scores').innerText(),/imperatives/,'self-help cards show the counts behind the score');
+    await page.locator('#rp-scores .rsc[data-cat="sh_evidence"]').click();
+    await page.locator('#rp-detail .rpd-sub').filter({hasText:'fewest attributed claims'}).waitFor();
+    assert.match(await page.locator('#rp-detail').innerText(),/Built from: .*evidence cues/);
     await page.locator('[data-wsnav="characters"]').click();
     assert.equal(await page.locator('[data-wsnav="characters"]').innerText(),'Concepts');
     await page.locator('#intel-open').click();

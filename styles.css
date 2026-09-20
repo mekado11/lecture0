@@ -135,16 +135,6 @@ body.lib-mode{overflow:auto}
 
 /* LEFT CARDS */
 .lp-cards{padding:.4rem .6rem}
-.lp-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:.65rem .8rem;margin-bottom:.45rem}
-.lp-card-head{display:flex;align-items:center;gap:.6rem;margin-bottom:.15rem}
-.lpc-ring{width:40px;height:40px;position:relative;flex-shrink:0}
-.lpc-ring canvas{width:40px;height:40px}
-.lpc-ring .lpc-num{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:.72rem;font-weight:700}
-.lpc-info{flex:1}
-.lpc-name{font-size:.82rem;font-weight:600}.lpc-sub{font-size:.65rem;color:var(--muted)}
-.lpc-score{font-size:.9rem;font-weight:700}
-.lpc-bar{height:4px;background:var(--surface3);border-radius:2px;margin-top:.3rem;overflow:hidden}
-.lpc-bar-fill{height:100%;border-radius:2px;transition:width .8s}
 .lpc-action{display:block;margin-top:.4rem;font-size:.68rem;color:var(--gold);background:var(--surface2);border:1px solid var(--gold-d);border-radius:var(--rs);padding:.22rem 0;text-align:center;cursor:pointer;width:100%}
 .lpc-action:hover{background:var(--gold-d);color:#fff}
 
@@ -246,8 +236,21 @@ body.lib-mode{overflow:auto}
 .rtab{background:none;border:none;color:var(--muted);font-size:.72rem;padding:.25rem .5rem;cursor:pointer;font-family:inherit;border-bottom:2px solid transparent;transition:.15s}
 .rtab:hover{color:var(--text)}.rtab.active{color:var(--gold-l);border-bottom-color:var(--gold)}
 
-/* RIGHT SCORE CARDS */
+/* RIGHT SCORE CARDS: one row per dimension, the basis beside the score */
 .rp-scores{padding:.4rem .6rem}
+.rsc-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr) auto;gap:.5rem;align-items:baseline;padding:.4rem .55rem;margin-bottom:.12rem}
+.rsc-basis{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.6rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rsc-score{font-size:.82rem;font-weight:700;font-variant-numeric:tabular-nums}
+.rp-tabs .rtab{white-space:nowrap;padding:.25rem .38rem}
+.rtab-intel{margin-left:auto;color:var(--gold-l);font-size:.68rem}
+.rpd-basis{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.66rem;color:var(--gold-l);padding:.3rem .5rem;border-left:2px solid var(--gold);margin-bottom:.4rem;line-height:1.5}
+.rpd-sub{margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+/* LEFT: the one "Start here" card */
+.lp-start .lp-start-row{display:flex;gap:.6rem;align-items:flex-start}
+.lp-start-score{font-size:1.6rem;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.lp-start-name{font-size:.82rem;font-weight:600}
+.lp-start-basis{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.62rem;color:var(--muted);line-height:1.4;margin-top:.1rem}
+.lp-start-why{font-size:.62rem;color:var(--dim);margin-top:.15rem}
 .rsc{display:flex;align-items:center;gap:.55rem;padding:.5rem .65rem;border-radius:var(--rs);margin-bottom:.3rem;cursor:pointer;border:1px solid transparent;transition:.15s}
 .rsc:hover{background:var(--surface);border-color:var(--border)}
 .rsc.active{background:var(--surface);border-color:var(--gold-d)}
