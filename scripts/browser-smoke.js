@@ -138,7 +138,8 @@ function pdf(){
     const detailedNames=await page.locator('#ed-detailed .ch-name').allInnerTexts();
     assert.ok(detailedNames.includes('Alice')&&detailedNames.includes('Bob'),detailedNames.join(','));
     for(const w of ['The','They','She','Three','Most','Loyalty']) assert.ok(!detailedNames.includes(w),w+' is not a character: '+detailedNames.join(','));
-    assert.match(await page.locator('#ed-detailed').innerText(),/distinct words per 500-word window/);
+    assert.match(await page.locator('#ed-detailed').innerText(),/Lexical Diversity \(MSTTR-100\)/,'lexical diversity is a length-stable windowed measure');
+    assert.match(await page.locator('#ed-detailed').innerText(),/observed manuscript segments/);
     await page.locator('.btab[data-p="annotated"]').click();
     console.log('PASS detailed tab: characters are names, lexical diversity is window-based');
     for(const mode of ['characters','threads','review','chapters']){

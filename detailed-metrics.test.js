@@ -22,7 +22,7 @@ test('lexical diversity is stable across length instead of collapsing with it',(
   const short=Analyzer.analyzeStyle(base.repeat(8));
   const long=Analyzer.analyzeStyle(base.repeat(200));
   assert.ok(Math.abs(short.lexicalDiversity-long.lexicalDiversity)<=3,'short '+short.lexicalDiversity+' vs long '+long.lexicalDiversity);
-  assert.equal(long.lexicalWindow,500);
+  assert.equal(long.lexicalMetric,'MSTTR-100');
   assert.ok(long.uniqueWords<=short.uniqueWords+1,'unique-word count is the raw figure and is reported separately');
 });
 
@@ -41,13 +41,23 @@ test('pacing rhythm is not floored by counting quoted paragraphs, and no-dialogu
 test('a clean manuscript is not held under a hidden ceiling, and POV is N/A for nonfiction',()=>{
   const plain='The road was gone. The bridge had gone with it. She counted what remained: a lamp, two ropes, and the long afternoon nobody had asked for.';
   const nf=Analyzer.analyzeLineEditing(Array(30).fill(plain).join('\n\n'),'selfHelp');
-  for(const dim of ['tone','flow','precision','pacing','extraneous'])
+  for(const dim of ['tone','precision','pacing','extraneous'])
     assert.ok(nf[dim].score>=80,dim+' can score high when nothing is wrong: '+nf[dim].score);
-  assert.equal(nf.pov.score,null);
-  assert.equal(nf.pov.applicable,false);
+  assert.equal(nf.pov.score,null,'POV is not a nonfiction dimension');
+  assert.equal(nf.flow.score,null,'word-overlap continuity is not judged for nonfiction');
+  assert.equal(nf.flow.advisory,true);
   assert.ok(nf.score>=85,'the composite is over the applicable dimensions only: '+nf.score);
   const fic=Analyzer.analyzeLineEditing(Array(30).fill(plain).join('\n\n'),'literary');
   assert.ok(fic.pov.score>=90,'consistent third person: '+fic.pov.score);
+  assert.ok(Number.isFinite(fic.flow.score),'fiction continuity is scored');
+});
+
+test('two-word names are kept whole and a sentence-opening word before them is trimmed',()=>{
+  const t='Then Philip Gates arrived, and then the rain. Philip Gates had the letter. Everyone waited for Philip Gates, as everyone did. Every morning began the same way, and every evening too. Philip Gates smiled.';
+  const list=Analyzer.analyzeCharacters(t,'literary').list;
+  assert.ok(list.some(c=>c.name==='Philip Gates'),list.map(c=>c.name).join(','));
+  assert.ok(!list.some(c=>/^(Then|Every|Everyone)/.test(c.name)),list.map(c=>c.name).join(','));
+  assert.equal(Analyzer.analyzeCharacters(t,'selfHelp').applicable,false,'expository nonfiction reports the dimension as not applicable');
 });
 
 test('a stray "like" and one formal word are not a tonal clash',()=>{
@@ -61,7 +71,7 @@ test('filter phrases are rated per thousand words, not counted raw',()=>{
   const withFive=body+'She began to read. He started to speak. They continued to walk. She managed to smile. He attempted to explain.';
   const le=Analyzer.analyzeLineEditing(withFive,'literary');
   assert.ok(le.extraneous.score>=40,'five filter phrases in 5,600 words do not zero the score: '+le.extraneous.score);
-  assert.equal(le.extraneous.beganTo,5);
+  assert.equal(le.extraneous.filterPhrases,5);
 });
 
 test('the heatmap follows the passage classifier and can see more than exposition',()=>{
