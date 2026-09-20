@@ -253,7 +253,13 @@ const Analyzer = {
   // ========================
   findAdverbs(text, genre) {
     const issues = [];
-    const nfWeight = this.isNonfiction(genre) ? 0.3 : 1; // soften for nonfiction
+    // Nonfiction softening. This multiplies SEVERITY WEIGHT, never confidence: confidence is
+    // a claim about whether the detection is real, and the validation layer discards anything
+    // under 0.6. Multiplying confidence by 0.3-0.5 therefore deleted every one of these
+    // findings for nonfiction instead of softening them. Register-appropriate instances are
+    // now handled contextually by prose-norms.js, with a reason the author can read.
+    const nfSoften = this.isNonfiction(genre);
+    const nfWeight = 1;
     const regex = /\b(\w+ly)\b/gi;
     let match;
     // Comprehensive exceptions: -ly words that are NOT adverbs (adjectives, nouns, verbs).
@@ -417,7 +423,13 @@ const Analyzer = {
 
   findWeakVerbs(text, genre) {
     const issues = [];
-    const nfWeight = this.isNonfiction(genre) ? 0.5 : 1; // nonfiction narration uses simple verbs legitimately
+    // Nonfiction softening. This multiplies SEVERITY WEIGHT, never confidence: confidence is
+    // a claim about whether the detection is real, and the validation layer discards anything
+    // under 0.6. Multiplying confidence by 0.3-0.5 therefore deleted every one of these
+    // findings for nonfiction instead of softening them. Register-appropriate instances are
+    // now handled contextually by prose-norms.js, with a reason the author can read.
+    const nfSoften = this.isNonfiction(genre);
+    const nfWeight = 1;
     const PER_VERB_LIMIT = 5; // cap flags per verb to avoid noise in long manuscripts
     for (const [verb, alternatives] of Object.entries(this.WEAK_VERBS)) {
       const regex = new RegExp(`\\b${verb}\\b`, 'gi');
@@ -490,7 +502,13 @@ const Analyzer = {
   // ========================
   findPassiveVoice(text, genre) {
     const issues = [];
-    const nfWeight = this.isNonfiction(genre) ? 0.4 : 1; // academic/nonfiction passive is often legitimate
+    // Nonfiction softening. This multiplies SEVERITY WEIGHT, never confidence: confidence is
+    // a claim about whether the detection is real, and the validation layer discards anything
+    // under 0.6. Multiplying confidence by 0.3-0.5 therefore deleted every one of these
+    // findings for nonfiction instead of softening them. Register-appropriate instances are
+    // now handled contextually by prose-norms.js, with a reason the author can read.
+    const nfSoften = this.isNonfiction(genre);
+    const nfWeight = 1;
     for (const pattern of this.PASSIVE_PATTERNS) {
       let match;
       const regex = new RegExp(pattern.source, pattern.flags);
@@ -531,7 +549,7 @@ const Analyzer = {
 
         issues.push({
           type: 'passive', text: issueText, index: match.index, length: issueLen,
-          severity: 'medium', confidence: 0.85 * nfWeight,
+          severity: nfSoften ? 'low' : 'medium', confidence: 0.85 * nfWeight,
           message: `Passive voice: “${match[0]}”`,
           suggestion
         });

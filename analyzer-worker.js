@@ -4,7 +4,7 @@
 // Prose context must load BEFORE analyzer.js runs an analysis: analyze() feature-detects
 // these globals, so without them the worker would silently produce context-free scores while
 // the main-thread fallback produced context-aware ones.
-importScripts('prose-context.js?v=1', 'prose-norms.js?v=1', 'analyzer.js?v=24');
+importScripts('prose-context.js?v=1', 'prose-norms.js?v=1', 'analyzer.js?v=25');
 
 // Note: _currentVersion tracking here is structurally inert — the Worker JS runtime
 // is single-threaded, so _currentVersion cannot change while Analyzer.analyze() runs
