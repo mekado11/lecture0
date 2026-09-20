@@ -1310,9 +1310,9 @@ function renderDetailed(r){
     plotRows.push(sr('Observed tension signals',tensionTotal));
     plotRows.push(sr('Observed resolution signals',resolutionTotal));
   }
-  h+=secWithTip(plotLabel,scores.plot||0,plotRows,'plot');
-  h+=secWithTip('Transitions',scores.transitions||0,[(trans.smoothRate||0)+'% smooth',sr('Transition Words',trans.transitionsUsed||0),sr('Smooth',(trans.smoothTransitions||0)+'/'+((trans.totalParagraphs||1)-1))],'transitions');
-  h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0)+(ic.repetition||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Wordy',ic.wordy||0),sr('Repetition',ic.repetition||0),sr('Confused Words',ic['confused-word']||0)],'copy');
+  h+=secWithTip(plotLabel,scores.plot||0,plotRows,'plot',r);
+  h+=secWithTip('Transitions',scores.transitions||0,[(trans.smoothRate||0)+'% smooth',sr('Transition Words',trans.transitionsUsed||0),sr('Smooth',(trans.smoothTransitions||0)+'/'+((trans.totalParagraphs||1)-1))],'transitions',r);
+  h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0)+(ic.repetition||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Wordy',ic.wordy||0),sr('Repetition',ic.repetition||0),sr('Confused Words',ic['confused-word']||0)],'copy',r);
   // Line Editing (true stylistic editing, not just readability)
   const le=r.lineEditing||{};
   const lineRows=['Stylistic editing: tone, flow, precision, pacing, POV, extraneous language'];
@@ -1333,8 +1333,8 @@ function renderDetailed(r){
   }
   lineRows.push(sr('Readability Grade',r.readability?.grade||'N/A'));
   lineRows.push(sr('Flesch Ease',(r.readability?.ease||0)+'/100'));
-  h+=secWithTip('Line Editing',r.scores?.line||0,lineRows,'line');
-  h+=sec('Style & Voice',r.scores?.style||0,[sr('POV',r.style?.pov||'N/A'),sr('Lexical Diversity',(r.style?.lexicalDiversity||0)+'/100'),sr('Unique Words',(r.style?.uniqueWords||0).toLocaleString())]);
+  h+=secWithTip('Line Editing',r.scores?.line||0,lineRows,'line',r);
+  h+=secWithTip('Style & Voice',r.scores?.style||0,[sr('POV',r.style?.pov||'N/A'),sr('Lexical Diversity (MSTTR-100)',(r.style?.lexicalDiversity||0)+'%'),sr('Sentence Length SD',r.style?.sentenceLengthStdDev??'N/A'),sr('Paragraph Length SD',r.style?.paragraphLengthStdDev??'N/A'),sr('Unique Words',(r.style?.uniqueWords||0).toLocaleString())],'style',r);
   // Dialogue (deep analysis)
   const dl=r.dialogue||{count:0,ratio:0};
   const dlRows=[dl.count===0?'No dialogue detected.':''];
