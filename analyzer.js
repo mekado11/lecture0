@@ -1416,36 +1416,33 @@ const Analyzer = {
   // TRANSITION ANALYSIS
   // ========================
   analyzeTransitions(text) {
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    if (paragraphs.length < 2) return { score: 50, totalParagraphs: paragraphs.length, transitionsUsed: 0, smoothTransitions: 0, smoothRate: 0, details: [] };
-    const transitionWords = new Set([
-      'however','moreover','furthermore','meanwhile','consequently','therefore',
-      'nevertheless','nonetheless','additionally','similarly','conversely',
-      'in contrast','on the other hand','as a result','in addition','for example',
-      'for instance','in other words','in fact','indeed','likewise','accordingly',
-      'thus','hence','still','yet','also','then','next','finally','afterwards',
-      'later','before','after','during','while','although','though','even though',
-      'because','since','when','once','until','unless']);
-    let transitionsUsed = 0, smoothTransitions = 0;
-    const transitionDetails = [];
-    for (let i = 1; i < paragraphs.length; i++) {
-      const currStart = paragraphs[i].trim().split(/\s+/).slice(0, 8).join(' ').toLowerCase();
-      let hasTransition = false;
-      for (const tw of transitionWords) {
-        if (currStart.includes(tw)) { hasTransition = true; transitionsUsed++; break; }
-      }
-      const prevWords = new Set(paragraphs[i-1].toLowerCase().match(/\b[a-z]{4,}\b/g) || []);
-      const currWords = paragraphs[i].toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
-      const shared = currWords.filter(w => prevWords.has(w)).length;
-      const continuity = shared / Math.max(currWords.length, 1);
-      if (hasTransition || continuity > 0.15) smoothTransitions++;
-      transitionDetails.push({ paragraph: i+1, hasTransitionWord: hasTransition, continuityScore: Math.round(continuity*100), smooth: hasTransition || continuity > 0.15 });
+    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
+    if(paragraphs.length<2) return {score:null,totalParagraphs:paragraphs.length,transitionsUsed:0,smoothTransitions:0,smoothRate:null,details:[],applicable:false};
+    const stop=new Set('the a an and or but of to in on at for from with by as is are was were be been being it this that these those he she they we you i his her their our your my not no do did does have has had'.split(' '));
+    const contentWords=s=>(s.toLowerCase().match(/\b[a-z]{4,}\b/g)||[]).filter(w=>!stop.has(w));
+    const transitionRe=/^(however|moreover|furthermore|meanwhile|consequently|therefore|nevertheless|nonetheless|additionally|similarly|conversely|in contrast|on the other hand|as a result|in addition|for example|for instance|in other words|in fact|indeed|likewise|accordingly|thus|hence|still|yet|also|then|next|finally|afterwards|later|before|after|during|while|although|though|even though|because|since|when|once|until|unless)\b/i;
+    let transitionsUsed=0,smoothTransitions=0;
+    const details=[];
+    for(let i=1;i<paragraphs.length;i++){
+      const prev=contentWords(paragraphs[i-1]), curr=contentWords(paragraphs[i]);
+      const prevSet=new Set(prev), currSet=new Set(curr);
+      const shared=[...new Set(curr.filter(w=>prevSet.has(w)))];
+      const union=new Set([...prev,...curr]).size;
+      const overlap=union?shared.length/union:0;
+      const currTrim=paragraphs[i].trim();
+      const marker=(currTrim.match(transitionRe)||[])[1]||null;
+      const pronounBridge=/^(he|she|they|it|this|that|these|those|such|his|her|their)\b/i.test(currTrim);
+      // A transition is supported by an explicit connective, meaningful lexical carryover,
+      // or a referential bridge. This is evidence, not a claim that a transition "feels smooth."
+      const supported=Boolean(marker)||overlap>=0.06||(pronounBridge&&shared.length>=1);
+      if(marker) transitionsUsed++;
+      if(supported) smoothTransitions++;
+      details.push({fromParagraph:i,toParagraph:i+1,marker,sharedTerms:shared.slice(0,8),overlapScore:Math.round(overlap*100),pronounBridge,supported});
     }
-    const smoothRate = smoothTransitions / (paragraphs.length - 1);
-    let score = Math.round(smoothRate * 80 + 20);
-    const transitionRate = transitionsUsed / (paragraphs.length - 1);
-    if (transitionRate > 0.3 && transitionRate < 0.7) score = Math.min(score + 10, 100);
-    return { score: Math.min(100, Math.max(0, score)), totalParagraphs: paragraphs.length, transitionsUsed, smoothTransitions, smoothRate: Math.round(smoothRate * 100), details: transitionDetails };
+    const smoothRate=Math.round(smoothTransitions/details.length*100);
+    // Score is explicitly the supported-boundary rate. No arbitrary +20 floor or bonus
+    // for using a preferred percentage of transition words.
+    return {score:smoothRate,totalParagraphs:paragraphs.length,transitionsUsed,smoothTransitions,smoothRate,details,applicable:true,metric:'supported paragraph boundaries'};
   },
 
   // ========================
@@ -1630,33 +1627,35 @@ const Analyzer = {
   // STYLE ANALYSIS
   // ========================
   analyzeStyle(text) {
-    const words = text.match(/\b[a-z']+\b/gi) || [];
-    const totalWords = words.length;
-    const uniqueWords = new Set(words.map(w => w.toLowerCase()));
-    const lexicalDiversity = uniqueWords.size / Math.max(totalWords, 1);
-    const avgWordLen = words.reduce((sum, w) => sum + w.length, 0) / Math.max(totalWords, 1);
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    const paraLengths = paragraphs.map(p => p.split(/\s+/).length);
-    const avgParaLen = paraLengths.reduce((a, b) => a + b, 0) / Math.max(paraLengths.length, 1);
-    const firstPerson = (text.match(/\bI\b/g) || []).length;
-    const thirdPerson = (text.match(/\b(he|she|they)\b/gi) || []).length;
-    const povConsistency = Math.abs(firstPerson - thirdPerson) / Math.max(firstPerson + thirdPerson, 1);
-    let score = 10;
-    if (lexicalDiversity > 0.55) score += 30;
-    else if (lexicalDiversity > 0.45) score += 22;
-    else if (lexicalDiversity > 0.35) score += 14;
-    else if (lexicalDiversity > 0.25) score += 6;
-    if (avgWordLen > 4.5 && avgWordLen < 6) score += 15;
-    else if (avgWordLen > 4) score += 8;
-    else if (avgWordLen <= 3.5) score -= 5;
-    if (povConsistency > 0.8) score += 25;
-    else if (povConsistency > 0.6) score += 15;
-    else if (povConsistency > 0.4) score += 8;
-    const paraLenVariance = paraLengths.length > 1 ? paraLengths.reduce((s, l) => s + Math.pow(l - avgParaLen, 2), 0) / paraLengths.length : 0;
-    if (Math.sqrt(paraLenVariance) > 20) score += 10;
-    else if (Math.sqrt(paraLenVariance) > 10) score += 5;
-    const pov = firstPerson > thirdPerson * 2 ? 'First Person' : thirdPerson > firstPerson * 2 ? 'Third Person' : 'Mixed';
-    return { score: Math.min(100, Math.max(0, score)), totalWords, uniqueWords: uniqueWords.size, lexicalDiversity: Math.round(lexicalDiversity * 100), avgWordLength: Math.round(avgWordLen * 10) / 10, avgParagraphLength: Math.round(avgParaLen), pov, paragraphCount: paragraphs.length };
+    const words=text.match(/\b[a-z']+\b/gi)||[];
+    const totalWords=words.length;
+    const lowerWords=words.map(w=>w.toLowerCase());
+    const uniqueWords=new Set(lowerWords);
+    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
+    const sentences=text.match(/[^.!?]+[.!?]+/g)||[];
+    const sentLens=sentences.map(s=>(s.match(/\b[\w’'-]+\b/g)||[]).length).filter(Boolean);
+    const paraLens=paragraphs.map(p=>(p.match(/\b[\w’'-]+\b/g)||[]).length);
+    const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
+    const sd=a=>{const m=mean(a);return a.length?Math.sqrt(a.reduce((n,v)=>n+(v-m)**2,0)/a.length):0};
+    // Type-token ratio collapses as manuscripts get longer. Use MSTTR: mean TTR over
+    // equal 100-word windows, which makes the vocabulary metric length-comparable.
+    const window=100,ttrs=[];
+    for(let i=0;i<lowerWords.length;i+=window){const w=lowerWords.slice(i,i+window);if(w.length>=50)ttrs.push(new Set(w).size/w.length);}
+    const lexicalDiversity=ttrs.length?mean(ttrs):(uniqueWords.size/Math.max(totalWords,1));
+    const avgWordLen=mean(words.map(w=>w.length));
+    const firstPerson=(text.match(/\b(I|me|my|mine|myself)\b/g)||[]).length;
+    const secondPerson=(text.match(/\b(you|your|yours|yourself|yourselves)\b/gi)||[]).length;
+    const thirdPerson=(text.match(/\b(he|she|they|him|her|them|his|hers|their|theirs)\b/gi)||[]).length;
+    const pov=firstPerson>Math.max(secondPerson,thirdPerson)*1.5?'First Person':secondPerson>Math.max(firstPerson,thirdPerson)*1.5?'Second Person':thirdPerson>Math.max(firstPerson,secondPerson)*1.5?'Third Person':'Mixed';
+    const sentenceStdDev=sd(sentLens),paragraphStdDev=sd(paraLens);
+    // Style score measures observable control/variety only. POV choice and average word
+    // length are descriptive traits, not quality points.
+    let score=100;
+    if(sentLens.length>=5 && sentenceStdDev<3) score-=20;
+    if(paraLens.length>=5 && paragraphStdDev<8) score-=15;
+    if(lexicalDiversity<0.45) score-=15;
+    if(lexicalDiversity<0.35) score-=15;
+    return {score:Math.max(0,Math.min(100,Math.round(score))),totalWords,uniqueWords:uniqueWords.size,lexicalDiversity:Math.round(lexicalDiversity*100),lexicalMetric:'MSTTR-100',avgWordLength:Math.round(avgWordLen*10)/10,avgSentenceLength:Math.round(mean(sentLens)*10)/10,sentenceLengthStdDev:Math.round(sentenceStdDev*10)/10,avgParagraphLength:Math.round(mean(paraLens)),paragraphLengthStdDev:Math.round(paragraphStdDev*10)/10,pov,pronouns:{first:firstPerson,second:secondPerson,third:thirdPerson},paragraphCount:paragraphs.length,sentenceCount:sentences.length};
   },
 
   // ========================
