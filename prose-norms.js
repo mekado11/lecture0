@@ -109,6 +109,14 @@ const ProseNorms = (() => {
     let applied = 0;
 
     for (const issue of list) {
+      // A rhetorical repetition (parallel structure) is the device, whatever passage it sits
+      // in — including an epigraph too short for the classifier to call.
+      if (issue.type === 'repetition' && issue.rhetorical === 'parallel') {
+        issue._context = { mode: 'parallel', action: 'suppress',
+          reason: 'Repetition inside parallel structure, where the echoed word carries the sentence pair on purpose.' };
+        issue.contextSuppressed = true; suppressed.push(issue); applied++;
+        continue;
+      }
       const passage = context.passageAt(passages, issue.index);
       if (!passage || passage.mode === 'mixed') continue;
       // Only act where the classifier was actually confident.

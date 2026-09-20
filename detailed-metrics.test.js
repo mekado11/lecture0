@@ -52,6 +52,15 @@ test('a clean manuscript is not held under a hidden ceiling, and POV is N/A for 
   assert.ok(Number.isFinite(fic.flow.score),'fiction continuity is scored');
 });
 
+test('self-help dimension cards carry the counts they were built from',()=>{
+  const t=Array(12).fill('You are tired. Research shows that most people feel stuck. Start today: write down one goal. In my experience, this works.').join('\n\n');
+  const sh=Analyzer._analyzeSelfHelp(t,'book');
+  for(const k of ['clarity','reader','practical','structure','insight','voice','momentum','evidence'])
+    assert.match(sh.evidence[k],/\d/,k+' quotes a number');
+  assert.match(sh.evidence.practical,/imperatives/);
+  assert.match(sh.evidence.reader,/"you"/);
+});
+
 test('two-word names are kept whole and a sentence-opening word before them is trimmed',()=>{
   const t='Then Philip Gates arrived, and then the rain. Philip Gates had the letter. Everyone waited for Philip Gates, as everyone did. Every morning began the same way, and every evening too. Philip Gates smiled.';
   const list=Analyzer.analyzeCharacters(t,'literary').list;

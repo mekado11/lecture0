@@ -64,6 +64,20 @@ test('a name repeated across sentences is a name, not a repetition',()=>{
   assert.ok(found.includes('gate'),'an echoed common word is still raised: '+found.join(','));
 });
 
+test('a word repeated inside parallel structure is the device, not a fault — even in an epigraph',()=>{
+  const t='“Poverty does not disappear through sympathy. It disappears through decisions.”\n\nIntroduction\n\nSit with me for a moment. You have been standing long enough.\n\nNow, perhaps you feel like you are doing everything right and still coming up short.';
+  const r=Analyzer.analyze(t,'selfHelp');
+  const through=r.issues.find(i=>i.type==='repetition'&&i.text==='through');
+  assert.ok(through,'the repetition is still on the record');
+  assert.equal(through.rhetorical,'parallel');
+  assert.equal(through.contextSuppressed,true,'set aside although the epigraph is too short for the passage classifier');
+  assert.match(through._context.reason,/parallel structure/);
+  // An echo that is not parallel (different order, different shape) is still raised.
+  const scene='He grabbed the rope and swung across the ditch as the herd broke the fence behind him. The rope snapped, and Bello grabbed the post before the water took him.';
+  const found=Analyzer.findRepetitions(scene).filter(i=>i.text==='rope'||i.text==='grabbed');
+  assert.ok(found.length>0&&found.every(i=>!i.rhetorical),JSON.stringify(found));
+});
+
 test('repetition in explanatory prose is set aside with a reason, and the count follows the score',()=>{
   const t='Merriam-Webster defines poverty as a lack of money or comfort. But poverty is also the absence of access to healthcare, to education, to what a child needs to grow. It is the choice nobody makes for the child. The overworked parent is doing three jobs at once, and it is affecting more people than we generally admit.';
   const r=Analyzer.analyze(t,'selfHelp');

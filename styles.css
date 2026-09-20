@@ -391,6 +391,15 @@ body.lib-mode{overflow:auto}
 .si-check.done{color:var(--green)}.si-check.todo{color:var(--muted)}
 .si-check::before{content:"\2610";font-size:.85rem;color:var(--muted)}
 .si-check.done::before{content:"\2611";color:var(--green)}
+/* Genre-contract rows: met / partial / unmet / unknown, mark drawn by the renderer. */
+.si-check[data-status]::before{content:none}
+.si-check .si-mark{font-size:.85rem;color:var(--muted)}
+.si-check[data-status="met"]{color:var(--green)}.si-check[data-status="met"] .si-mark{color:var(--green)}
+.si-check[data-status="partial"]{color:var(--yellow)}.si-check[data-status="partial"] .si-mark{color:var(--yellow)}
+.si-check[data-status="unmet"]{color:var(--text)}.si-check[data-status="unmet"] .si-mark{color:var(--red)}
+.si-check[data-status="unknown"]{color:var(--muted)}
+/* Score-card basis line: the counts a dimension was built from, truncated with the full text on hover. */
+.rsc-sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
 .focus-toggle{display:flex;align-items:center;justify-content:space-between;padding:.4rem .5rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);font-size:.75rem;cursor:pointer;margin-bottom:.3rem}
 .focus-badge{background:var(--green);color:#fff;padding:.1rem .4rem;border-radius:8px;font-size:.6rem;font-weight:700}
 .focus-badge.off{background:var(--surface3);color:var(--muted)}

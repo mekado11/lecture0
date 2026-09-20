@@ -211,7 +211,7 @@ const IntelligenceWindow = (() => {
   // A bare count would be an unfalsifiable claim, so this always shows the grouping and the
   // reason behind each adjustment.
   const MODE_WORDS = { dialogue:'dialogue', action:'action', reflection:'reflective',
-    description:'descriptive', exposition:'explanatory' };
+    description:'descriptive', exposition:'explanatory', parallel:'parallel-structure' };
   function renderContextAdjustments(data) {
     const context = data.analysis && data.analysis.proseContext;
     const issues = (data.analysis && data.analysis.issues) || [];
@@ -373,6 +373,28 @@ const IntelligenceWindow = (() => {
     window.addEventListener('manuscript:changed',()=>{invalidateContext();latest=null;renderNavigator();if($('intel-window')?.classList.contains('open'))render();});
     renderNavigator();
   }
-  return {init,open,close,render,renderNavigator};
+  // Shared access to the memoised book-level intelligence for other surfaces (the left-rail
+  // genre contract). Synchronous when cached, otherwise built off-thread like the panel.
+  // Callers that render before the editor DOM is populated (the left rail renders ahead of
+  // the annotated page) pass their text and analysis explicitly rather than having them
+  // read back from an editor that is still empty.
+  function data(onReady, text, analysis) {
+    if (text == null) {
+      const cached = cachedBuild();
+      if (cached) { onReady(cached); return; }
+      buildDeferred(onReady);
+      return;
+    }
+    const sig = analysisSignature(analysis);
+    if (latest && latest.text === text && latest.sig === sig) { onReady(latest); return; }
+    IntelligencePipeline.buildAsync(text, analysis).then(result => {
+      latest = { ...result, analysis, sig };
+      onReady(latest);
+    }).catch(() => {
+      try { latest = { ...IntelligencePipeline.build(text, analysis), analysis, sig }; onReady(latest); }
+      catch (_) { onReady(null); }
+    });
+  }
+  return {init,open,close,render,renderNavigator,data};
 })();
 document.addEventListener('DOMContentLoaded',IntelligenceWindow.init);

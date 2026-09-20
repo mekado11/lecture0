@@ -588,50 +588,41 @@ function renderGoalBar(r){
 }
 
 // SCENE INTELLIGENCE
+// Left-rail context: what a reader of THIS genre comes for (measured by genre-expectations.js),
+// and what kind of prose the book is made of. This replaces a fixed fiction checklist that
+// ticked "Fast pacing" on a self-help introduction and left "Strong dialogue" unchecked as if a
+// self-help book were failing at it, and a "scene type / energy / tension" trio that were
+// fiction instruments read off whatever text was open.
+const _MODE_LABEL={dialogue:'Dialogue',action:'Action',reflection:'Reflection',description:'Description',exposition:'Explanation'};
+const _EVIDENCE_SHORT={structural:'measured from your text',proxy:'word-choice signal only',ai:'needs the AI reader',author:'only you can answer'};
+let _sceneIntelToken=0;
 function renderSceneIntel(r){
   const el=$('scene-intel');if(!el||!r)return;
-  const rp=r.readerPerspective||{};
-  // Detect scene type
-  const dialogueRatio=r.dialogue?.ratio||0;
-  const segments=r.pacing?.segments||[];
-  const actionDensity=segments.filter(s=>s.type==='action').length/Math.max(segments.length,1)*100;
-  let sceneType='Exposition Heavy';
-  if(dialogueRatio>30)sceneType='Dialogue Heavy';
-  else if(actionDensity>40)sceneType='Action Sequence';
-  else if(dialogueRatio>15&&actionDensity>20)sceneType='Balanced';
-  else if(segments.filter(s=>s.type==='description').length>segments.length*0.5)sceneType='Descriptive';
-  // Energy level
-  const wq=r.writingQuality||{};
-  const energy=(wq.engagementScore||0)>70?'High':(wq.engagementScore||0)>40?'Medium':'Low';
-  // Tension
-  const tensionQuarters=r.plot?.quarters||[];
-  const lastTension=tensionQuarters.length>0?(tensionQuarters[tensionQuarters.length-1].tensionPerK??0):0;
-  const prevTension=tensionQuarters.length>1?(tensionQuarters[tensionQuarters.length-2].tensionPerK??0):0;
-  const tensionDir=lastTension>prevTension?'Rising \uD83D\uDD3A':lastTension<prevTension?'Falling \uD83D\uDD3B':'Steady \u27A1';
-  // Goals checklist
-  const plot=r.plot||{};const scores=r.scores||{};const dl=r.dialogue||{};
-  const goalChecks=[
-    {label:'Hook reader fast',done:(rp.hookStrength||0)>50},
-    {label:'Build tension',done:!!plot.hasRisingAction},
-    {label:'Emotional depth',done:(rp.emotionalConnection||0)>30},
-    {label:'Fast pacing',done:!(rp.pacingFeel||'').includes('Slow')},
-    {label:'Strong dialogue',done:(dl.count||0)>0&&(scores.dialogue||0)>50}
-  ];
+  const isNF=Analyzer.isNonfiction(r.genre);
   let h='';
-  // Goals
-  h+='<div class="si-section"><h4>\u2728 Goal</h4>';
-  goalChecks.forEach(g=>{h+='<div class="si-check '+(g.done?'done':'todo')+'">'+esc(g.label)+'</div>'});
+  const goalId='si-goal-'+(++_sceneIntelToken);
+  h+='<div class="si-section" id="'+goalId+'"><h4>\u2728 What readers come for</h4><div class="si-row"><span class="si-label">Reading your manuscript\u2026</span></div></div>';
+  const mix=(r.proseContext&&r.proseContext.distribution)||null;
+  h+='<div class="si-section"><h4>Prose mix</h4>';
+  if(mix){
+    const rows=Object.keys(mix).filter(m=>m!=='mixed'&&mix[m]>=1).sort((a,b)=>mix[b]-mix[a]).slice(0,4);
+    if(rows.length){
+      rows.forEach(m=>{h+='<div class="si-row"><span class="si-label">'+esc(_MODE_LABEL[m]||m)+'</span><span class="si-val">'+mix[m]+'%</span></div>'});
+      if(mix.mixed>=5)h+='<div class="si-row"><span class="si-label">Unclassified</span><span class="si-val">'+mix.mixed+'%</span></div>';
+    }else h+='<div class="si-row"><span class="si-label">Too little text to classify</span></div>';
+  }else h+='<div class="si-row"><span class="si-label">Not available</span></div>';
+  // Fiction only: the measured tension direction across the last two quarters of the book.
+  const q=(r.plot&&r.plot.quarters)||[];
+  if(!isNF&&q.length>=2&&Number.isFinite(q[q.length-1].tensionPerK)&&Number.isFinite(q[q.length-2].tensionPerK)){
+    const last=q[q.length-1].tensionPerK,prev=q[q.length-2].tensionPerK;
+    const dir=last>prev*1.1?'Rising':last<prev*0.9?'Falling':'Steady';
+    h+='<div class="si-row"><span class="si-label">Tension, Q3 \u2192 Q4</span><span class="si-val">'+dir+' ('+prev+' \u2192 '+last+' per 1K)</span></div>';
+  }
   h+='</div>';
-  // Scene Intelligence
-  h+='<div class="si-section"><h4>Scene Intelligence</h4>';
-  h+='<div class="si-row"><span class="si-label">Scene Type:</span><span class="si-val">'+sceneType+'</span></div>';
-  h+='<div class="si-row"><span class="si-label">Energy:</span><span class="si-val">'+energy+'</span></div>';
-  h+='<div class="si-row"><span class="si-label">Tension:</span><span class="si-val">'+tensionDir+'</span></div>';
-  h+='</div>';
-  // Focus Mode + Simulate Reader
   h+='<div class="focus-toggle" id="focus-toggle">Focus Mode <span class="focus-badge off">OFF</span></div>';
   h+='<button class="sim-btn" id="sim-reader-btn">\uD83D\uDC41 Simulate Reader Experience</button>';
   el.innerHTML=h;
+  _renderGenreGoals(r,goalId);
   // Focus mode: hides sidebars (shared state with the fullscreen toggle so the
   // ON/OFF badge can never desync from what's actually on screen)
   $('focus-toggle')?.addEventListener('click',()=>{_setPanelsHidden(!_panelsHidden)});
@@ -643,6 +634,25 @@ function renderSceneIntel(r){
     if(readerBtn)readerBtn.classList.add('active');
     $('ed-reader')?.classList.add('active');
   });
+}
+
+// The genre contract needs the book-level intelligence (chapters, cast, nonfiction evidence),
+// which the Intelligence window builds off-thread and memoises by content. A token guards
+// against a build finishing after a newer render has replaced the box.
+function _renderGenreGoals(r,goalId){
+  const primary=r.genre&&r.genre.primary;
+  const hide=()=>{const h=document.getElementById(goalId);if(h)h.remove()};
+  if(!primary||typeof GenreExpectations==='undefined'||typeof IntelligenceWindow==='undefined'||typeof IntelligenceWindow.data!=='function'){hide();return}
+  IntelligenceWindow.data(data=>{
+    const h=document.getElementById(goalId);if(!h)return;
+    // (text and analysis are passed explicitly below: this renders before the editor is filled)
+    let report=null;
+    try{report=data&&GenreExpectations.evaluate(primary,{parsed:data.parsed,intel:data.intel,analysis:r})}catch(_){report=null}
+    if(!report||!report.applicable){hide();return}
+    const mark={met:'\u2611',partial:'\u25E9',unmet:'\u2610',unknown:'\u25CC'};
+    h.innerHTML='<h4>\u2728 What a '+esc(report.label)+' reader comes for</h4>'+report.expectations.map(item=>
+      '<div class="si-check" data-status="'+esc(item.status)+'" title="'+escA((item.observation||item.why)+' \u2014 '+(_EVIDENCE_SHORT[item.evidence]||item.evidence))+'"><span class="si-mark">'+(mark[item.status]||mark.unknown)+'</span>'+esc(item.expectation)+'</div>').join('');
+  },extractedText,r);
 }
 
 // SINGLE panel-visibility state — Focus Mode (Scene Intelligence) and the fullscreen
@@ -670,6 +680,9 @@ function _setPanelsHidden(hidden){
 // with their reason, but they are not what the scores were built from and not what the
 // author is asked to act on.
 function liveIssues(r){return ((r&&r.issues)||[]).filter(i=>!i.contextSuppressed)}
+// Findings inside the narrative span: what the scores were built from. Front and back matter
+// stay highlighted in the editor, but a word in the epigraph is never the book's "top" issue.
+function narrativeIssues(r){const s=(r&&r.segmentation)||null;return liveIssues(r).filter(i=>!s||(i.index>=s.narrativeStart&&i.index<s.narrativeEnd))}
 
 function replaceAndFix(hlElement){
   const type=hlElement.dataset.t;
@@ -945,23 +958,25 @@ function renderRight(r){
   const displayedHookIssues=(hookScore<80)?(r.openingDiagnosis?.problems?.length||0):0;
   let cats;
   if(isSH&&r.selfHelpScores){
-    // Self-help: 8-dimension framework — problem → insight → belief → action
+    // Self-help: 8-dimension framework — problem → insight → belief → action. Each card
+    // carries the counts its score was built from.
+    const ev=sh.evidence||{};
     cats=[
-      {k:'sh_clarity',   name:'Clarity & Polish',      score:Math.round(sh.clarityReadability||0),   density:_density(copyRaw),                    issues:copyRaw,              weight:'15%'},
-      {k:'sh_reader',    name:'Promise Strength',       score:Math.round(sh.readerIdentification||0), density:null,                                 issues:0,                   weight:'15%'},
-      {k:'sh_practical', name:'Practical Application', score:Math.round(sh.practicalApplication||0), density:null,                                 issues:0,                   weight:'15%'},
-      {k:'sh_structure', name:'Argument Progression',  score:Math.round(sh.structureProgression||0), density:null,                                 issues:0,                   weight:'15%'},
-      {k:'sh_insight',   name:'Insight Quality',        score:Math.round(sh.insightQuality||0),       density:null,                                 issues:0,                   weight:'15%'},
-      {k:'sh_voice',     name:'Authority & Voice',      score:Math.round(sh.voiceAuthority||0),       density:null,                                 issues:0,                   weight:'10%'},
-      {k:'sh_momentum',  name:'Reader Momentum',        score:Math.round(sh.emotionalMomentum||0),    density:null,                                 issues:0,                   weight:'10%'},
-      {k:'sh_evidence',  name:'Evidence & Support',     score:Math.round(sh.evidenceSupport||0),      density:null,                                 issues:0,                   weight:'5%'},
+      {k:'sh_clarity',   name:'Clarity & Polish',      score:Math.round(sh.clarityReadability||0),   density:_density(copyRaw),                    issues:copyRaw,              weight:'15%',evidence:ev.clarity},
+      {k:'sh_reader',    name:'Promise Strength',       score:Math.round(sh.readerIdentification||0), density:null,                                 issues:0,                   weight:'15%',evidence:ev.reader},
+      {k:'sh_practical', name:'Practical Application', score:Math.round(sh.practicalApplication||0), density:null,                                 issues:0,                   weight:'15%',evidence:ev.practical},
+      {k:'sh_structure', name:'Argument Progression',  score:Math.round(sh.structureProgression||0), density:null,                                 issues:0,                   weight:'15%',evidence:ev.structure},
+      {k:'sh_insight',   name:'Insight Quality',        score:Math.round(sh.insightQuality||0),       density:null,                                 issues:0,                   weight:'15%',evidence:ev.insight},
+      {k:'sh_voice',     name:'Authority & Voice',      score:Math.round(sh.voiceAuthority||0),       density:null,                                 issues:0,                   weight:'10%',evidence:ev.voice},
+      {k:'sh_momentum',  name:'Reader Momentum',        score:Math.round(sh.emotionalMomentum||0),    density:null,                                 issues:0,                   weight:'10%',evidence:ev.momentum},
+      {k:'sh_evidence',  name:'Evidence & Support',     score:Math.round(sh.evidenceSupport||0),      density:null,                                 issues:0,                   weight:'5%',evidence:ev.evidence},
     ];
   }else{
     cats=[
       {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,density:null,issues:0,weight:'9%'},
       {k:'transitions',name:'Transitions',score:scores.transitions||0,density:null,issues:(r.transitions?.details||[]).filter(x=>!x.supported).length,weight:'7%'},
       {k:'hook',name:'Hook Strength',score:hookScore,density:null,issues:displayedHookIssues,weight:'9%'},
-      {k:'style',name:'Style & Voice',score:scores.style||0,density:null,issues:0,weight:'7%'},
+      {k:'style',name:'Style & Voice',score:scores.style||0,density:null,issues:0,weight:'7%',evidence:r.style?.lexicalDiversity!=null?'lexical diversity '+r.style.lexicalDiversity+'% · sentence SD '+(r.style.sentenceLengthStdDev??'—'):''},
       // Dialogue: only show if score is non-null (nonfiction with low dialogue ratio gets N/A and is hidden)
       ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,density:null,issues:countType('dialogue'),weight:'6%'}]:[]),
       // Show vs Tell: fiction-only concept; hide for nonfiction
@@ -973,10 +988,11 @@ function renderRight(r){
   const container=$('rp-scores');
   container.innerHTML=cats.map((c,i)=>{
     const col=scHex(c.score);const id='rsc-ring-'+i;
-    // Show density when available (replaces raw count); fall back to clean/— for zero-issue categories
-    const issueLabel=c.density?c.density:c.issues>0&&c.issues<=5?c.issues+' issue'+(c.issues===1?'':'s'):c.score>=80?'Clean':'—';
-    const issueColor=c.score<50?'var(--red)':c.score<70?'var(--yellow)':'var(--green)';
-    return '<div class="rsc" data-cat="'+c.k+'"><div class="rsc-ring"><canvas id="'+id+'" width="34" height="34"></canvas><span class="rsc-n" style="color:'+col+'">'+c.score+'</span></div><div class="rsc-info"><div class="rsc-name">'+c.name+'<span style="font-size:.55rem;color:var(--dim);margin-left:4px">'+c.weight+'</span></div><div class="rsc-sub" style="color:'+issueColor+'">'+issueLabel+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="rsc-val" style="color:'+col+'">'+c.score+'</span>')+'</div>';
+    // Under the name: the issue density where one exists, otherwise the counts the score was
+    // built from. Never a verdict word ("Clean") for a dimension nobody inspected.
+    const issueLabel=c.density?c.density:c.issues>0&&c.issues<=5?c.issues+' issue'+(c.issues===1?'':'s'):(c.evidence||'');
+    const issueColor=c.density||c.issues>0?(c.score<50?'var(--red)':c.score<70?'var(--yellow)':'var(--green)'):'var(--muted)';
+    return '<div class="rsc" data-cat="'+c.k+'"><div class="rsc-ring"><canvas id="'+id+'" width="34" height="34"></canvas><span class="rsc-n" style="color:'+col+'">'+c.score+'</span></div><div class="rsc-info"><div class="rsc-name">'+c.name+'<span style="font-size:.55rem;color:var(--dim);margin-left:4px">'+c.weight+'</span></div><div class="rsc-sub" style="color:'+issueColor+'" title="'+escA(issueLabel)+'">'+esc(issueLabel)+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="rsc-val" style="color:'+col+'">'+c.score+'</span>')+'</div>';
   }).join('');
   // Draw rings
   cats.forEach((c,i)=>{const cvs=container.querySelectorAll('.rsc-ring canvas')[i];if(cvs)drawRing(cvs,c.score,34)});
@@ -1159,7 +1175,7 @@ function showDetail(cat){
     const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
     let issueRows='';
     if(cat==='sh_clarity'){
-      const ci=liveIssues(r).filter(i=>copyTypes.has(i.type)).slice(0,5);
+      const ci=narrativeIssues(r).filter(i=>copyTypes.has(i.type)).slice(0,5);
       if(ci.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Top copy issues</div>'+ci.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(i.text.substring(0,50))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div></div>').join('');
     }
     d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+shTitles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">score: <b style="color:'+col+'">'+score+'/100</b></span></div>'+
@@ -1184,11 +1200,11 @@ function showDetail(cat){
   }else if(cat==='plot'||cat==='style'){
     issues=[];
   }else if(cat==='copy'){
-    issues=liveIssues(r).filter(i=>copyTypes.has(i.type));
+    issues=narrativeIssues(r).filter(i=>copyTypes.has(i.type));
   }else{
     const directMap={pacing:'sentence-length',showTell:'show-tell',grammar:'grammar'};
     const t=directMap[cat];
-    issues=t?liveIssues(r).filter(i=>i.type===t):[];
+    issues=t?narrativeIssues(r).filter(i=>i.type===t):[];
   }
 
   // Sort by severity: high first, then medium, then low

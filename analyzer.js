@@ -666,6 +666,21 @@ const Analyzer = {
           if (!lowercaseForms.has(w)) names.add(w);
         });
       }
+      // Parallel structure ("Poverty does not disappear through sympathy. It disappears
+      // through decisions.") repeats on purpose: two short sentences of similar length that
+      // share two or more content stems in the same order. The finding stays on the record,
+      // marked rhetorical, and prose-norms sets it aside with that reason.
+      const stem = w => w.replace(/(ies|es|s|ed|ing)$/, '');
+      const content = raw => (raw.toLowerCase().match(/\b[a-z]{4,}\b/g) || []).filter(w => !stopWords.has(w)).map(stem);
+      const all1 = (s1.raw.match(/\b[\w'’]+\b/g) || []).length, all2 = (s2.raw.match(/\b[\w'’]+\b/g) || []).length;
+      let parallel = false;
+      if (all1 <= 16 && all2 <= 16 && all1 > 0 && all2 > 0 && Math.max(all1, all2) / Math.min(all1, all2) <= 2) {
+        const c1 = content(s1.raw), c2 = content(s2.raw);
+        const sharedInOrder = [];
+        let from = 0;
+        for (const w of c2) { const at = c1.indexOf(w, from); if (at !== -1) { sharedInOrder.push(w); from = at + 1; } }
+        parallel = sharedInOrder.length >= 2;
+      }
       for (const word of words2) {
         if (set1.has(word) && !stopWords.has(word) && !names.has(word)) {
           // Find the word position within the second sentence's known bounds
@@ -679,7 +694,8 @@ const Analyzer = {
           issues.push({
             type: 'repetition', text: word, index: wordIdx, length: word.length,
             severity: 'low', confidence: 0.85, message: `"${word}" repeated in consecutive sentences.`,
-            suggestion: sugText
+            suggestion: sugText,
+            ...(parallel ? { rhetorical: 'parallel' } : {})
           });
         }
       }
@@ -1402,7 +1418,19 @@ const Analyzer = {
       overall,
       clarityReadability, readerIdentification, practicalApplication,
       structureProgression, insightQuality, voiceAuthority,
-      emotionalMomentum, evidenceSupport
+      emotionalMomentum, evidenceSupport,
+      // The counts each dimension was built from, so a card can show its basis instead of
+      // a word like "Clean" that implies an inspection nobody made.
+      evidence: {
+        clarity: `Flesch ${Math.round(fk.ease)} · ${Math.round(avgSentLen)} words/sentence · ${Math.round(shortParaRatio * 100)}% short paragraphs`,
+        reader: `${youPerK.toFixed(1)}/1K "you" · ${probPerK.toFixed(1)}/1K problem words · ${empathyMarkers} empathy cues`,
+        practical: `${imperativeCount} imperatives · ${exerciseMarkers} exercises · ${stepPatterns} numbered steps · ${howToPatterns} how-tos`,
+        structure: `${argStructure.thesisSignals || 0} thesis · ${argStructure.evidenceSignals || 0} evidence · ${argStructure.transitionSignals || 0} transition · ${argStructure.synthesisSignals || 0} synthesis signals`,
+        insight: `${insightMarkers} insight cues · ${researchClaims} research claims · ${specificStats} figures · ${novelFraming} reframes`,
+        voice: `${authorityMarkers} experience claims · ${confidentAssertions} assertions · ${hedgePerK.toFixed(1)}/1K hedges`,
+        momentum: `${energyDensity.toFixed(1)}/1K change words · ${motivationalPhrases} motivational phrases`,
+        evidence: `${evidencePerK.toFixed(1)}/1K evidence cues · ${citationMarkers} citations · ${storyMarkers} stories`
+      }
     };
   },
 
