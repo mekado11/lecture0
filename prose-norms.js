@@ -75,6 +75,14 @@ const ProseNorms = (() => {
       }
     }
 
+    if (type === 'weak-verb') {
+      // Vividness is a virtue of action and description. Elsewhere the plain verb is
+      // usually the right one, and "crafted" for "made" would be a worse sentence.
+      if (mode === 'exposition') return { action: 'suppress', reason: 'A plain verb in explanatory writing, where the precision of the point matters more than the vividness of the action.' };
+      if (mode === 'dialogue') return { action: 'suppress', reason: 'A plain verb inside speech, which is how people talk.' };
+      if (mode === 'reflection') return { action: 'suppress', reason: 'A plain verb in a reflective passage, where the thought is the point and the verb should not compete with it.' };
+    }
+
     if (type === 'repetition' && (mode === 'exposition' || mode === 'dialogue')) {
       return { action: 'suppress', reason: mode === 'dialogue'
         ? 'Repetition inside speech, which is how people actually talk.'

@@ -666,6 +666,11 @@ function _setPanelsHidden(hidden){
 
 // REPLACE & FIX: select the highlight text and use execCommand to replace
 // This works with native undo (Ctrl+Z) and properly updates the DOM
+// Findings the engine set aside for their passage (see prose-norms.js) stay on the record
+// with their reason, but they are not what the scores were built from and not what the
+// author is asked to act on.
+function liveIssues(r){return ((r&&r.issues)||[]).filter(i=>!i.contextSuppressed)}
+
 function replaceAndFix(hlElement){
   const type=hlElement.dataset.t;
   const suggestion=hlElement.dataset.s||'';
@@ -1154,10 +1159,10 @@ function showDetail(cat){
     const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
     let issueRows='';
     if(cat==='sh_clarity'){
-      const ci=(r.issues||[]).filter(i=>copyTypes.has(i.type)).slice(0,5);
+      const ci=liveIssues(r).filter(i=>copyTypes.has(i.type)).slice(0,5);
       if(ci.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Top copy issues</div>'+ci.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(i.text.substring(0,50))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div></div>').join('');
     }else if(cat==='sh_voice'){
-      const wi=(r.issues||[]).filter(i=>i.type==='weak-verb').slice(0,5);
+      const wi=liveIssues(r).filter(i=>i.type==='weak-verb').slice(0,5);
       if(wi.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Weak verbs weaken authority</div>'+wi.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(i.text.substring(0,50))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div></div>').join('');
     }else if(cat==='sh_structure'){
       const pi=(r.lineEditing?.findings||[]).filter(f=>f.type==='pov').slice(0,5);
@@ -1183,11 +1188,11 @@ function showDetail(cat){
   }else if(cat==='plot'){
     issues=(r.lineEditing?.findings||[]).filter(f=>f.type==='pov').map(f=>({type:'pov',text:f.message||'',suggestion:f.message||'',severity:f.severity||'medium',index:0,length:0}));
   }else if(cat==='copy'){
-    issues=r.issues.filter(i=>copyTypes.has(i.type));
+    issues=liveIssues(r).filter(i=>copyTypes.has(i.type));
   }else{
     const directMap={pacing:'sentence-length',style:'weak-verb',showTell:'show-tell',grammar:'grammar'};
     const t=directMap[cat];
-    issues=t?r.issues.filter(i=>i.type===t):[];
+    issues=t?liveIssues(r).filter(i=>i.type===t):[];
   }
 
   // Sort by severity: high first, then medium, then low
@@ -1198,7 +1203,9 @@ function showDetail(cat){
 
   // Determine if suggestion has a concrete replacement
   function hasConcreteFix(iss){
-    return !!iss.suggestion.match(/Replace with:\s*".+?"/)||!!iss.suggestion.match(/Try:\s*.+/i)||iss.type==='adverb'||iss.type==='wordy'||iss.type==='cliche';
+    // Mechanical fixes and AI-grounded replacements only; a synonym from a fixed list is
+    // offered for the author to weigh, never applied for them.
+    return !!iss.suggestion.match(/Replace with:\s*".+?"/)||iss.type==='adverb'||iss.type==='wordy'||iss.type==='cliche';
   }
 
   // Progress indicator
@@ -2036,7 +2043,7 @@ function renderAnnotatedAsPages(text,issues){
   if(inlineIssues.length>MAX_INLINE_HL){
     const sevRank={high:0,medium:1,low:2};
     inlineIssues=[...inlineIssues]
-      .sort((a,b)=>((sevRank[a.severity]??3)-(sevRank[b.severity]??3))||((b.confidence||0)-(a.confidence||0)))
+      .sort((a,b)=>((a.contextSuppressed?1:0)-(b.contextSuppressed?1:0))||((sevRank[a.severity]??3)-(sevRank[b.severity]??3))||((b.confidence||0)-(a.confidence||0)))
       .slice(0,MAX_INLINE_HL);
   }
   // Build non-overlapping issues sorted by position
@@ -2120,18 +2127,27 @@ function renderAnnotatedAsPages(text,issues){
       const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence','confused-word':'Wrong word',grammar:'Grammar issue'};
       const t=hl.dataset.t;
       const sug=hl.dataset.s||'';
-      // Determine if this issue has an auto-replacement available
+      const msg=hl.dataset.m||'';
+      // A finding the engine set aside for this passage is shown quietly, with its reason,
+      // and never offered as something to fix.
+      const setAside=hl.classList.contains('hl-ctx')?(hl.dataset.r||'Set aside for this passage.'):'';
+      // Auto-fix only where the replacement is mechanical (remove an adverb, swap a wordy
+      // phrase, the mapped clich\u00E9) or came from the AI reader with the sentence in view.
+      // A verb or synonym from a fixed list is never applied for the author: it is shown
+      // for them to weigh, and the button takes them to the word instead.
       const hasAI=!!sug.match(/Replace with:\s*".+?"/);
-      const hasTry=!!sug.match(/Try:\s*.+/i);
-      // Types with reliable auto-fix: wordy (has "Replace with"), weak-verb/repetition (has "Try:"), adverb (remove), passive (restructure), cliche (has map)
-      const canAutoFix=hasAI||hasTry||t==='adverb'||t==='wordy'||t==='cliche';
-      const fixLabel=canAutoFix?'Replace &amp; Fix':'Edit Here';
-      tip.innerHTML='<div class="tip-cat">'+esc(labels[t]||t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+esc(sug)+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+esc(fixLabel)+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
+      const canAutoFix=!setAside&&(hasAI||t==='adverb'||t==='wordy'||t==='cliche');
+      const fixLabel=canAutoFix?'Replace & Fix':'Edit Here';
+      const body=setAside
+        ?'<div class="tip-sug">Set aside for this passage:</div><div class="tip-quote">'+esc(setAside)+'</div>'
+        :(msg&&t==='weak-verb'?'<div class="tip-sug">'+esc(msg)+'</div>':'')+'<div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+esc(sug)+'\u201D</div>';
+      tip.innerHTML='<div class="tip-cat">'+esc(labels[t]||t)+'</div>'+body+'<div class="tip-btns">'+(setAside?'':'<button class="tip-fix" id="tip-fix-btn">'+esc(fixLabel)+'</button>')+'<button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
       tip.classList.add('on');
       const rect=hl.getBoundingClientRect();
       tip.style.top=(rect.bottom+8)+'px';
       tip.style.left=Math.min(rect.left,window.innerWidth-360)+'px';
-      $('tip-fix-btn').onclick=()=>{
+      const fixBtn=$('tip-fix-btn');
+      if(fixBtn)fixBtn.onclick=()=>{
         if(canAutoFix){replaceAndFix(activeHL)}
         else{
           // Focus the highlight text for manual editing
@@ -2162,7 +2178,8 @@ function getAnnotatedSlice(fullText,start,end,issues){
     const iStart=Math.max(i.index,start);
     const iEnd=Math.min(i.index+i.length,end);
     if(iStart>pos)h+=esc(fullText.substring(pos,iStart));
-    h+='<span class="hl" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'">'+esc(fullText.substring(iStart,iEnd))+'</span>';
+    const setAside=i.contextSuppressed&&i._context?' data-r="'+escA(i._context.reason||'')+'"':'';
+    h+='<span class="hl'+(i.contextSuppressed?' hl-ctx':'')+'" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'"'+setAside+'>'+esc(fullText.substring(iStart,iEnd))+'</span>';
     pos=iEnd;
   }
   if(pos<end)h+=esc(fullText.substring(pos,end));
@@ -2206,7 +2223,7 @@ document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{
   const d=$('rp-detail');const r=analysisResult;
   if(mode==='suggestions'){renderRight(r);return}
   if(mode==='rewrite'){
-    const samples=r.issues.filter(i=>_REWRITE_TYPES.has(i.type)).slice(0,8);
+    const samples=liveIssues(r).filter(i=>_REWRITE_TYPES.has(i.type)).slice(0,8);
     d.innerHTML='<div class="rpd-title">Rewrite Suggestions <span class="rpd-exp-badge" style="margin-left:.4rem">Experimental</span></div>'+(samples.length===0?'<p style="color:var(--muted);font-size:.78rem">No rewrite targets found.</p>':samples.map(i=>'<div class="rpd-issue" data-issue-text="'+escA(i.text)+'" data-issue-sug="'+escA(i.suggestion)+'" data-has-fix="'+(i.type==='adverb'||i.type==='passive'||i.type==='wordy'||i.type==='cliche'?'1':'0')+'" data-issue-type="'+escA(i.type)+'" data-issue-index="'+(i.index||0)+'"><div class="rpd-issue-head">'+esc(i.text.substring(0,40))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div><div class="rpd-quote rpd-navigate" style="cursor:pointer" title="Click to jump to this text">\u2018'+esc(i.text.substring(0,60))+'\u2019</div><div class="rpd-btns"><button class="rpd-rewrite-btn">\u2736 Rewrite</button><button class="tip-ign rpd-ign-btn">Dismiss</button></div></div>').join(''));
     d.querySelectorAll('.rpd-navigate').forEach(q=>{q.addEventListener('click',()=>{const card=q.closest('.rpd-issue');const issueText=card.dataset.issueText;document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));const ab=document.querySelector('.btab[data-p="annotated"]');if(ab)ab.classList.add('active');$('ed-annotated')?.classList.add('active');const page=$('ed-annotated');const q2=issueText.substring(0,60).replace(/"/g,'&quot;');const hl=page?.querySelector('.hl[data-q="'+q2+'"]');if(hl){hl.scrollIntoView({behavior:'smooth',block:'center'});hl.style.outline='3px solid var(--gold)';hl.style.outlineOffset='3px';setTimeout(()=>{hl.style.outline=''},3000)}})});
     d.querySelectorAll('.rpd-rewrite-btn').forEach(btn=>{btn.addEventListener('click',()=>{doRewrite(btn.closest('.rpd-issue'))})});
@@ -2412,7 +2429,7 @@ $('export-btn')?.addEventListener('click',()=>{
   const issueLabels={passive:'Passive Voice','weak-verb':'Weak Verb',adverb:'Adverb',cliche:'Cliché',wordy:'Wordy','show-tell':'Show vs Tell',repetition:'Repetition','sentence-length':'Long Sentence'};
 
   // Build annotated HTML
-  const sorted=[...r.issues].sort((a,b)=>a.index-b.index);
+  const sorted=[...liveIssues(r)].sort((a,b)=>a.index-b.index);
   const noOverlap=[];let lastEnd=-1;
   for(const i of sorted){if(i.index>=lastEnd){noOverlap.push(i);lastEnd=i.index+i.length}}
 

@@ -217,6 +217,9 @@ body.lib-mode{overflow:auto}
 .hl[data-t="confused-word"]{background:rgba(196,92,74,.22);border-bottom:2px solid var(--red)}
 .hl.hl-suggest{background:none!important;border-bottom-style:dashed!important;opacity:.6}
 .hl.hl-suggest:hover{opacity:.85}
+/* A finding the engine set aside for its passage: on the record, not on the author's plate. */
+.hl.hl-ctx{background:none!important;border-bottom:1px dotted var(--muted)!important;opacity:.55}
+.hl.hl-ctx:hover{opacity:.8}
 .hl[data-t="bookism"]{background:rgba(212,168,85,.12);border-bottom:2px solid var(--yellow)}
 .hl.off{background:none!important;border-bottom:none!important}
 .fix-applied{transition:outline .3s}

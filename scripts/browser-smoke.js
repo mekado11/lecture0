@@ -7,7 +7,11 @@ const root=path.resolve(__dirname,'..');
 const text='Chapter 1: The Gate\n\n'+
   'Alice was the captain of the guard. Bob was her brother. Alice trusted Bob. They waited beside the gate, listening to the rain. '.repeat(8)+
   '\n\nChapter 2: The Return\n\nThree days later, Alice returned to the village. Bob betrayed Alice. '+
-  'The old road was empty. She remembered the promise and opened the door. '.repeat(8);
+  'The old road was empty. She remembered the promise and opened the door. '.repeat(8)+
+  // A habit the author leans on (three "walked", no specific walking verb) in a scene…
+  '\n\nAlice walked to the gate. Bob walked behind her. They walked in silence and Alice pushed the door open.'+
+  // …and an echo inside explanatory prose, which the engine sets aside rather than raises.
+  '\n\nMost readers assume that loyalty is a matter of effort. Loyalty, research generally suggests, is a matter of circumstance. You can work relentlessly and still lose loyalty.';
 async function docx(){
   const zip=new JSZip();
   zip.file('[Content_Types].xml','<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
@@ -109,6 +113,26 @@ function pdf(){
     await page.keyboard.press('Control+z');
     assert.equal(providerCalls,0,'No automatic paid calls on manuscript open');
     await page.screenshot({path:path.join(root,'test-results/editor-desktop.png')});
+    // Inline suggestions: a list synonym is shown to weigh, never applied for the author,
+    // and a finding set aside for its passage is drawn quietly with its reason.
+    const weakVerb=page.locator('.hl[data-t="weak-verb"]:not(.hl-ctx)').first();
+    await weakVerb.waitFor();
+    await weakVerb.click();
+    const weakTip=await page.locator('#tip').innerText();
+    assert.ok(!weakTip.includes('&amp;'),'tooltip label is not double-escaped');
+    assert.match(weakTip,/"walked" carries 3 of the 3 walking verbs/,'the finding quotes the manuscript\'s own count');
+    assert.match(weakTip,/Edit Here/,'a verb from a fixed list is never auto-applied');
+    assert.ok(!/Replace & Fix/.test(weakTip));
+    await page.locator('#tip-ign-btn').click();
+    const setAside=page.locator('.hl.hl-ctx[data-t="repetition"]').first();
+    await setAside.waitFor();
+    await setAside.click();
+    const asideTip=await page.locator('#tip').innerText();
+    assert.match(asideTip,/Set aside for this passage/);
+    assert.match(asideTip,/explanatory writing/);
+    assert.equal(await page.locator('#tip-fix-btn').count(),0,'nothing to fix is offered for a set-aside finding');
+    await page.locator('#tip-ign-btn').click();
+    console.log('PASS inline suggestions: measured weak-verb finding, no auto-apply from a list, set-aside findings muted with reason');
     for(const mode of ['characters','threads','review','chapters']){
       await page.locator(`[data-wsnav="${mode}"]`).click();
       await page.locator(`#workspace-nav-content`).waitFor();

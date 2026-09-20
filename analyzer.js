@@ -408,44 +408,112 @@ const Analyzer = {
   // ========================
   // WEAK VERB DETECTION
   // ========================
+  // A generic verb is only a fault when the author leans on it. Each entry names the
+  // alternatives we can offer and the wider family of specific verbs an author may already
+  // be using. The detector measures THIS manuscript's reliance on the generic verb against
+  // that family and says nothing when the author already varies. Where it does speak it
+  // quotes the count, so the author can disagree with the reading. Whether the passage is
+  // one where vividness is even a virtue is decided afterwards by prose-norms.js.
   WEAK_VERBS: {
-    'walked':'strode, ambled, trudged, sauntered',
-    'looked':'glanced, peered, gazed, scrutinized','went':'hurried, wandered, dashed, strolled',
-    'got':'obtained, acquired, seized, snatched','put':'placed, positioned, deposited, set',
-    'made':'crafted, fashioned, constructed, forged','came':'arrived, emerged, appeared, materialized',
-    'thought':'pondered, mused, considered, reflected','saw':'noticed, observed, spotted, witnessed',
-    'ran':'sprinted, dashed, bolted, jogged','moved':'shifted, glided, crept, lunged',
-    'turned':'pivoted, swiveled, whirled, rotated',
-    'seemed':'appeared, suggested, indicated, implied','started':'began, commenced, initiated, launched',
-    'stood':'towered, loomed, perched, positioned',
-    'sat':'perched, settled, reclined, lounged','held':'clutched, gripped, grasped, cradled'
+    walked:  { doing:'walking',  alts:'strode, ambled, trudged, sauntered',       family:['strode','ambled','trudged','sauntered','paced','marched','strolled','wandered','shuffled','stalked','crept','limped','hiked','trekked','stepped','tramped','plodded'] },
+    looked:  { doing:'looking',  alts:'glanced, peered, gazed, scrutinized',      family:['glanced','peered','gazed','scrutinized','scrutinised','stared','watched','studied','eyed','glared','squinted','surveyed','regarded','scanned','searched','inspected','examined'] },
+    went:    { doing:'going',    alts:'hurried, wandered, dashed, strolled',      family:['hurried','wandered','dashed','strolled','headed','travelled','traveled','drove','rode','flew','crossed','climbed','descended','departed','marched','trudged','made for'] },
+    got:     { doing:'getting',  alts:'obtained, acquired, seized, snatched',     family:['obtained','acquired','seized','snatched','grabbed','fetched','received','earned','bought','caught','gathered','collected','secured','won'] },
+    put:     { doing:'placing',  alts:'placed, positioned, deposited, set',       family:['placed','positioned','deposited','laid','dropped','tucked','slid','shoved','stuffed','rested','propped','hung','planted','set down','slipped'] },
+    made:    { doing:'making',   alts:'crafted, fashioned, constructed, forged',  family:['crafted','fashioned','constructed','forged','built','shaped','assembled','formed','created','produced','carved','stitched','brewed','baked','cooked','drew','moulded','molded'] },
+    came:    { doing:'arriving', alts:'arrived, emerged, appeared, materialized', family:['arrived','emerged','appeared','materialized','materialised','approached','entered','returned','reached','surfaced','drifted','burst','crept','slipped','stumbled in','walked in'] },
+    thought: { doing:'thinking', alts:'pondered, mused, considered, reflected',   family:['pondered','mused','considered','reflected','wondered','realized','realised','suspected','decided','reasoned','weighed','imagined','recalled','remembered','brooded','deliberated'] },
+    saw:     { doing:'seeing',   alts:'noticed, observed, spotted, witnessed',    family:['noticed','observed','spotted','witnessed','glimpsed','watched','recognized','recognised','spied','discerned','sighted','caught sight','made out'] },
+    ran:     { doing:'running',  alts:'sprinted, dashed, bolted, jogged',         family:['sprinted','dashed','bolted','jogged','raced','fled','hurried','rushed','charged','tore','scrambled','darted','loped','galloped','pelted'] },
+    moved:   { doing:'moving',   alts:'shifted, glided, crept, lunged',           family:['shifted','glided','crept','lunged','slid','edged','drifted','swayed','stepped','shuffled','eased','swung','leaned','rolled','inched'] },
+    turned:  { doing:'turning',  alts:'pivoted, swiveled, whirled, rotated',      family:['pivoted','swiveled','swivelled','whirled','rotated','spun','wheeled','twisted','swung','faced','veered','rounded','swerved'] },
+    seemed:  { doing:'seeming',  alts:'appeared, suggested, indicated, implied',  family:['appeared','suggested','indicated','implied','looked','sounded','struck'] },
+    started: { doing:'starting', alts:'began, commenced, initiated, launched',    family:['began','commenced','initiated','launched','opened','set out','set off','took up','embarked','kicked off'] },
+    stood:   { doing:'standing', alts:'towered, loomed, perched, positioned',     family:['towered','loomed','perched','positioned','rose','waited','lingered','leaned','hovered','straightened','remained','planted','braced','froze'] },
+    sat:     { doing:'sitting',  alts:'perched, settled, reclined, lounged',      family:['perched','settled','reclined','lounged','slumped','sank','crouched','squatted','knelt','sprawled','rested','dropped','hunched'] },
+    held:    { doing:'holding',  alts:'clutched, gripped, grasped, cradled',      family:['clutched','gripped','grasped','cradled','clasped','squeezed','hugged','carried','pinned','hoisted','balanced','steadied','clung'] }
+  },
+  // Constructions in which the generic verb is not doing the sentence's main work, or sits
+  // in an idiom no "vivid" verb can replace ("made sense", "looked after", "turned out").
+  WEAK_VERB_PARTICLES: /^(up|out|off|over|down|into|through|away|back|around|round|along|forward|aside|after|like|as if|as though)\b/i,
+  WEAK_VERB_IDIOMS: {
+    made:['sense','sure','it','of','do','use','room','time','money','peace','clear','good','well','certain','fun','love','light','way','a point','a decision','a difference','a living','a mistake','a fool','an effort','an appearance','an exception','the most','the best','the case','the cut','matters','amends','ends meet','his way','her way','their way','my way','our way','its way','me','him','her','them','us','you','himself','herself','themselves','myself','yourself','ourselves','itself'],
+    got:['rid','used','married','lost','ready','tired','sick','hurt','caught','stuck','dressed','home','here','there','hold','wind','word','on with','the better','the message','the point','the idea','the hang','the feeling','the impression','the sense','in the way','under way','underway','going'],
+    came:['across','about','true','apart','upon','first','second','last','close','of','undone','alive','loose','clean','to terms','to light','to life','to rest','to pass','to a head','to an end','to mind','to the conclusion','to nothing','to blows','to power','to grief','to the point','with'],
+    went:['on','ahead','wrong','well','badly','mad','quiet','silent','still','cold','white','pale','red','dark','blank','numb','without','by','about','for','to sleep','to bed','to war','to work','to school','to church','to court','to great lengths','out of','missing','unanswered','unnoticed','unheard','unsaid','so far','too far','further','on to'],
+    looked:['forward','the part','the other way','it','tired','pale','older','younger','different','fine','good','bad','well','lost','alike','sad','happy','worried','confused','surprised','exhausted','beautiful','terrible','awful','ridiculous','small','tiny','huge','thin','sick','ill','dead','alive','young','old','new','strange','odd','familiar','unhappy','angry','afraid','scared','nervous','calm','relieved','pleased','embarrassed','ashamed','proud','grim','serious','stern','kind','gentle','cold','warm','as'],
+    put:['together','an end','a stop','it','him','her','them','me','us','you','pressure','weight','faith','trust','effort','money','words','simply','bluntly','plainly','differently','another way','to bed','to sleep','to death','to use','to work','to rest','to shame','to the test','up with','paid','right','straight','on'],
+    turned:['against','to','toward','towards','red','pale','white','cold','sour','bad','a corner','a profit','a blind eye','the corner','the page','the tables','the tide','the key','the lock','the handle','the wheel','the volume','heads','tail','turtle','left','right','on','in','it','him','her','them','me','us','you','sixty','seventy','forty','fifty','thirty','twenty','eighteen','twenty-one','a year','two','three','four','five','six','seven','eight','nine','ten'],
+    started:['again','from','with','on','in','as','at','by','the car','the engine','the fire','a fire','a fight','a family','a business','a company','a conversation','a war','something','it','trouble','work','school','college','university','life','over'],
+    seemed:['to','like','that','so','as'],
+    stood:['still','firm','fast','ground','his ground','her ground','their ground','my ground','trial','a chance','in for','on end','on ceremony','corrected','accused','a round','the test','to reason','watch','guard','by','for','alone','together','apart','tall','there','here','at','in','on','before','behind','beside','between','near','next','over','under','with','and','to','a','an','the'],
+    sat:['still','tight','through','by','with','at','beside','next','across','opposite','on','in','for','the exam','the test','well','badly','right','wrong','quietly','silently','alone','together','there','here','and','a','an','the','up','down','back','out'],
+    held:['together','still','fast','firm','tight','good','true','sway','court','office','hands','breath','his breath','her breath','their breath','my breath','our breath','the line','the door','the floor','the fort','a grudge','a meeting','a candle','an election','a position','a record','the record','the view','the belief','the opinion','that','it','him','her','them','me','us','you','forth','a moment','the key','on to','onto','back','in','up','out','off','over','down','at bay','to','with','for','sway','water'],
+    thought:['better','twice','aloud','out loud','hard','long','little','much','nothing','for a moment','through','ahead','otherwise','differently','police','crime','leader','experiment','process','bubble','it','he','she','they','we','you','i','the','this','there','that','of','about','so','not','to','with','and','myself','himself','herself','themselves','ourselves','yourself','maybe','perhaps','how','what','why','where','when','who','which','if','as'],
+    saw:['to','through','off','fit','red','the light','the point','the world','the doctor','a doctor','the dentist','the last of','the back of','eye to eye','the end of','action','service','sense','reason','the funny side','the error','the writing'],
+    ran:['late','low','high','dry','short','wild','deep','smooth','rough','free','riot','aground','amok','the risk','the show','the shop','the business','the company','the numbers','the country','the household','the meeting','the race','a hand','a finger','a bath','a fever','a temperature','a business','a shop','an errand','errands','a tab','a check','a test','tests','in the family','its course','his course','her course','their course','a mile','miles','the length','in circles','a red light','a story','an ad','an article','a headline','a program','a programme','a scan','a report','a piece','for','with','on','to','from','at','in','past','by','across','between','and','a','an','the','it','him','her','them','me','us','you'],
+    moved:['on','in','past','toward','towards','to tears','to action','to speak','to say','to write','to ask','to help','to laughter','house','home','abroad','ahead','closer','nearer','that','the motion','the goalposts','the needle','the meeting','the date','the deadline','the time','heaven and earth','mountains','the crowd','the audience','the jury','the reader','me','him','her','them','us','you','deeply','profoundly','greatly','with','by','at','and','to','a','an','the','it','his','her','their','my','our','its','from']
   },
 
   findWeakVerbs(text, genre) {
     const issues = [];
-    // Nonfiction softening. This multiplies SEVERITY WEIGHT, never confidence: confidence is
-    // a claim about whether the detection is real, and the validation layer discards anything
-    // under 0.6. Multiplying confidence by 0.3-0.5 therefore deleted every one of these
-    // findings for nonfiction instead of softening them. Register-appropriate instances are
-    // now handled contextually by prose-norms.js, with a reason the author can read.
-    const nfSoften = this.isNonfiction(genre);
-    const nfWeight = 1;
-    const PER_VERB_LIMIT = 5; // cap flags per verb to avoid noise in long manuscripts
-    for (const [verb, alternatives] of Object.entries(this.WEAK_VERBS)) {
+    const SHOWN_PER_VERB = 8;    // highlights per verb: a display cap, stated in the finding
+    const MIN_USES = 3;          // fewer than this is not a habit
+    const RELIANCE = 0.6;        // share of the family the generic verb must carry to be raised
+    const totalWords = Math.max(1, (text.match(/\b\w+\b/g) || []).length);
+    const lower = text.toLowerCase();
+    const countAll = word => {
+      const m = lower.match(new RegExp('\\b' + word.replace(/\s+/g, '\\s+') + '\\b', 'g'));
+      return m ? m.length : 0;
+    };
+
+    for (const [verb, entry] of Object.entries(this.WEAK_VERBS)) {
       const regex = new RegExp(`\\b${verb}\\b`, 'gi');
+      const clean = [];
       let match;
-      let count = 0;
-      while ((match = regex.exec(text)) !== null && count < PER_VERB_LIMIT) {
-        count++;
+      while ((match = regex.exec(text)) !== null) {
+        if (this._weakVerbIsIdiomatic(text, verb, match.index)) continue;
+        clean.push(match);
+      }
+      const uses = clean.length;
+      if (uses < MIN_USES) continue;
+      const family = entry.family.reduce((sum, w) => sum + countAll(w), 0);
+      const reliance = uses / (uses + family);
+      if (reliance < RELIANCE) continue;  // the author already varies; nothing to say
+      const perK = Math.round(uses / totalWords * 1000 * 10) / 10;
+      const message = `"${verb}" carries ${uses} of the ${uses + family} ${entry.doing} verbs in this manuscript (${perK} per 1,000 words). A more specific verb would show the action.`;
+      const shown = Math.min(uses, SHOWN_PER_VERB);
+      const suggestion = `Alternatives to weigh: ${entry.alts}.` + (uses > shown ? ` Showing ${shown} of ${uses} uses.` : '');
+      // Spread the shown instances across the manuscript rather than taking the first few,
+      // so a habit in chapter twenty is as visible as one in chapter one.
+      for (let k = 0; k < shown; k++) {
+        const m = clean[Math.floor(k * uses / shown)];
         issues.push({
-          type: 'weak-verb', text: match[0], index: match.index, length: match[0].length,
-          severity: 'low', confidence: 0.9 * nfWeight,
-          message: `Weak verb "${match[0]}" — a more specific verb creates vivid imagery.`,
-          suggestion: `Try: ${alternatives}`
+          type: 'weak-verb', text: m[0], index: m.index, length: m[0].length,
+          severity: 'low', confidence: 0.9, message, suggestion,
+          detail: { verb, uses, family, reliance: Math.round(reliance * 100) / 100, perK }
         });
       }
     }
     return issues;
+  },
+
+  // True where the verb is not carrying the sentence, or sits in an idiom. Rules first
+  // (participle, passive, aspectual "started to", a clause after "thought"), then the
+  // per-verb idiom list.
+  _weakVerbIsIdiomatic(text, verb, index) {
+    const before = text.slice(Math.max(0, index - 14), index);
+    if (/[,;:—–-]\s*$/.test(before)) return true;                    // ", made quietly"
+    if (/\b(am|is|are|was|were|be|been|being|get|gets|got|getting|having|to)\s+$/i.test(before)) return true;
+    if (verb === 'got' && /\b(have|has|had|'ve|'s|'d|’ve|’s|’d)\s+$/i.test(before)) return true;
+    const afterTrim = text.slice(index + verb.length, index + verb.length + 40).replace(/^\s+/, '');
+    if (!afterTrim) return false;
+    if (this.WEAK_VERB_PARTICLES.test(afterTrim)) return true;
+    if (/^to\s+[a-z]+/i.test(afterTrim) && ['started', 'seemed', 'came', 'got', 'went'].includes(verb)) return true;
+    if (verb === 'started' && /^[a-z]+ing\b/i.test(afterTrim)) return true;
+    const lowerAfter = afterTrim.toLowerCase();
+    return (this.WEAK_VERB_IDIOMS[verb] || []).some(p =>
+      lowerAfter.startsWith(p) && !/[a-z]/.test(lowerAfter.charAt(p.length)));
   },
 
   // ========================
@@ -581,14 +649,25 @@ const Analyzer = {
       'out','about','just','very','all','also','how','what','when','where','which','who']);
     const synMap={said:['stated','replied','remarked','noted','added'],looked:['glanced','gazed','peered','watched','studied'],walked:['strode','moved','paced','strolled','crossed'],made:['created','crafted','formed','produced','built'],came:['arrived','appeared','emerged','approached','entered'],went:['headed','moved','traveled','crossed','departed'],turned:['pivoted','shifted','swung','rotated','spun'],stood:['rose','remained','lingered','waited','stayed'],knew:['understood','recognized','realized','sensed','grasped'],thought:['considered','wondered','reflected','believed','imagined'],felt:['sensed','experienced','noticed','detected','perceived'],took:['grabbed','seized','claimed','accepted','retrieved'],gave:['offered','handed','presented','provided','delivered'],started:['began','initiated','launched','commenced','opened'],seemed:['appeared','looked','sounded','suggested','indicated'],told:['informed','explained','revealed','instructed','described'],asked:['questioned','inquired','wondered','requested','demanded'],eyes:['gaze','stare','glance','look','vision'],face:['expression','features','countenance','visage','look'],hand:['grip','palm','fingers','fist','grasp'],head:['mind','thoughts','skull','brow','temple'],voice:['tone','words','speech','whisper','sound'],door:['entrance','doorway','threshold','entry','gate'],room:['chamber','space','quarters','hall','area'],time:['moment','occasion','instance','period','while'],back:['spine','rear','return','retreat','behind'],long:['extended','prolonged','lengthy','enduring','sustained'],dark:['dim','shadowed','unlit','gloomy','murky'],small:['little','slight','tiny','compact','modest'],found:['discovered','located','uncovered','encountered','spotted'],called:['named','summoned','addressed','hailed','dubbed'],people:['individuals','figures','crowd','group','folk'],world:['realm','domain','land','sphere','landscape'],place:['location','spot','position','site','area'],still:['motionless','calm','quiet','unmoving','yet'],words:['speech','language','phrases','remarks','terms'],thing:['object','matter','item','element','detail'],woman:['figure','lady','person','character','she'],before:['earlier','previously','prior','ahead','formerly'],every:['each','all','entire','whole','total'],never:['rarely','seldom','hardly','not once','at no point'],always:['constantly','perpetually','inevitably','forever','endlessly'],around:['surrounding','about','nearby','encircling','throughout']};
     const seen = new Set();
+    // Names repeat because they are names. A capitalised word whose lowercase form never
+    // occurs anywhere in this manuscript is treated as one and never raised; "Alice" is a
+    // name, "The" and "Poverty" at a sentence start are not.
+    const lowercaseForms = new Set(text.match(/\b[a-z]{4,}\b/g) || []);
 
     for (let i = 0; i < sentBounds.length - 1; i++) {
       const s1 = sentBounds[i], s2 = sentBounds[i + 1];
       const words1 = s1.raw.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
       const words2 = s2.raw.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
       const set1 = new Set(words1.filter(w => !stopWords.has(w)));
+      const names = new Set();
+      for (const raw of [s1.raw, s2.raw]) {
+        (raw.match(/\b[A-Z][a-z]{3,}\b/g) || []).forEach(tok => {
+          const w = tok.toLowerCase();
+          if (!lowercaseForms.has(w)) names.add(w);
+        });
+      }
       for (const word of words2) {
-        if (set1.has(word) && !stopWords.has(word)) {
+        if (set1.has(word) && !stopWords.has(word) && !names.has(word)) {
           // Find the word position within the second sentence's known bounds
           const wordIdx = lower.indexOf(word, s2.start);
           if (wordIdx === -1 || wordIdx >= s2.end) continue;
@@ -3780,8 +3859,9 @@ const Analyzer = {
       subScores.languageQuality = Math.round((sh.clarityReadability||0)*0.4+(sh.voiceAuthority||0)*0.3+grammarScore*0.3);
     }
 
-    // Issue density normalized per 1000 words
-    const issuesPerK = Math.round(allIssues.length / Math.max(totalWords, 1) * 1000 * 10) / 10;
+    // Issue density normalized per 1000 words, over the findings that actually scored.
+    const issuesPerK = Math.round(scoredIssues.length / Math.max(totalWords, 1) * 1000 * 10) / 10;
+    const countScored = t => scoredIssues.reduce((n, i) => n + (i.type === t ? 1 : 0), 0);
 
     return {
       overall, genre, totalWords, manuscriptMode, issuesPerK,
@@ -3811,13 +3891,15 @@ const Analyzer = {
       showTell: { score: showTellScore, issues: showTellIssues },
       issues: allIssues,
       rawIssues, // unfiltered concatenated detector outputs (telemetry / debugging only)
+      // Counts are of findings that survived validation and were not set aside for their
+      // passage, so the number beside a score is the number that produced it.
       issueCounts: {
-        passive: passiveIssues.length, adverb: adverbIssues.length,
-        cliche: clicheIssues.length, 'weak-verb': weakVerbIssues.length,
-        wordy: wordyIssues.length, repetition: repetitionIssues.length,
-        'sentence-length': longSentenceIssues.length, 'show-tell': showTellIssues.length,
-        'confused-word': confusedWordIssues.length,
-        grammar: grammarIssues.length,
+        passive: countScored('passive'), adverb: countScored('adverb'),
+        cliche: countScored('cliche'), 'weak-verb': countScored('weak-verb'),
+        wordy: countScored('wordy'), repetition: countScored('repetition'),
+        'sentence-length': countScored('sentence-length'), 'show-tell': countScored('show-tell'),
+        'confused-word': countScored('confused-word'),
+        grammar: countScored('grammar'),
         pov: lineEditing.findings ? lineEditing.findings.filter(f => f.type === 'pov').length : 0,
         dialogue: dialogue.findings ? dialogue.findings.length : 0
       }
