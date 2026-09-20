@@ -3651,11 +3651,34 @@ const Analyzer = {
       return true;
     }).sort((a, b) => a.index - b.index);
 
+    // STAGE 1b: prose context. Identify what kind of passage each paragraph is, then judge
+    // each finding against this manuscript's own norms for that kind of passage. A long
+    // sentence in a reflective passage is measured against the author's other reflective
+    // passages, not against a fixed number. Mode-appropriate findings are marked
+    // contextSuppressed with a reason and excluded from scoring — never deleted.
+    let proseContext = { passages: [], distribution: null, norms: {}, suppressed: 0, raised: 0, applicable: false };
+    if (typeof ProseContext !== 'undefined' && typeof ProseNorms !== 'undefined') {
+      try {
+        const passages = ProseContext.classify(text);
+        const adjusted = ProseNorms.apply(text, allIssues, passages);
+        proseContext = {
+          passages: passages.length,
+          distribution: ProseContext.distribution(passages),
+          norms: adjusted.norms,
+          suppressed: adjusted.suppressed.length,
+          raised: allIssues.filter(i => i.contextRaised).length,
+          applicable: adjusted.applied > 0 || passages.length > 0
+        };
+      } catch (e) { /* context is an enhancement; never let it break an analysis */ }
+    }
+
     // Issues inside the narrative span drive the SCORES; front/back-matter issues stay
-    // visible as highlights but must not damage the manuscript's scores.
+    // visible as highlights but must not damage the manuscript's scores. Context-suppressed
+    // findings are likewise visible but score-inert.
+    const scoredIssues = allIssues.filter(i => !i.contextSuppressed);
     const narrativeIssues = aOffset > 0 || segmentation.narrativeEnd < text.length
-      ? allIssues.filter(i => i.index >= segmentation.narrativeStart && i.index < segmentation.narrativeEnd)
-      : allIssues;
+      ? scoredIssues.filter(i => i.index >= segmentation.narrativeStart && i.index < segmentation.narrativeEnd)
+      : scoredIssues;
     const narrativeWords = segmentation.narrativeWords;
 
     // STAGE 2: literary analysis — every narrative dimension reads narrative text only.
@@ -3755,6 +3778,9 @@ const Analyzer = {
         frontMatterWords: segmentation.frontMatterWords,
         backMatterWords: segmentation.backMatterWords
       },
+      // What kind of prose this book is made of, and how many findings were re-weighted
+      // against its own norms rather than a fixed threshold.
+      proseContext,
       selfHelpScores,
       scores: {
         plot: plot.score, transitions: transitions.score, copy: copyScore,
