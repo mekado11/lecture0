@@ -109,6 +109,29 @@ const ProseNorms = (() => {
     let applied = 0;
 
     for (const issue of list) {
+      // A rhetorical repetition (parallel structure) is the device, whatever passage it sits
+      // in — including an epigraph too short for the classifier to call.
+      if (issue.type === 'repetition' && issue.rhetorical === 'parallel') {
+        issue._context = { mode: 'parallel', action: 'suppress',
+          reason: 'Repetition inside parallel structure, where the echoed word carries the sentence pair on purpose.' };
+        issue.contextSuppressed = true; suppressed.push(issue); applied++;
+        continue;
+      }
+      // A stance adverb qualifies the claim it sits in, whatever the passage; an adverb on a
+      // speech tag is the classic target, whatever the passage.
+      if (issue.type === 'adverb' && issue.stance) {
+        issue._context = { mode: 'stance', action: 'suppress',
+          reason: 'A stance adverb (how often, how much, how certain) qualifies the claim it sits in. It is doing work, not padding.' };
+        issue.contextSuppressed = true; suppressed.push(issue); applied++;
+        continue;
+      }
+      if (issue.type === 'adverb' && issue.tagAdjacent && !issue.contextRaised) {
+        issue._context = { mode: 'speech-tag', action: 'raise',
+          reason: 'Adverb attached to a speech tag, where a stronger line of dialogue or a plainer tag usually does the work instead.' };
+        issue.severity = issue.severity === 'low' ? 'medium' : 'high';
+        issue.contextRaised = true; applied++;
+        continue;
+      }
       const passage = context.passageAt(passages, issue.index);
       if (!passage || passage.mode === 'mixed') continue;
       // Only act where the classifier was actually confident.

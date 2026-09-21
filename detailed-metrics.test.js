@@ -52,6 +52,25 @@ test('a clean manuscript is not held under a hidden ceiling, and POV is N/A for 
   assert.ok(Number.isFinite(fic.flow.score),'fiction continuity is scored');
 });
 
+test('self-help dimensions are rates: the same book five times over scores the same',()=>{
+  const chapter='You are tired, and you are not alone. Research shows that most people feel stuck. Start today: write down one goal. Try this exercise before you sleep. In my experience, this works, and the key is consistency. For example, a client once told me she had failed for years.';
+  const once=Analyzer._analyzeSelfHelp(Array(6).fill(chapter).join('\n\n'),'book');
+  const five=Analyzer._analyzeSelfHelp(Array(30).fill(chapter).join('\n\n'),'book');
+  for(const k of ['clarityReadability','readerIdentification','practicalApplication','structureProgression','insightQuality','voiceAuthority','emotionalMomentum','evidenceSupport'])
+    assert.ok(Math.abs(once[k]-five[k])<=2,k+': '+once[k]+' vs '+five[k]);
+  assert.ok(once.practicalApplication<100,'a modest rate of actions does not saturate the dimension: '+once.practicalApplication);
+  assert.match(once.evidence.practical,/\/1K imperatives/);
+});
+
+test('self-help dimension cards carry the counts they were built from',()=>{
+  const t=Array(12).fill('You are tired. Research shows that most people feel stuck. Start today: write down one goal. In my experience, this works.').join('\n\n');
+  const sh=Analyzer._analyzeSelfHelp(t,'book');
+  for(const k of ['clarity','reader','practical','structure','insight','voice','momentum','evidence'])
+    assert.match(sh.evidence[k],/\d/,k+' quotes a number');
+  assert.match(sh.evidence.practical,/imperatives/);
+  assert.match(sh.evidence.reader,/"you"/);
+});
+
 test('two-word names are kept whole and a sentence-opening word before them is trimmed',()=>{
   const t='Then Philip Gates arrived, and then the rain. Philip Gates had the letter. Everyone waited for Philip Gates, as everyone did. Every morning began the same way, and every evening too. Philip Gates smiled.';
   const list=Analyzer.analyzeCharacters(t,'literary').list;

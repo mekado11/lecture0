@@ -129,7 +129,7 @@ function pdf(){
     await setAside.click();
     const asideTip=await page.locator('#tip').innerText();
     assert.match(asideTip,/Set aside for this passage/);
-    assert.match(asideTip,/explanatory writing/);
+    assert.match(asideTip,/parallel structure|explanatory writing/,'the reason is the one the engine actually applied');
     assert.equal(await page.locator('#tip-fix-btn').count(),0,'nothing to fix is offered for a set-aside finding');
     await page.locator('#tip-ign-btn').click();
     console.log('PASS inline suggestions: measured weak-verb finding, no auto-apply from a list, set-aside findings muted with reason');
@@ -142,6 +142,26 @@ function pdf(){
     assert.match(await page.locator('#ed-detailed').innerText(),/observed manuscript segments/);
     await page.locator('.btab[data-p="annotated"]').click();
     console.log('PASS detailed tab: characters are names, lexical diversity is window-based');
+    // Left rail: the genre contract replaces the fixed fiction checklist, and the prose mix
+    // replaces "scene type / energy / tension".
+    await page.locator('#scene-intel .si-check[data-status]').first().waitFor();
+    const rail=await page.locator('#scene-intel').innerText();
+    assert.match(rail,/What a .+ reader comes for/);
+    assert.match(rail,/Prose mix/);
+    assert.ok(!/Strong dialogue|Fast pacing|Scene Type|Energy:/.test(rail),rail);
+    assert.ok(!(await page.locator('#rp-scores').innerText()).includes('Clean'),'no verdict word for an uninspected dimension');
+    console.log('PASS left rail: genre contract, prose mix, no "Clean" labels');
+    // Verdict and workbench: one "Start here" card on the left opens the matching dimension on
+    // the right, whose detail states what the score was built from; the Intelligence box is a button.
+    await page.locator('#lp-start-open').waitFor();
+    assert.match(await page.locator('#lp-start').innerText(),/Start here/);
+    assert.equal(await page.locator('#lp-cards, .lp-card').count(),0,'the five duplicate score cards are gone');
+    const startCat=await page.locator('#lp-start-open').getAttribute('data-cat');
+    await page.locator('#lp-start-open').click();
+    assert.equal(await page.locator('#rp-scores .rsc.active').getAttribute('data-cat'),startCat,'Start here opens its dimension in the workbench');
+    assert.match(await page.locator('#rp-detail').innerText(),/Built from:/);
+    assert.ok(!(await page.locator('#right-panel').innerText()).includes('What does your book know'),'the Intelligence box is now a button');
+    console.log('PASS verdict and workbench: Start here, Built from, Intelligence as a button');
     for(const mode of ['characters','threads','review','chapters']){
       await page.locator(`[data-wsnav="${mode}"]`).click();
       await page.locator(`#workspace-nav-content`).waitFor();
@@ -238,6 +258,14 @@ function pdf(){
     const nonfiction=require('./manuscript-fixtures').nonfiction(12,4);
     await upload('The Practice of Deliberate Change - A Complete Manuscript Review Edition.txt',Buffer.from(nonfiction),'selfHelp');
     assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getAnalysis().scores.dialogue),null);
+    await page.locator('#scene-intel .si-check[data-status]').first().waitFor();
+    const nfRail=await page.locator('#scene-intel').innerText();
+    assert.match(nfRail,/Self-Help reader comes for/i,nfRail);
+    assert.ok(!/Strong dialogue|Fast pacing|Build tension/.test(nfRail),'a self-help book is not judged against fiction goals');
+    assert.match(await page.locator('#rp-scores').innerText(),/imperatives/,'self-help cards show the counts behind the score');
+    await page.locator('#rp-scores .rsc[data-cat="sh_evidence"]').click();
+    await page.locator('#rp-detail .rpd-sub').filter({hasText:'fewest attributed claims'}).waitFor();
+    assert.match(await page.locator('#rp-detail').innerText(),/Built from: .*evidence cues/);
     await page.locator('[data-wsnav="characters"]').click();
     assert.equal(await page.locator('[data-wsnav="characters"]').innerText(),'Concepts');
     await page.locator('#intel-open').click();

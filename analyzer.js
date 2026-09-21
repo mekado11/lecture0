@@ -251,6 +251,12 @@ const Analyzer = {
   // ========================
   // ADVERB DETECTION
   // ========================
+  // Adverbs that qualify a CLAIM rather than an action: how often, how much, how certain, in
+  // what order. "Research generally suggests" and "she eventually agreed" are doing work; the
+  // craft target is the manner adverb propping up a weak verb ("walked slowly", "said softly").
+  // Intensifiers (really, extremely, totally…) are deliberately NOT here: they are the padding.
+  STANCE_ADVERBS: new Set(['generally','usually','typically','normally','often','frequently','rarely','seldom','occasionally','sometimes','mostly','largely','mainly','partly','partially','particularly','especially','specifically','simply','merely','nearly','roughly','approximately','exactly','precisely','probably','possibly','certainly','definitely','clearly','obviously','apparently','presumably','arguably','undoubtedly','ultimately','eventually','finally','initially','originally','recently','currently','previously','formerly','lately','increasingly','significantly','relatively','comparatively','similarly','likewise','consequently','accordingly','additionally','alternatively','essentially','fundamentally','technically','actually','basically','honestly','frankly','ideally','importantly','notably','interestingly','surprisingly','unfortunately','fortunately','hopefully','namely','respectively','historically','traditionally','statistically','theoretically','practically','effectively','directly','indirectly','equally','only','early','daily','weekly','monthly','yearly']),
+
   findAdverbs(text, genre) {
     const issues = [];
     // Nonfiction softening. This multiplies SEVERITY WEIGHT, never confidence: confidence is
@@ -307,12 +313,30 @@ const Analyzer = {
       const candidateVerb = (beforeWords[beforeWords.length - 1] || afterWords[0] || '').toLowerCase();
       const specificRewrite = this._adverbToStrongVerb(candidateVerb, word);
 
+      const stance = this.STANCE_ADVERBS.has(word);
+      // Attached to a speech tag ("said softly", "softly said"): the classic target.
+      const tagAdjacent = /\b(said|asked|replied|whispered|shouted|muttered|answered|cried|called|told|snapped|sighed)\b\s*$/i.test(before) || /^\s*(said|asked|replied|whispered|shouted|muttered|answered|cried|called|told|snapped|sighed)\b/i.test(after);
+      // Part of a deliberate list or stack ("quietly, persistently wrong"): deleting one word
+      // leaves punctuation debris, so it is offered for editing, never applied.
+      const listed = /^\s*,/.test(after) || /,\s*$/.test(before);
       issues.push({
         type: 'adverb', text: match[1], index: match.index, length: match[1].length,
         severity: 'low', confidence: confidence * nfWeight,
-        message: `Adverb "${match[1]}" — consider a stronger verb that doesn't need modification.`,
-        suggestion: specificRewrite || `Remove "${match[1]}" and strengthen the verb it modifies.`
+        stance, tagAdjacent, listed, autoFix: !stance && !listed,
+        message: stance
+          ? `"${match[1]}" qualifies a claim (how often, how much, how certain) rather than an action.`
+          : `Adverb "${match[1]}" — consider a stronger verb that doesn't need modification.`,
+        suggestion: specificRewrite || (stance ? `Keep it if the qualification is meant; cut it if the claim stands without it.` : `Remove "${match[1]}" and strengthen the verb it modifies.`)
       });
+    }
+    // The manuscript's own rate of manner adverbs, quoted on every finding so the author can
+    // see whether this is a habit or a one-off. Stance adverbs are not counted as the habit.
+    const totalWords = Math.max(1, (text.match(/\b\w+\b/g) || []).length);
+    const manner = issues.filter(i => !i.stance);
+    const mannerPerK = Math.round(manner.length / totalWords * 1000 * 10) / 10;
+    for (const i of manner) {
+      i.detail = { mannerAdverbs: manner.length, perK: mannerPerK };
+      i.message += ` This manuscript uses ${manner.length} manner adverbs (${mannerPerK} per 1,000 words).`;
     }
     return issues;
   },
@@ -666,6 +690,21 @@ const Analyzer = {
           if (!lowercaseForms.has(w)) names.add(w);
         });
       }
+      // Parallel structure ("Poverty does not disappear through sympathy. It disappears
+      // through decisions.") repeats on purpose: two short sentences of similar length that
+      // share two or more content stems in the same order. The finding stays on the record,
+      // marked rhetorical, and prose-norms sets it aside with that reason.
+      const stem = w => w.replace(/(ies|es|s|ed|ing)$/, '');
+      const content = raw => (raw.toLowerCase().match(/\b[a-z]{4,}\b/g) || []).filter(w => !stopWords.has(w)).map(stem);
+      const all1 = (s1.raw.match(/\b[\w'’]+\b/g) || []).length, all2 = (s2.raw.match(/\b[\w'’]+\b/g) || []).length;
+      let parallel = false;
+      if (all1 <= 16 && all2 <= 16 && all1 > 0 && all2 > 0 && Math.max(all1, all2) / Math.min(all1, all2) <= 2) {
+        const c1 = content(s1.raw), c2 = content(s2.raw);
+        const sharedInOrder = [];
+        let from = 0;
+        for (const w of c2) { const at = c1.indexOf(w, from); if (at !== -1) { sharedInOrder.push(w); from = at + 1; } }
+        parallel = sharedInOrder.length >= 2;
+      }
       for (const word of words2) {
         if (set1.has(word) && !stopWords.has(word) && !names.has(word)) {
           // Find the word position within the second sentence's known bounds
@@ -679,7 +718,8 @@ const Analyzer = {
           issues.push({
             type: 'repetition', text: word, index: wordIdx, length: word.length,
             severity: 'low', confidence: 0.85, message: `"${word}" repeated in consecutive sentences.`,
-            suggestion: sugText
+            suggestion: sugText,
+            ...(parallel ? { rhetorical: 'parallel' } : {})
           });
         }
       }
@@ -1274,10 +1314,17 @@ const Analyzer = {
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    // Every component below is a RATE per 1,000 words (or a ratio), ramped linearly to a
+    // stated ceiling. Capped raw counts saturated every cap on any book-length manuscript,
+    // so a 70,000-word book scored 100 on Practical Application by length alone. Ceilings
+    // are approximate bands; the measured rate is shown beside the score so the band never
+    // stands in for the number. Each dimension's components sum to 100.
+    const perK = n => n / Math.max(totalWords, 1) * 1000;
+    const ramp = (rate, full, max) => Math.min(max, Math.round(rate / full * max));
 
     // 1. Clarity & Readability (15%) — ease of reading, sentence and paragraph length
     const fk = this.fleschKincaid(text);
-    let clarityReadability = 20;
+    let clarityReadability = 25;
     if (fk.ease >= 70) clarityReadability += 30;
     else if (fk.ease >= 60) clarityReadability += 20;
     else if (fk.ease >= 50) clarityReadability += 12;
@@ -1292,30 +1339,30 @@ const Analyzer = {
     if (shortParaRatio > 0.65) clarityReadability += 15;
     else if (shortParaRatio > 0.4) clarityReadability += 8;
     const transCount = (lower.match(/\b(however|therefore|furthermore|because|although|first|second|third|finally|next|also|specifically|for example|in contrast|as a result)\b/g) || []).length;
-    const transPerK = transCount / Math.max(totalWords / 1000, 1);
+    const transPerK = perK(transCount);
     if (transPerK > 5) clarityReadability += 15;
     else if (transPerK > 2) clarityReadability += 8;
     clarityReadability = Math.max(0, Math.min(100, clarityReadability));
 
     // 2. Reader Identification (15%) — does the text speak directly to the reader's situation?
     const youCount = (lower.match(/\b(you|your|you're|you've|you'll|you'd|yourself)\b/g) || []).length;
-    const youPerK = youCount / Math.max(totalWords / 1000, 1);
+    const youPerK = perK(youCount);
     const weCount = (lower.match(/\b(we|our|we're|we've|ourselves)\b/g) || []).length;
-    const wePerK = weCount / Math.max(totalWords / 1000, 1);
+    const wePerK = perK(weCount);
     const problemLang = (lower.match(/\b(struggle|stuck|difficult|challenge|frustrated|overwhelmed|confus|problem|obstacle|barrier|fail|afraid|fear|anxious|worry|stress|burnout|pain|suffer)\b/g) || []).length;
     const empathyMarkers = (lower.match(/\b(many\s+(of\s+us|people)|you'?ve?\s+probably|you\s+may|it'?s?\s+(okay|ok|normal)|you'?re?\s+not\s+alone|most\s+(people|of\s+us))\b/g) || []).length;
-    let readerIdentification = 10;
+    let readerIdentification = 15;
     if (youPerK >= 20) readerIdentification += 35;
     else if (youPerK >= 12) readerIdentification += 25;
     else if (youPerK >= 6) readerIdentification += 15;
     else if (youPerK >= 2) readerIdentification += 8;
     if (wePerK >= 5) readerIdentification += 15;
     else if (wePerK >= 2) readerIdentification += 8;
-    const probPerK = problemLang / Math.max(totalWords / 1000, 1);
+    const probPerK = perK(problemLang);
     if (probPerK >= 8) readerIdentification += 20;
     else if (probPerK >= 4) readerIdentification += 12;
     else if (probPerK >= 2) readerIdentification += 6;
-    readerIdentification += Math.min(15, empathyMarkers * 4);
+    readerIdentification += ramp(perK(empathyMarkers), 0.6, 15);
     readerIdentification = Math.max(0, Math.min(100, readerIdentification));
 
     // 3. Practical Application (15%) — does the text give readers actionable steps?
@@ -1324,12 +1371,13 @@ const Analyzer = {
     const stepPatterns = (text.match(/^\s*\d+[\.\)]\s+\w/gm) || []).length;
     const howToPatterns = (lower.match(/\b(how\s+to|step\s+\d+|step-by-step|here'?s?\s+how|in\s+(three|four|five|two)\s+steps?)\b/g) || []).length;
     const implPatterns = (lower.match(/\b(implement|apply\s+this|use\s+this|put\s+(this|it)\s+(into|to)\s+(practice|use)|in\s+practice|actionable|tactic|technique|method|approach|strategy|framework|blueprint|system)\b/g) || []).length;
-    let practicalApplication = 15;
-    practicalApplication += Math.min(25, imperativeCount * 2);
-    practicalApplication += Math.min(25, exerciseMarkers * 5);
-    practicalApplication += Math.min(20, stepPatterns * 2);
-    practicalApplication += Math.min(15, howToPatterns * 3);
-    practicalApplication += Math.min(15, implPatterns * 2);
+    // No base: a book that gives the reader nothing to do scores what it earned.
+    let practicalApplication = 0;
+    practicalApplication += ramp(perK(imperativeCount), 2.5, 25);
+    practicalApplication += ramp(perK(exerciseMarkers), 1.0, 25);
+    practicalApplication += ramp(perK(stepPatterns), 1.0, 20);
+    practicalApplication += ramp(perK(howToPatterns), 0.5, 15);
+    practicalApplication += ramp(perK(implPatterns), 1.5, 15);
     practicalApplication = Math.max(0, Math.min(100, practicalApplication));
 
     // 4. Structure / Progression (15%) — thesis → evidence → transitions → conclusion
@@ -1342,49 +1390,49 @@ const Analyzer = {
     const specificStats = (text.match(/\b\d+[\.,]?\d*\s*(percent|%|people|times|years|days|weeks|months|hours|studies|participants)\b/gi) || []).length;
     const novelFraming = (lower.match(/\b(think\s+of\s+it\s+(as|like)|reframe|instead\s+of|contrary\s+to|most\s+people\s+(think|believe|assume)|the\s+opposite|what\s+if\s+I\s+told\s+you)\b/g) || []).length;
     let insightQuality = 20;
-    insightQuality += Math.min(30, insightMarkers * 5);
-    insightQuality += Math.min(20, researchClaims * 5);
-    insightQuality += Math.min(15, specificStats * 2);
-    insightQuality += Math.min(15, novelFraming * 3);
+    insightQuality += ramp(perK(insightMarkers), 1.0, 30);
+    insightQuality += ramp(perK(researchClaims), 0.6, 20);
+    insightQuality += ramp(perK(specificStats), 1.0, 15);
+    insightQuality += ramp(perK(novelFraming), 0.6, 15);
     insightQuality = Math.max(0, Math.min(100, insightQuality));
 
     // 6. Voice & Authority (10%) — author sounds credible and confident
     const authorityMarkers = (lower.match(/\b(i'?ve\s+(found|learned|discovered|seen|worked|helped|spent|observed)|in\s+my\s+experience|over\s+the\s+(years|past)|what\s+i'?ve?\s+(found|learned|discovered))\b/g) || []).length;
     const hedgeWords = (lower.match(/\b(maybe|perhaps|possibly|might\s+be|could\s+be|seems?\s+like|sort\s+of|kind\s+of)\b/g) || []).length;
-    const hedgePerK = hedgeWords / Math.max(totalWords / 1000, 1);
+    const hedgePerK = perK(hedgeWords);
     const confidentAssertions = (lower.match(/\b(the\s+(key|secret|answer|solution|truth|fact|reality|point)\s+is|this\s+(is|will|does|works)|you\s+(will|can|should|must|need\s+to)|the\s+(most\s+important|biggest|main|core|fundamental))\b/g) || []).length;
-    let voiceAuthority = 30;
-    voiceAuthority += Math.min(30, authorityMarkers * 5);
+    let voiceAuthority = 45;
+    voiceAuthority += ramp(perK(authorityMarkers), 0.6, 30);
     if (hedgePerK > 10) voiceAuthority -= 20;
     else if (hedgePerK > 5) voiceAuthority -= 10;
     else if (hedgePerK > 2) voiceAuthority -= 5;
-    voiceAuthority += Math.min(25, confidentAssertions * 2);
+    voiceAuthority += ramp(perK(confidentAssertions), 3.0, 25);
     voiceAuthority = Math.max(0, Math.min(100, voiceAuthority));
 
     // 7. Emotional Momentum (10%) — energizes reader toward change
     const transformWords = (lower.match(/\b(transform|achieve|succeed|thrive|flourish|grow|breakthrough|improve|progress|change|overcome|conquer|master|elevate|uplift|inspire|motivate|empower|unlock|discover|build|develop|strengthen|expand)\b/g) || []).length;
     const motivationalPhrases = (lower.match(/\b(you\s+can|you\s+will|it'?s?\s+possible|imagine\s+(if|when|yourself|being|having)|when\s+you\s+(finally|start|begin|decide|commit)|you\s+(already|deserve))\b/g) || []).length;
-    const energyDensity = transformWords / Math.max(totalWords / 1000, 1);
-    let emotionalMomentum = 20;
+    const energyDensity = perK(transformWords);
+    let emotionalMomentum = 35;
     if (energyDensity >= 15) emotionalMomentum += 40;
     else if (energyDensity >= 8) emotionalMomentum += 28;
     else if (energyDensity >= 4) emotionalMomentum += 18;
     else if (energyDensity >= 2) emotionalMomentum += 10;
-    emotionalMomentum += Math.min(25, motivationalPhrases * 3);
+    emotionalMomentum += ramp(perK(motivationalPhrases), 1.5, 25);
     emotionalMomentum = Math.max(0, Math.min(100, emotionalMomentum));
 
     // 8. Evidence & Support (5%) — data, research, stories that back up claims
     const evidenceMarkers = (lower.match(/\b(for\s+example|for\s+instance|research|study|studies|data|evidence|according\s+to|statistics|percent|percentage|case\s+in\s+point|specifically|in\s+fact|demonstrates|illustrates)\b/g) || []).length;
     const citationMarkers = (text.match(/\(\d{4}\)|\[\d+\]|\bpage\s+\d+/gi) || []).length;
     const storyMarkers = (lower.match(/\b(when\s+I|let\s+me\s+tell\s+you|here'?s?\s+a\s+(story|case|example)|I\s+remember|a\s+(client|student|friend|colleague|reader|person)\s+(once|told|asked|came))\b/g) || []).length;
-    const evidencePerK = evidenceMarkers / Math.max(totalWords / 1000, 1);
-    let evidenceSupport = 20;
+    const evidencePerK = perK(evidenceMarkers);
+    let evidenceSupport = 25;
     if (evidencePerK >= 8) evidenceSupport += 50;
     else if (evidencePerK >= 4) evidenceSupport += 35;
     else if (evidencePerK >= 2) evidenceSupport += 20;
     else if (evidencePerK >= 1) evidenceSupport += 10;
-    evidenceSupport += Math.min(15, citationMarkers * 5);
-    evidenceSupport += Math.min(10, storyMarkers * 2);
+    evidenceSupport += ramp(perK(citationMarkers), 0.5, 15);
+    evidenceSupport += ramp(perK(storyMarkers), 1.0, 10);
     evidenceSupport = Math.max(0, Math.min(100, evidenceSupport));
 
     const overall = Math.round(
@@ -1402,7 +1450,19 @@ const Analyzer = {
       overall,
       clarityReadability, readerIdentification, practicalApplication,
       structureProgression, insightQuality, voiceAuthority,
-      emotionalMomentum, evidenceSupport
+      emotionalMomentum, evidenceSupport,
+      // The counts each dimension was built from, so a card can show its basis instead of
+      // a word like "Clean" that implies an inspection nobody made.
+      evidence: {
+        clarity: `Flesch ${Math.round(fk.ease)} · ${Math.round(avgSentLen)} words/sentence · ${Math.round(shortParaRatio * 100)}% short paragraphs`,
+        reader: `${youPerK.toFixed(1)}/1K "you" · ${probPerK.toFixed(1)}/1K problem words · ${perK(empathyMarkers).toFixed(1)}/1K empathy cues`,
+        practical: `${perK(imperativeCount).toFixed(1)}/1K imperatives (${imperativeCount}) · ${perK(exerciseMarkers).toFixed(1)}/1K exercises (${exerciseMarkers}) · ${perK(stepPatterns).toFixed(1)}/1K numbered steps · ${perK(howToPatterns).toFixed(1)}/1K how-tos`,
+        structure: `${argStructure.thesisSignals || 0} thesis · ${argStructure.evidenceSignals || 0} evidence · ${argStructure.transitionSignals || 0} transition · ${argStructure.synthesisSignals || 0} synthesis signals`,
+        insight: `${perK(insightMarkers).toFixed(1)}/1K insight cues (${insightMarkers}) · ${perK(researchClaims).toFixed(1)}/1K research claims · ${perK(specificStats).toFixed(1)}/1K figures · ${perK(novelFraming).toFixed(1)}/1K reframes`,
+        voice: `${perK(authorityMarkers).toFixed(1)}/1K experience claims (${authorityMarkers}) · ${perK(confidentAssertions).toFixed(1)}/1K assertions · ${hedgePerK.toFixed(1)}/1K hedges`,
+        momentum: `${energyDensity.toFixed(1)}/1K change words · ${perK(motivationalPhrases).toFixed(1)}/1K motivational phrases (${motivationalPhrases})`,
+        evidence: `${evidencePerK.toFixed(1)}/1K evidence cues · ${perK(citationMarkers).toFixed(1)}/1K citations (${citationMarkers}) · ${perK(storyMarkers).toFixed(1)}/1K stories (${storyMarkers})`
+      }
     };
   },
 
