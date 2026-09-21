@@ -90,6 +90,21 @@
     getAuth().catch(error => message(error.message));
   }
   $('nav-signin').addEventListener('click', () => showAuth());
+  // Sign out from the homepage: end the Firebase session and drop the hint; onAuthStateChanged
+  // then restores the signed-out nav. Drafts in local storage are left alone here (the workspace
+  // owns their recovery flow); only this tab's session cache is cleared.
+  $('nav-signout').addEventListener('click', async () => {
+    const button = $('nav-signout');
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      const auth = await getAuth();
+      await auth.signOut();
+      setSessionHint(false);
+      try { sessionStorage.clear(); } catch (_) { /* storage blocked */ }
+    } catch (_) { alert('Sign-out failed. Please try again.'); }
+    finally { button.disabled = false; }
+  });
   ['nav-signup','hero-cta','bottom-cta'].forEach(id => $(id).addEventListener('click', () => showAuth('signup')));
   // The workspace demo's "Create a free account" link lands here.
   if (location.hash === '#signup') { history.replaceState(null, '', location.pathname); showAuth('signup'); }

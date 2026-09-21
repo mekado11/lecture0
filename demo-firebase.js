@@ -61,8 +61,10 @@
       }
     };
     const user={uid:'test-author',email:'writer@example.test',emailVerified:true,displayName:'Test Author',getIdToken:async()=>'test-token'};
-    const auth={currentUser:user,onAuthStateChanged:fn=>{queueMicrotask(()=>fn(auth.currentUser));return ()=>{};},
-      signOut:async()=>{auth.currentUser=null;},sendPasswordResetEmail:async()=>{},
+    // Like the real SDK, listeners hear the current state at once and again after sign-out.
+    const listeners=new Set();
+    const auth={currentUser:user,onAuthStateChanged:fn=>{listeners.add(fn);queueMicrotask(()=>{if(listeners.has(fn))fn(auth.currentUser);});return ()=>listeners.delete(fn);},
+      signOut:async()=>{auth.currentUser=null;listeners.forEach(fn=>fn(null));},sendPasswordResetEmail:async()=>{},
       signInWithEmailAndPassword:async()=>{throw Object.assign(new Error('Invalid credentials'),{code:'auth/invalid-credential'});}
     };
     const firebase={apps:[],initializeApp(){this.apps.push({});},auth:()=>auth,firestore:()=>db};
