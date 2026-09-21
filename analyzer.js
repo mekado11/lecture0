@@ -1712,7 +1712,10 @@ const Analyzer = {
     });
     const list = Object.entries(candidates)
       .filter(([_, d]) => d.mentions >= 3 && (d.mid >= 2 || d.dialogueCount >= 1 || d.possessive >= 1))
-      .sort((a, b) => (b[1].mid + b[1].dialogueCount + b[1].possessive) - (a[1].mid + a[1].dialogueCount + a[1].possessive) || b[1].mentions - a[1].mentions)
+      // Evidence decides whether a word is a name; once it is, how often the book mentions it
+      // decides its place. A lead who opens most of her sentences must not rank below a
+      // secondary character who happens to sit mid-sentence.
+      .sort((a, b) => b[1].mentions - a[1].mentions || (b[1].mid + b[1].dialogueCount + b[1].possessive) - (a[1].mid + a[1].dialogueCount + a[1].possessive))
       .slice(0, 40)
       .map(([name, d]) => ({
         name, mentions: d.mentions, midSentence: d.mid, evidenceCount: d.mid + d.dialogueCount + d.possessive,
@@ -2813,87 +2816,99 @@ const Analyzer = {
   // ========================
   // BLURB ENGINE
   // ========================
+  // Back-cover material. Fiction: the six-question framework, each answer carrying the
+  // basis it was chosen on (which cue word, in which slice of the book), assembled into five
+  // shapes whose missing beats are shown as gaps rather than filled with lines the author
+  // never wrote. Nonfiction: no protagonist, no crisis; the sentences a back cover needs,
+  // grouped by role and labelled with where they came from. Tone is a measured rate.
   generateBlurbs(text, characters, genre, mode) {
     if (mode !== 'book' && text.split(/\s+/).length < 5000) {
       return { available: false, reason: 'Blurbs are generated for full manuscripts (book mode or 5000+ words). Upload a complete manuscript to unlock blurb suggestions.' };
     }
-
-    // Strip chapter headings from the text for clean extraction
     const cleanText = text.replace(/^(chapter\s+\d+|chapter\s+[a-z]+|part\s+\d+|part\s+[a-z]+)\s*$/gim, '').replace(/\n{3,}/g, '\n\n');
     const paragraphs = cleanText.split(/\n\s*\n/).filter(p => p.trim().length > 10);
     const lower = cleanText.toLowerCase();
-    const totalWords = cleanText.split(/\s+/).length;
-    const charNames = characters.list.map(c => c.name);
-    const protagonist = charNames[0] || 'the protagonist';
+    const totalWords = (cleanText.match(/\b\w+\b/g) || []).length;
+    const perK = re => Math.round((lower.match(re) || []).length / Math.max(totalWords, 1) * 1000 * 10) / 10;
+    const toneRates = {
+      dark: perK(/\b(death|murder|blood|dark|shadow|kill|terror|horror|fear)\b/g),
+      romantic: perK(/\b(love|heart|kiss|passion|desire|romance|attraction|beautiful)\b/g),
+      comic: perK(/\b(laugh|smile|grin|joke|ridiculous|absurd|hilarious|funny)\b/g),
+      action: perK(/\b(fight|battle|war|weapon|chase|escape|explosion|attack|run)\b/g)
+    };
+    const toneNames = { dark: 'dark / suspense', romantic: 'romantic', comic: 'light / comic', action: 'action' };
+    const ranked = Object.entries(toneRates).sort((a, b) => b[1] - a[1]);
+    // A leaning needs a rate, not a count: five "fear"s in seventy thousand words is nothing.
+    const toneDetected = ranked[0][1] >= 1.5 ? 'leaning ' + toneNames[ranked[0][0]] : 'no dominant tone vocabulary';
+
+    if (this.isNonfiction(genre)) return this._blurbMaterial(text, { totalWords, toneRates, toneDetected });
+
+    const charNames = (characters && characters.applicable !== false && characters.list ? characters.list : []).map(c => c.name);
+    const protagonist = charNames[0] || null;
     const antagonist = charNames.length > 1 ? charNames[1] : null;
     const genreLabel = genre.label || 'Fiction';
+    const who = protagonist || '[the protagonist — no recurring name was found]';
 
-    // === EXTRACT THE 6-QUESTION FRAMEWORK ===
-
-    // Q1: What does the main character want / status quo?
-    // Look in first 15% of text for character goals and normal life
-    const openingSection = paragraphs.slice(0, Math.ceil(paragraphs.length * 0.15)).join(' ');
-    const openingLower = openingSection.toLowerCase();
-    const wantPatterns = openingSection.match(new RegExp(protagonist + '\\s+(wanted|needed|wished|hoped|dreamed|longed|craved|sought|was trying|had always|lived|worked|spent)', 'i'));
-    const statusQuo = wantPatterns ? this._extractSentenceAt(openingSection, wantPatterns.index) : this._extractFirstMeaningfulSentence(openingSection, protagonist);
-
-    // Q2: How does it change? (inciting incident - first 25%)
-    const earlySection = paragraphs.slice(0, Math.ceil(paragraphs.length * 0.25)).join(' ');
-    const changePatterns = earlySection.match(/\b(but then|until|one day|everything changed|suddenly|that's when|then came|arrived|discovered|found out|learned that|received|stumbled|appeared)\b/i);
-    const incitingIncident = changePatterns ? this._extractSentenceAt(earlySection, changePatterns.index) : '';
-
-    // Q3: How does it get worse? (conflict - middle 30-60%)
-    const midStart = Math.floor(paragraphs.length * 0.3);
-    const midEnd = Math.floor(paragraphs.length * 0.6);
-    const middleSection = paragraphs.slice(midStart, midEnd).join(' ');
-    const conflictPatterns = middleSection.match(/\b(but|however|unfortunately|worse|problem|danger|threat|impossible|never|couldn't|wouldn't|refused|betrayed|lied|secret|truth|revealed)\b/i);
-    const conflict = conflictPatterns ? this._extractSentenceAt(middleSection, conflictPatterns.index) : '';
-
-    // Q4: How does character try to fix it? (attempts - middle 50-75%)
-    const attemptStart = Math.floor(paragraphs.length * 0.5);
-    const attemptEnd = Math.floor(paragraphs.length * 0.75);
-    const attemptSection = paragraphs.slice(attemptStart, attemptEnd).join(' ');
-    const attemptPatterns = attemptSection.match(/\b(decided|plan|must|had to|needed to|determined|set out|tried|fought|risked|chose|vowed|promised)\b/i);
-    const attempt = attemptPatterns ? this._extractSentenceAt(attemptSection, attemptPatterns.index) : '';
-
-    // Q5: How does it make things worse? (crisis - 70-90%)
-    const crisisStart = Math.floor(paragraphs.length * 0.7);
-    const crisisEnd = Math.floor(paragraphs.length * 0.9);
-    const crisisSection = paragraphs.slice(crisisStart, crisisEnd).join(' ');
-    const crisisPatterns = crisisSection.match(/\b(everything|nothing|lost|destroyed|shattered|broken|trapped|impossible|too late|no way|final|last chance|only hope)\b/i);
-    const crisis = crisisPatterns ? this._extractSentenceAt(crisisSection, crisisPatterns.index) : '';
-
-    // Q6: What is at stake? (stakes - throughout but especially last 30%)
-    const lateSection = paragraphs.slice(Math.floor(paragraphs.length * 0.7)).join(' ');
-    const stakesPatterns = lateSection.match(/\b(lose|death|life|love|freedom|everything|world|family|home|truth|soul|heart|future|hope|survive)\b/i);
-    const stakes = stakesPatterns ? this._extractSentenceAt(lateSection, stakesPatterns.index) : '';
-
-    // Detect tone markers for the blurbs
-    const isDark = (lower.match(/\b(death|murder|blood|dark|shadow|kill|terror|horror|fear)\b/g) || []).length > 5;
-    const isRomantic = (lower.match(/\b(love|heart|kiss|passion|desire|romance|attraction|beautiful)\b/g) || []).length > 5;
-    const isFunny = (lower.match(/\b(laugh|smile|grin|joke|ridiculous|absurd|hilarious|funny)\b/g) || []).length > 3;
-    const isAction = (lower.match(/\b(fight|battle|war|weapon|chase|escape|explosion|attack|run)\b/g) || []).length > 5;
-
-    // === BUILD 5 BLURB VARIATIONS ===
-    const framework = { statusQuo, incitingIncident, conflict, attempt, crisis, stakes, protagonist, antagonist };
-
-    const blurbs = [
-      this._buildBlurb_hookFirst(framework, genreLabel, isDark, isRomantic, isFunny),
-      this._buildBlurb_questionStyle(framework, genreLabel),
-      this._buildBlurb_stakesForward(framework, genreLabel, isDark),
-      this._buildBlurb_characterFocused(framework, genreLabel, isRomantic),
-      this._buildBlurb_cinematic(framework, genreLabel, isAction, isDark)
-    ];
-
-    return {
-      available: true,
-      framework,
-      blurbs,
-      wordCount: totalWords,
-      protagonist,
-      antagonist,
-      toneDetected: isDark ? 'Dark/Suspense' : isRomantic ? 'Romantic' : isFunny ? 'Light/Comedy' : isAction ? 'Action/Thriller' : 'Literary'
+    // Each answer states how it was chosen. The author can disagree with a stated basis; they
+    // cannot disagree with "extracted from manuscript".
+    const pick = (section, re, where, cueList) => {
+      const m = section.match(re);
+      if (m) return { text: this._extractSentenceAt(section, m.index), basis: 'first sentence in the ' + where + ' containing \u201C' + m[0] + '\u201D' };
+      return { text: '', basis: 'no sentence in the ' + where + ' contains ' + cueList };
     };
+    const slice = (a, b) => paragraphs.slice(Math.floor(paragraphs.length * a), Math.ceil(paragraphs.length * b)).join(' ');
+    const opening = slice(0, 0.15);
+    let statusQuo;
+    const wantRe = protagonist ? new RegExp(protagonist.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+(wanted|needed|wished|hoped|dreamed|longed|craved|sought|was trying|had always|lived|worked|spent)', 'i') : null;
+    const wantMatch = wantRe && opening.match(wantRe);
+    if (wantMatch) statusQuo = { text: this._extractSentenceAt(opening, wantMatch.index), basis: 'first sentence in the opening 15% where ' + protagonist + ' wants, needs or hopes for something' };
+    else statusQuo = { text: this._extractFirstMeaningfulSentence(opening, protagonist || ''), basis: protagonist ? 'the first sentence of the opening 15% that mentions ' + protagonist + ' (no wanting or hoping sentence was found)' : 'the first sentence of the manuscript (no recurring name to look for)' };
+    const incitingIncident = pick(slice(0, 0.25), /\b(but then|until|one day|everything changed|suddenly|that's when|then came|arrived|discovered|found out|learned that|received|stumbled|appeared)\b/i, 'first quarter', 'a change cue (but then, until, one day, suddenly, discovered\u2026)');
+    const conflict = pick(slice(0.3, 0.6), /\b(but|however|unfortunately|worse|problem|danger|threat|impossible|never|couldn't|wouldn't|refused|betrayed|lied|secret|truth|revealed)\b/i, 'middle (30\u201360%)', 'a conflict cue (but, worse, danger, refused, betrayed\u2026)');
+    const attempt = pick(slice(0.5, 0.75), /\b(decided|plan|must|had to|needed to|determined|set out|tried|fought|risked|chose|vowed|promised)\b/i, 'second half (50\u201375%)', 'an attempt cue (decided, must, tried, vowed\u2026)');
+    const crisis = pick(slice(0.7, 0.9), /\b(everything|nothing|lost|destroyed|shattered|broken|trapped|impossible|too late|no way|final|last chance|only hope)\b/i, 'last third (70\u201390%)', 'a crisis cue (lost, trapped, too late, last chance\u2026)');
+    const stakes = pick(slice(0.7, 1), /\b(lose|death|life|love|freedom|everything|world|family|home|truth|soul|heart|future|hope|survive)\b/i, 'last 30%', 'a stakes cue (lose, life, freedom, family, survive\u2026)');
+
+    const framework = { statusQuo, incitingIncident, conflict, attempt, crisis, stakes, protagonist, antagonist };
+    const fw = { statusQuo: statusQuo.text, incitingIncident: incitingIncident.text, conflict: conflict.text, attempt: attempt.text, crisis: crisis.text, stakes: stakes.text, protagonist: who };
+    const blurbs = [
+      this._buildBlurb_hookFirst(fw, genreLabel),
+      this._buildBlurb_questionStyle(fw, genreLabel),
+      this._buildBlurb_stakesForward(fw, genreLabel),
+      this._buildBlurb_characterFocused(fw, genreLabel),
+      this._buildBlurb_cinematic(fw, genreLabel)
+    ];
+    return { available: true, kind: 'framework', framework, blurbs, wordCount: totalWords, protagonist, antagonist, toneRates, toneDetected };
+  },
+
+  // Nonfiction back-cover material: the author's own sentences, by role, each with the section
+  // it came from. No connective prose is written; composing the blurb stays with the author.
+  _blurbMaterial(text, meta) {
+    const sections = this.detectSections(text);
+    const sectionAt = index => { let label = 'Opening'; for (const s of sections) { if (s.index <= index) label = s.label; else break; } return label; };
+    const roles = {
+      promise: { label: 'The promise', re: /\b(this (book|chapter) (is|was) (for|about|written)|i wrote this|if that('s| is) you|you will (learn|discover|find|see|know|understand)|by the end of (this|the)|i (will|want to|am going to) (show|teach|help|give|hand) you|take a seat|this is for (you|anyone|the))\b/i },
+      problem: { label: 'The problem it names', re: /\b(coming up short|invisible weight|performing fine while|you (feel|are|might be|may be) (tired|stuck|overlooked|exhausted|drowning|struggling|failing|afraid|worried)|one paycheck|still sinking|silently drowning|burnout|overwhelmed|told to just work harder)\b/i },
+      audience: { label: 'Who it is for', re: /\b(for anyone (who|told)|for those who|whether you('re| are)|if you('re| are| have)|this message is for|anyone (who has|told to))\b/i },
+      authorStake: { label: 'The author\u2019s stake', re: /\b(i (have|had|'ve) (lived|been|spent|learned|seen|lost|built|worked)|in my (experience|life|years|twenties)|when i (arrived|was|started|lost|left|came)|i climbed|i grew up|i offer no)\b/i }
+    };
+    const material = {};
+    const sentenceRe = /[^.!?\n]+[.!?]+/g;
+    for (const [key, role] of Object.entries(roles)) {
+      const rows = [];
+      let m;
+      sentenceRe.lastIndex = 0;
+      while ((m = sentenceRe.exec(text)) !== null && rows.length < 4) {
+        const sentence = m[0].trim();
+        // Short lines are often the best cover lines ("Take a seat."); only fragments are skipped.
+        if (sentence.length < 12 || sentence.length > 320) continue;
+        if (!role.re.test(sentence.replace(/[\u2018\u2019]/g, "'"))) continue;
+        rows.push({ text: sentence, index: m.index, section: sectionAt(m.index) });
+      }
+      material[key] = { label: role.label, rows };
+    }
+    return { available: true, kind: 'material', material, wordCount: meta.totalWords, toneRates: meta.toneRates, toneDetected: meta.toneDetected,
+      note: 'These are your sentences, grouped by the job a back cover needs them to do, with where each came from. No prose is written for you.' };
   },
 
   // Helper: clean chapter headings and noise from extracted text
@@ -2950,69 +2965,62 @@ const Analyzer = {
       .trim();
   },
 
+  // A missing beat is shown as a gap the author fills, never as a line the engine wrote.
+  _gap(label) { return '[' + label + ']'; },
+  _blurbResult(style, description, parts, sep) {
+    const text = this._cleanBlurb(parts.filter(Boolean).join(sep || ' '));
+    const gaps = (text.match(/\[[^\]]+\]/g) || []).length;
+    const wordCount = text.replace(/\[[^\]]+\]/g, '').replace(/\n/g, ' ').trim().split(/\s+/).filter(Boolean).length;
+    return { style, description, text, wordCount, gaps };
+  },
   // Blurb 1: Hook-first (lead with the most dramatic element)
-  _buildBlurb_hookFirst(fw, genre, isDark, isRomantic, isFunny) {
-    let parts = [];
-    if (fw.crisis) parts.push(this._trimTo(fw.crisis, 40));
-    parts.push('But it wasn\'t always this way.');
-    if (fw.statusQuo) parts.push(this._trimTo(fw.statusQuo, 35));
-    if (fw.incitingIncident) parts.push(this._trimTo(fw.incitingIncident, 30));
-    if (fw.conflict) parts.push('Now, ' + this._trimToLower(fw.conflict, 30));
-    parts.push('With everything on the line, ' + fw.protagonist + ' must face a choice that will change everything.');
-    const blurb = this._cleanBlurb(parts.join(' '));
-    return { style: 'Hook First', description: 'Opens with the crisis to grab attention, then rewinds to show how it got there.', text: blurb || 'Could not extract enough story elements.', wordCount: blurb.split(/\s+/).length };
+  _buildBlurb_hookFirst(fw) {
+    return this._blurbResult('Hook First', 'Opens with the crisis to grab attention, then rewinds to show how it got there.', [
+      fw.crisis ? this._trimTo(fw.crisis, 40) : this._gap('the crisis \u2014 no sentence found in the last third'),
+      fw.statusQuo ? this._trimTo(fw.statusQuo, 35) : this._gap('what ' + fw.protagonist + ' wants'),
+      fw.incitingIncident ? this._trimTo(fw.incitingIncident, 30) : this._gap('what changes'),
+      fw.conflict ? 'Now, ' + this._trimToLower(fw.conflict, 30) : '',
+      fw.stakes ? this._trimTo(fw.stakes, 25) : this._gap('what is at stake')
+    ]);
   },
-
   // Blurb 2: Question style (end with a provocative question)
-  _buildBlurb_questionStyle(fw, genre) {
-    let parts = [];
-    if (fw.statusQuo) parts.push(this._trimTo(fw.statusQuo, 35));
-    if (fw.incitingIncident) parts.push(this._trimTo(fw.incitingIncident, 30));
-    if (fw.conflict) parts.push(this._trimTo(fw.conflict, 30));
-    const crisisText = this._trimToLower(fw.crisis || fw.attempt || 'the truth comes out', 20);
-    parts.push('When ' + crisisText + ', will ' + fw.protagonist + ' lose everything — or find a way to survive?');
-    const blurb = this._cleanBlurb(parts.join(' '));
-    return { style: 'Question Hook', description: 'Builds to a question that makes the reader need to know the answer.', text: blurb, wordCount: blurb.split(/\s+/).length };
+  _buildBlurb_questionStyle(fw) {
+    return this._blurbResult('Question Hook', 'Builds to a question that makes the reader need to know the answer.', [
+      fw.statusQuo ? this._trimTo(fw.statusQuo, 35) : this._gap('what ' + fw.protagonist + ' wants'),
+      fw.incitingIncident ? this._trimTo(fw.incitingIncident, 30) : this._gap('what changes'),
+      fw.conflict ? this._trimTo(fw.conflict, 30) : this._gap('what goes wrong'),
+      fw.crisis || fw.attempt ? 'When ' + this._trimToLower(fw.crisis || fw.attempt, 20) + ',' : this._gap('the crisis'),
+      this._gap('your closing question \u2014 what must ' + fw.protagonist + ' choose?')
+    ]);
   },
-
   // Blurb 3: Stakes forward (lead with what's at risk)
-  _buildBlurb_stakesForward(fw, genre, isDark) {
-    const stakeWord = isDark ? 'survive' : 'hold onto what matters most';
-    let parts = [fw.protagonist + ' has one chance to ' + stakeWord + '.'];
-    if (fw.statusQuo) parts.push(this._trimTo(fw.statusQuo, 30));
-    if (fw.incitingIncident) parts.push('Then ' + this._trimToLower(fw.incitingIncident, 25));
-    if (fw.conflict) parts.push(this._trimTo(fw.conflict, 25));
-    if (fw.attempt) parts.push(this._trimTo(fw.attempt, 25));
-    const stakesText = this._trimToLower(fw.stakes || 'everything at stake', 20);
-    parts.push('Now, with ' + stakesText + ', there\'s no turning back.');
-    const blurb = this._cleanBlurb(parts.join(' '));
-    return { style: 'Stakes Forward', description: 'Opens with what the character stands to lose, creating immediate urgency.', text: blurb, wordCount: blurb.split(/\s+/).length };
+  _buildBlurb_stakesForward(fw) {
+    return this._blurbResult('Stakes Forward', 'Opens with what the character stands to lose, creating immediate urgency.', [
+      fw.stakes ? this._trimTo(fw.stakes, 25) : this._gap('what is at stake \u2014 no sentence found in the last 30%'),
+      fw.statusQuo ? this._trimTo(fw.statusQuo, 30) : '',
+      fw.incitingIncident ? 'Then ' + this._trimToLower(fw.incitingIncident, 25) : this._gap('what changes'),
+      fw.conflict ? this._trimTo(fw.conflict, 25) : '',
+      fw.attempt ? this._trimTo(fw.attempt, 25) : this._gap('what ' + fw.protagonist + ' tries'),
+      this._gap('the turning point \u2014 your line')
+    ]);
   },
-
   // Blurb 4: Character-focused (who is this person and why should we care?)
-  _buildBlurb_characterFocused(fw, genre, isRomantic) {
-    let parts = [];
-    if (fw.statusQuo) parts.push(this._trimTo(fw.statusQuo, 35));
-    if (isRomantic && fw.incitingIncident) parts.push('Everything changes when ' + this._trimToLower(fw.incitingIncident, 30));
-    else if (fw.incitingIncident) parts.push(this._trimTo(fw.incitingIncident, 30));
-    if (fw.conflict) parts.push(this._trimTo(fw.conflict, 25));
-    const startText = this._trimToLower(fw.statusQuo || 'an ordinary life', 12);
-    const stakeText = this._trimToLower(fw.stakes || 'everything', 15);
-    parts.push('What started as ' + startText + ' has become a fight for ' + stakeText + '.');
-    const blurb = this._cleanBlurb(parts.join(' '));
-    return { style: 'Character Portrait', description: 'Centers the character — who they are, what they want, and what threatens them.', text: blurb, wordCount: blurb.split(/\s+/).length };
+  _buildBlurb_characterFocused(fw) {
+    return this._blurbResult('Character Portrait', 'Centers the character \u2014 who they are, what they want, and what threatens them.', [
+      fw.statusQuo ? this._trimTo(fw.statusQuo, 35) : this._gap('who ' + fw.protagonist + ' is'),
+      fw.incitingIncident ? this._trimTo(fw.incitingIncident, 30) : this._gap('what changes'),
+      fw.conflict ? this._trimTo(fw.conflict, 25) : '',
+      fw.stakes ? this._trimTo(fw.stakes, 20) : this._gap('what threatens them now')
+    ]);
   },
-
   // Blurb 5: Cinematic (short, punchy, visual)
-  _buildBlurb_cinematic(fw, genre, isAction, isDark) {
-    let lines = [];
-    if (fw.statusQuo) lines.push(this._trimTo(fw.statusQuo, 18));
-    if (fw.incitingIncident) lines.push(this._trimTo(fw.incitingIncident, 15));
-    if (fw.conflict) lines.push(this._trimTo(fw.conflict, 15));
-    const closer = isDark ? 'Some doors, once opened, can never be closed.' : isAction ? 'The countdown has begun.' : 'Nothing will ever be the same.';
-    lines.push(closer);
-    const blurb = this._cleanBlurb(lines.join('\n\n'));
-    return { style: 'Cinematic', description: 'Short, punchy lines with white space. Reads like a movie trailer.', text: blurb, wordCount: blurb.replace(/\n/g,' ').split(/\s+/).length };
+  _buildBlurb_cinematic(fw) {
+    return this._blurbResult('Cinematic', 'Short, punchy lines with white space. Reads like a movie trailer.', [
+      fw.statusQuo ? this._trimTo(fw.statusQuo, 18) : this._gap('one line: who'),
+      fw.incitingIncident ? this._trimTo(fw.incitingIncident, 15) : this._gap('one line: what changes'),
+      fw.conflict ? this._trimTo(fw.conflict, 15) : this._gap('one line: what goes wrong'),
+      this._gap('your closing line')
+    ], '\n\n');
   },
 
   // Helper: trim text to ~N words, ending at a sentence boundary

@@ -263,6 +263,14 @@ function pdf(){
     assert.match(nfRail,/Self-Help reader comes for/i,nfRail);
     assert.ok(!/Strong dialogue|Fast pacing|Build tension/.test(nfRail),'a self-help book is not judged against fiction goals');
     assert.match(await page.locator('#rp-scores').innerText(),/imperatives/,'self-help cards show the counts behind the score');
+    // Blurbs for nonfiction: material by role from the author's sentences, no protagonist.
+    await page.locator('.btab[data-p="blurbs"]').click();
+    await page.locator('#ed-blurbs .bm-row').first().waitFor();
+    await page.locator('#ed-blurbs').getByText('Write down a small experiment',{exact:false}).first().waitFor();
+    const blurbText=await page.locator('#ed-blurbs').innerText();
+    assert.match(blurbText,/Blurb material/);
+    assert.ok(!/protagonist|must face a choice|chance to survive/i.test(blurbText),'no fiction frame on a self-help book');
+    await page.locator('.btab[data-p="annotated"]').click();
     await page.locator('#rp-scores .rsc[data-cat="sh_evidence"]').click();
     await page.locator('#rp-detail .rpd-sub').filter({hasText:'fewest attributed claims'}).waitFor();
     assert.match(await page.locator('#rp-detail').innerText(),/Built from: .*evidence cues/);
