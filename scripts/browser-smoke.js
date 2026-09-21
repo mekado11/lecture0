@@ -63,7 +63,7 @@ function pdf(){
     console.log('PASS homepage: responsive, light/dark, navigation, modal, CDN failure isolation');
     await context.unroute('https://www.gstatic.com/**');
     await context.route('https://www.gstatic.com/firebasejs/**',route=>route.fulfill({contentType:'application/javascript',body:''}));
-    await context.addInitScript({path:path.join(__dirname,'firebase-fixture.js')});
+    await context.addInitScript({path:path.join(root,'demo-firebase.js')});
     await context.addInitScript(()=>{
       window.__fixture=createFirebaseFixture();window.firebase=__fixture.firebase;
       localStorage.setItem('ml_storage_owner','test-author');localStorage.setItem('wizard_done','1');
@@ -340,6 +340,24 @@ function pdf(){
     await page.locator('#genre-override').selectOption('selfHelp');
     assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getAnalysis().scores.dialogue),null);
     assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getText()),longBook,'Genre switches preserve source');
+    // Workspace demo: a visitor opens the real workspace on a public-domain sample with no
+    // account, no cloud, no API call, and nothing left in browser storage.
+    let apiCalls=0;page.on('request',req=>{if(req.url().includes('/api/'))apiCalls++;});
+    await page.goto(base+'/app.html?demo=selfhelp');
+    await page.locator('#editor-view:not(.hidden)').waitFor({timeout:30000});
+    await page.locator('#demo-banner').waitFor();
+    assert.match(await page.locator('#demo-banner').innerText(),/Workspace demo/);
+    assert.match(await page.locator('#top-filename').innerText(),/As a Man Thinketh/);
+    await page.waitForFunction(()=>Number(document.getElementById('gauge-num').textContent)>0);
+    assert.equal(await page.locator('#save-btn').isVisible(),false,'no cloud save in the demo');
+    assert.equal(await page.evaluate(()=>window.__userPlan),'free','the demo user has no tier');
+    assert.equal(apiCalls,0,'the demo never calls the API');
+    await page.goto(base+'/app.html?demo=novel');
+    await page.locator('#editor-view:not(.hidden)').waitFor({timeout:30000});
+    assert.match(await page.locator('#top-filename').innerText(),/Secret Garden/);
+    await page.locator('[data-wsnav="characters"]').click();
+    await page.locator('#workspace-nav-content').getByText('Mary',{exact:false}).first().waitFor();
+    console.log('PASS workspace demo: real workspace on public-domain samples, no account, no API, nothing saved');
     await page.setViewportSize({width:375,height:812});
     for(const filename of ['features.html','pricing.html','faq.html','blog.html','legal.html','profile.html']){
       await page.goto(base+'/'+filename);

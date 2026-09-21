@@ -1,4 +1,6 @@
-// Deterministic test double, never included in the public deployment.
+// In-memory Firebase double: no credentials, no network, nothing leaves the tab. Used by the
+// browser tests and by the public workspace demo (app.html?demo=…), where it stands in for the
+// real SDK so a visitor can try the workspace without an account.
 (function(root){
   function createFixture(){
     const records=new Map();let serial=0,tick=Date.now();

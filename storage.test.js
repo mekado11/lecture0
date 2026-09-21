@@ -1,6 +1,6 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');
-const createFixture=require('./scripts/firebase-fixture');
+const createFixture=require('./demo-firebase');
 const Storage=require('./storage');
 global.ManuscriptParser=require('./manuscript-parser');
 global.Analyzer={analyze:text=>({overall:text.length,scores:{},genre:{label:'Fantasy'}})};

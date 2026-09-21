@@ -71,6 +71,8 @@
   }
   $('nav-signin').addEventListener('click', () => showAuth());
   ['nav-signup','hero-cta','bottom-cta'].forEach(id => $(id).addEventListener('click', () => showAuth('signup')));
+  // The workspace demo's "Create a free account" link lands here.
+  if (location.hash === '#signup') { history.replaceState(null, '', location.pathname); showAuth('signup'); }
   $('auth-close').addEventListener('click', () => dialog.close());
   dialog.addEventListener('close', () => { $('auth-password').value = ''; returnFocus?.focus(); });
   dialog.addEventListener('click', e => {

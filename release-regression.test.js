@@ -40,7 +40,7 @@ test('local server denies private files and unauthenticated provider calls',asyn
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const base='http://127.0.0.1:'+server.address().port;
   try{
-    for(const file of ['/.env','/server.js','/api/_auth.js','/package.json','/.git/config','/scripts/firebase-fixture.js'])
+    for(const file of ['/.env','/server.js','/api/_auth.js','/package.json','/.git/config','/scripts/manuscript-fixtures.js','/scripts/build-review-preview.js'])
       assert.equal((await fetch(base+file)).status,404,file);
     assert.equal((await fetch(base+'/app.js?v=test')).status,200);
     assert.equal((await fetch(base+'/api/claude',{method:'POST',body:'{}'})).status,401);

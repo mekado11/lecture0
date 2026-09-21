@@ -80,7 +80,7 @@ test('webhook serializes entitlements and ignores duplicate or older subscriptio
   await send();assert.equal(writes,1,'Deletion tombstone blocks profile resurrection');
 });
 test('checkout blocks an existing subscription and reuses an in-flight session',async()=>{
-  const fixture=require('./scripts/firebase-fixture')();
+  const fixture=require('./demo-firebase')();
   let creations=0,subscription={status:'active'};
   const profileRef=fixture.db.collection('users').doc('test');
   await profileRef.set({stripeSubscriptionId:'sub-existing'});

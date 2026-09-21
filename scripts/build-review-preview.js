@@ -8,7 +8,7 @@ let html=fs.readFileSync(path.join(dist,'app.html'),'utf8');
 html=html.replace(/<script[^>]+src="https:\/\/www\.gstatic\.com\/firebasejs\/[^"]+"[^>]*><\/script>/g,'');
 html=html.replace('<script src="legacy-recovery.js"></script>','<script src="preview-fixture.js"></script><script src="preview-boot.js"></script><script src="legacy-recovery.js"></script>');
 fs.writeFileSync(path.join(dist,'workspace-preview.html'),html);
-fs.copyFileSync(path.join(__dirname,'firebase-fixture.js'),path.join(dist,'preview-fixture.js'));
+fs.copyFileSync(path.join(root,'demo-firebase.js'),path.join(dist,'preview-fixture.js'));
 fs.writeFileSync(path.join(dist,'preview-boot.js'),`
 // The Computer iframe has an opaque origin. Keep ALL preview state in memory.
 function previewStorage(){
