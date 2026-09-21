@@ -613,12 +613,12 @@ function renderSceneIntel(r){
       if(mix.mixed>=5)h+='<div class="si-row"><span class="si-label">Unclassified</span><span class="si-val">'+mix.mixed+'%</span></div>';
     }else h+='<div class="si-row"><span class="si-label">Too little text to classify</span></div>';
   }else h+='<div class="si-row"><span class="si-label">Not available</span></div>';
-  // Fiction only: the measured tension direction across the last two quarters of the book.
-  const q=(r.plot&&r.plot.quarters)||[];
-  if(!isNF&&q.length>=2&&Number.isFinite(q[q.length-1].tensionPerK)&&Number.isFinite(q[q.length-2].tensionPerK)){
-    const last=q[q.length-1].tensionPerK,prev=q[q.length-2].tensionPerK;
-    const dir=last>prev*1.1?'Rising':last<prev*0.9?'Falling':'Steady';
-    h+='<div class="si-row" title="Tension words per 1,000 words, third quarter to fourth"><span class="si-label">Tension Q3\u2192Q4</span><span class="si-val">'+dir+' \u00b7 '+prev+'\u2192'+last+'/1K</span></div>';
+  // Fiction only: scene share (action + dialogue) across the last two structural units.
+  const su=(r.plot&&r.plot.units)||[];
+  if(!isNF&&su.length>=2&&Number.isFinite(su[su.length-1].sceneShare)&&Number.isFinite(su[su.length-2].sceneShare)){
+    const last=su[su.length-1].sceneShare,prev=su[su.length-2].sceneShare;
+    const dir=last>prev+5?'Rising':last<prev-5?'Falling':'Steady';
+    h+='<div class="si-row" title="Share of each unit that is action or dialogue, second-to-last unit to last"><span class="si-label">Scene share, last two units</span><span class="si-val">'+dir+' \u00b7 '+prev+'%\u2192'+last+'%</span></div>';
   }
   h+='</div>';
   h+='<div id="lp-start" class="lp-cards"></div>'; // filled by renderLeft: the one "Start here" card
@@ -923,10 +923,10 @@ function _dimensionCards(r){
       {k:'sh_evidence', name:'Evidence & Support',    score:Math.round(sh.evidenceSupport||0),     density:null,issues:0,weight:'5%', evidence:ev.evidence}
     ];
   }
-  const p=r.plot||{};const q=p.quarters||[];
+  const p=r.plot||{};const su=p.units||[];
   const plotEv=isNF
     ? (p.thesisSignals||0)+' thesis \u00B7 '+(p.evidenceSignals||0)+' evidence \u00B7 '+(p.transitionSignals||0)+' transition \u00B7 '+(p.synthesisSignals||0)+' synthesis signals'
-    : (q.length?'tension per 1K by quarter '+q.map(x=>x.tensionPerK??'\u2014').join(' \u2192 '):'');
+    : (su.length?'scene share by '+(p.unitSource==='chapter'?'chapter':p.unitSource==='scene-break'?'scene':'segment')+' '+su.map(u=>u.sceneShare==null?'\u2014':u.sceneShare+'%').join(' \u2192 ')+(p.curve?' \u00B7 peak '+p.curve.peakUnit:''):'');
   const t=r.transitions||{};
   const dl=r.dialogue||{};
   const st=r.style||{};
@@ -1222,7 +1222,7 @@ function showDetail(cat){
 
   const titles={plot:isNF?'Argument Structure':'Plot Structure',transitions:'Transitions',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
   const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar',pov:'POV Issue',hook:'Opening Problem',tags:'Dialogue Tags',conciseness:'Conciseness',showing:'Show Don\'t Tell',purpose:'Dialogue Purpose',naturalness:'Naturalness'};
-  const catWhy={transitions:'This section measures whether adjacent paragraphs have explicit connective, lexical, or referential support. Unsupported boundaries are review candidates, not automatic errors.',pacing:'Pacing is described from observed manuscript segments rather than a borrowed quality score.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Style & Voice is described, not scored: POV, lexical diversity (MSTTR-100) and sentence and paragraph rhythm are measured for you to read, because none of them separates a strong manuscript from a weak one on its own.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing is the density of validated passive-voice, adverb, cliché, wordy-phrase, confused-word and repetition findings per 1,000 narrative words. Grammar is scored on its own.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:isNF?'Strong nonfiction needs a clear thesis, evidence to support it, logical transitions, and a conclusion that synthesizes.':'Readers need forward momentum — clear stakes, rising tension, and consistent point of view.'};
+  const catWhy={transitions:'This section measures whether adjacent paragraphs have explicit connective, lexical, or referential support. Unsupported boundaries are review candidates, not automatic errors.',pacing:'Pacing is described from observed manuscript segments rather than a borrowed quality score.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Style & Voice is described, not scored: POV, lexical diversity (MSTTR-100) and sentence and paragraph rhythm are measured for you to read, because none of them separates a strong manuscript from a weak one on its own.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing is the density of validated passive-voice, adverb, cliché, wordy-phrase, confused-word and repetition findings per 1,000 narrative words. Grammar is scored on its own.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:isNF?'Strong nonfiction needs a clear thesis, evidence to support it, logical transitions, and a conclusion that synthesizes.':'Structure is measured from how the manuscript is built: its units, the share of each unit that is scene (action and dialogue) rather than summary, where the most scene-heavy unit sits and whether the book comes down from it, unit-length control against its own median, and whether the named cast persists. Stakes, causality and what a character wants are not measured.'};
 
   // Canonical issue source per category — both card and detail derive from the same data
   const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
@@ -1370,16 +1370,22 @@ function renderDetailed(r){
     plotRows.push(sr('Evidence / 1K words',plot.evidencePerK??0));
     plotRows.push(sr('Logical transition signals',plot.transitionSignals??0));
     plotRows.push(sr('Closing synthesis signals',plot.synthesisSignals??0));
-  }else{
-    plotRows.push(sr('Rising-action candidate',plot.risingActionCandidate?'Detected':'Not detected'));
-    plotRows.push(sr('Peak tension/action quarter',plot.peakQuarter??'N/A'));
-    plotRows.push(sr('Climax candidate',plot.climaxCandidate?'Detected':'Not detected'));
-    plotRows.push(sr('Resolution candidate',plot.resolutionCandidate?'Detected':'Not detected'));
-    if(Array.isArray(plot.quarters)&&plot.quarters.length){
-      plotRows.push(sr('Tension signals',plot.quarters.reduce((n,q)=>n+(q.tensionSignals||0),0)));
-      plotRows.push(sr('Resolution signals',plot.quarters.reduce((n,q)=>n+(q.resolutionSignals||0),0)));
-      plotRows.push(sr('Action signals',plot.quarters.reduce((n,q)=>n+(q.actionSignals||0),0)));
+  }else if(plot.units&&plot.units.length){
+    const src={chapter:'from chapter headings','scene-break':'from scene breaks',segment:'equal segments; no headings or scene breaks found'}[plot.unitSource]||'';
+    plotRows.push('Measured from how the manuscript is built: its units, how much of each is scene (action and dialogue) rather than summary, where the most scene-heavy unit sits, unit-length control, and cast persistence. Stakes and causality are not measured.');
+    plotRows.push(sr('Units',plot.unitCount+' ('+src+')'));
+    plotRows.push(sr('Scene share by unit',plot.units.map(u=>u.sceneShare==null?'—':u.sceneShare+'%').join(' → ')));
+    const comp=plot.components||{};
+    if(plot.curve){
+      plotRows.push(sr('Most scene-heavy unit',plot.curve.peakUnit+' · '+plot.curve.peakShare+'% · '+Math.round(plot.curve.peakPosition*100)+'% of the way through'));
+      plotRows.push(sr('Final unit vs peak',plot.curve.release?'comes down '+(plot.curve.peakShare-plot.curve.lastUnitShare)+' points':'at the peak: no release measured'));
+      plotRows.push(sr('Scene-share range',plot.curve.amplitude+' points (first half mean '+plot.curve.firstHalfMean+'%, second half '+plot.curve.secondHalfMean+'%)'));
     }
+    if(comp.lengthControl)plotRows.push(sr('Unit length',comp.lengthControl.basis));
+    if(comp.cast)plotRows.push(sr('Cast',comp.cast.basis));
+    if(plot.notAssessed&&plot.notAssessed.length)plotRows.push(sr('Not assessed',plot.notAssessed.join('; ')));
+  }else if(plot.details){
+    plotRows.push(plot.details);
   }
   plotRows.push(sr('Mode',(r.manuscriptMode?.label||'Unknown')+' (~'+(r.manuscriptMode?.estPages||0)+' pages)'));
   h+=secWithTip(plotLabel,scores.plot??null,plotRows,'plot',r);
@@ -1526,11 +1532,14 @@ function evidenceTip(r,key,score){
     return rec.length?top(rec):'No measured style-control weakness currently supports a recommendation.';
   }
   if(key==='plot'){
-    const rec=[];
-    if(plot.hasRisingAction===false) rec.push('The plot detector did not find a rising-action pattern.');
-    if(plot.hasClimax===false) rec.push('The full-manuscript detector did not find a climax signal.');
-    if(plot.hasResolution===false) rec.push('The full-manuscript detector did not find a resolution signal.');
-    return rec.length?top(rec):'No measured plot-structure weakness currently supports a recommendation.';
+    const rec=[];const comp=plot.components||{};const cv=plot.curve;
+    if(comp.rhythm&&comp.rhythm.value<0.7) rec.push('Scene share barely changes from unit to unit ('+(cv?cv.amplitude:0)+'-point range): every unit is built the same way.');
+    if(comp.shape&&cv&&cv.peakPosition<0.5) rec.push('The most scene-heavy unit is '+cv.peakUnit+', in the first half of the manuscript.');
+    if(comp.shape&&cv&&!cv.release) rec.push('The final unit is as scene-heavy as the peak; the manuscript does not come down from its climax.');
+    if(comp.lengthControl&&comp.lengthControl.outliers.length) rec.push('Unit length outliers: '+comp.lengthControl.outliers.slice(0,3).join(', ')+'.');
+    if(comp.cast&&comp.cast.value<0.7) rec.push(comp.cast.basis+'.');
+    if(plot.thesisSignals===0) rec.push('No explicit claim phrasing was found in the opening paragraphs.');
+    return rec.length?top(rec):'No measured structural weakness currently supports a recommendation.';
   }
   if(key==='dialogue'){
     const fs=(r.dialogue?.findings||[]);

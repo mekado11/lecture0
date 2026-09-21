@@ -1266,33 +1266,126 @@ const Analyzer = {
   },
 
   // ========================
-  // PLOT STRUCTURE ANALYSIS
+  // STRUCTURE (fiction)
   // ========================
-  analyzePlot(text, mode, genre) {
-    if(this.isNonfiction(genre)) return this._analyzeArgumentStructure(text,mode);
-    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
-    if(paragraphs.length<3)return {score:null,applicable:false,arc:'insufficient-data',details:'Too little narrative text for structural measurement.',paragraphCount:paragraphs.length,quarters:[]};
-    const qSize=Math.ceil(paragraphs.length/4);
-    const tensionRe=/\b(conflict|struggle|fight|danger|threat|problem|challenge|crisis|desperate|fear|terror|panic|attack|escape|chase|betray|confront|demand|risk|urgent|trapped|failed|loss|enemy|pressure)\b/gi;
-    const resolutionRe=/\b(resolved|forgive|forgiven|healed|returned|reunited|safe|calm|accepted|reconciled|settled|answered|solution|peace)\b/gi;
-    const actionRe=/\b(ran|rushed|grabbed|threw|struck|fought|attacked|escaped|chased|drove|pulled|pushed|fell|burst|charged|fired|slammed|crashed)\b/gi;
-    const quarters=[];
-    for(let i=0;i<4;i++){
-      const ps=paragraphs.slice(i*qSize,Math.min((i+1)*qSize,paragraphs.length));
-      const txt=ps.join(' '), wc=(txt.match(/\b[\w’'-]+\b/g)||[]).length;
-      const tension=(txt.match(tensionRe)||[]).length, resolution=(txt.match(resolutionRe)||[]).length, action=(txt.match(actionRe)||[]).length;
-      quarters.push({quarter:i+1,paragraphStart:i*qSize+1,paragraphEnd:Math.min((i+1)*qSize,paragraphs.length),wordCount:wc,tensionSignals:tension,resolutionSignals:resolution,actionSignals:action,tensionPerK:+(tension/Math.max(wc,1)*1000).toFixed(2),resolutionPerK:+(resolution/Math.max(wc,1)*1000).toFixed(2),actionPerK:+(action/Math.max(wc,1)*1000).toFixed(2)});
+  // The manuscript's skeleton, measured from how it is built rather than from a lexicon of
+  // tension words: its units (chapters, scene breaks, or equal segments when it has
+  // neither); how much of each unit is scene (action and dialogue, the modes a reader lives
+  // through in real time) against summary (reflection, description, exposition); where the
+  // most scene-heavy stretch sits and whether the book comes down from it; how the unit
+  // lengths hold to the book's own median; and whether the named cast persists across
+  // units. It does not measure stakes, causality or what a character wants: nothing
+  // lexical can, and the methodology says so.
+  _structureUnits(text, mode) {
+    const wordsIn = s => (s.match(/\b[\w\u2019'-]+\b/g) || []).length;
+    let m, marks = [], source = 'chapter';
+    const headingRe = /^[ \t]*(?:(?:chapter|part|book)\s+(?:\d+|[ivxlc]+|[a-z]+(?:[- ][a-z]+)?)\b[^\n]{0,80}|(?:prologue|epilogue|interlude)\b[^\n]{0,80})$/gim;
+    const shortLabel = s => { const t = s.trim().replace(/\s+/g, ' '); if (t.length <= 36) return t; const cut = t.slice(0, 36); return cut.slice(0, Math.max(cut.lastIndexOf(' '), 12)) + '…'; };
+    while ((m = headingRe.exec(text)) !== null) marks.push({ at: m.index, end: m.index + m[0].length, label: shortLabel(m[0]) });
+    if (marks.length < 2) {
+      marks = []; source = 'scene-break';
+      const breakRe = /\n[ \t]*(?:\*\s*\*\s*\*|#{1,3}|-{3,}|~{3,})[ \t]*\n/g;
+      let n = 1;
+      while ((m = breakRe.exec(text)) !== null) marks.push({ at: m.index, end: m.index + m[0].length, label: 'Scene ' + (++n) });
     }
-    const curve=quarters.map(q=>q.tensionPerK+q.actionPerK*.5);
-    const risingCandidate=curve[1]>curve[0];
-    const peak=Math.max(...curve),peakQuarter=curve.indexOf(peak)+1;
-    const climaxCandidate=peakQuarter===3||peakQuarter===4;
-    const resolutionCandidate=quarters[3].resolutionPerK>Math.max(quarters[0].resolutionPerK,quarters[1].resolutionPerK);
-    // Structural score reflects only measured arc-shape evidence. Labels remain candidates:
-    // deterministic lexical signals cannot prove a literary climax or resolution.
-    const measured=[risingCandidate,climaxCandidate,resolutionCandidate];
-    const score=Math.round(measured.filter(Boolean).length/measured.length*100);
-    return {score,applicable:true,arc:'measured-arc-signals',methodology:'Quarter-normalized tension/action/resolution signals; structural labels are candidates, not facts.',quarters,paragraphCount:paragraphs.length,risingActionCandidate:risingCandidate,climaxCandidate,resolutionCandidate,peakQuarter,hasRisingAction:risingCandidate,hasClimax:climaxCandidate,hasResolution:resolutionCandidate,hasCliffhanger:null,hasSceneGoal:null};
+    if (marks.length >= 2) {
+      const units = [];
+      let cursor = 0, label = source === 'chapter' ? 'Opening' : 'Scene 1';
+      for (const mk of marks) {
+        const body = text.slice(cursor, mk.at), w = wordsIn(body);
+        if (w >= 60) units.push({ label, start: cursor, end: mk.at, words: w });
+        cursor = mk.end; label = mk.label;
+      }
+      const tail = text.slice(cursor), tw = wordsIn(tail);
+      if (tw >= 60) units.push({ label, start: cursor, end: text.length, words: tw });
+      if (units.length >= 3) return { units, source };
+    }
+    // Neither headings nor breaks: equal segments cut at paragraph boundaries.
+    const total = wordsIn(text);
+    const n = Math.max(3, Math.min(24, Math.round(total / (mode === 'book' ? 1500 : 400))));
+    const paras = [];
+    const splitter = /\n\s*\n/g; let last = 0;
+    while ((m = splitter.exec(text)) !== null) { paras.push({ start: last, end: m.index }); last = m.index + m[0].length; }
+    paras.push({ start: last, end: text.length });
+    const units = []; let acc = 0, uStart = 0, k = 1;
+    for (const p of paras) {
+      acc += wordsIn(text.slice(p.start, p.end));
+      if (acc >= k * total / n && k < n) { units.push({ label: 'Segment ' + k, start: uStart, end: p.end, words: acc - (units.length ? units.reduce((a, u) => a + u.words, 0) : 0) }); uStart = p.end; k++; }
+    }
+    const used = units.reduce((a, u) => a + u.words, 0);
+    if (total - used >= 60) units.push({ label: 'Segment ' + k, start: uStart, end: text.length, words: total - used });
+    return { units, source: 'segment' };
+  },
+  analyzePlot(text, mode, genre, characters) {
+    if(this.isNonfiction(genre)) return this._analyzeArgumentStructure(text,mode);
+    const wordsIn = s => (s.match(/\b[\w\u2019'-]+\b/g) || []).length;
+    const totalWords = wordsIn(text);
+    const legacy = { hasRisingAction: null, hasClimax: null, hasResolution: null, hasCliffhanger: null, hasSceneGoal: null };
+    if (totalWords < 1200) return { score: null, applicable: false, arc: 'insufficient-data', details: 'Under 1,200 words: too short to measure structure.', units: [], unitCount: 0, components: {}, notAssessed: ['structure: under 1,200 words'], ...legacy };
+    const { units, source } = this._structureUnits(text, mode);
+    const notAssessed = [];
+    // Composition per unit from the passage classifier (every unit sums the passages inside it).
+    const classifier = typeof ProseContext !== 'undefined';
+    let passages = [];
+    if (classifier) { try { passages = ProseContext.classify(text); } catch (e) { passages = []; } }
+    for (const u of units) {
+      const tally = { dialogue: 0, action: 0, reflection: 0, description: 0, exposition: 0, mixed: 0 };
+      for (const p of passages) { if (p.start >= u.start && p.start < u.end) tally[p.mode] = (tally[p.mode] || 0) + p.wordCount; }
+      const classified = tally.dialogue + tally.action + tally.reflection + tally.description + tally.exposition;
+      u.classifiedShare = u.words ? Math.round(classified / u.words * 100) : 0;
+      const pct = n => classified ? Math.round(n / classified * 100) : null;
+      u.sceneShare = classified ? Math.round((tally.action + tally.dialogue) / classified * 100) : null;
+      u.actionShare = pct(tally.action); u.dialogueShare = pct(tally.dialogue); u.reflectionShare = pct(tally.reflection);
+      u.descriptionShare = pct(tally.description); u.expositionShare = pct(tally.exposition);
+      const sents = text.slice(u.start, u.end).match(/[^.!?]+[.!?]+/g) || [];
+      u.meanSentence = sents.length ? Math.round(u.words / sents.length * 10) / 10 : null;
+    }
+    const n = units.length;
+    const measured = units.filter(u => u.sceneShare != null);
+    const components = {};
+    // 1. Unit length holds to the book's own median (outliers under 0.3x or over 3x).
+    if (n >= 4) {
+      const sorted = units.map(u => u.words).sort((a, b) => a - b), median = sorted[n >> 1];
+      const outliers = units.filter(u => u.words < median * 0.3 || u.words > median * 3);
+      components.lengthControl = { value: 1 - outliers.length / n, applicable: true, median, outliers: outliers.map(u => u.label + ' (' + u.words.toLocaleString() + ' words)'), basis: outliers.length + ' of ' + n + ' units outside 0.3x to 3x the median of ' + median.toLocaleString() + ' words' };
+    } else notAssessed.push('unit length control: fewer than four units');
+    // 2. Rhythm: scene share varies across the book (full credit at a 25-point range).
+    let curve = null;
+    if (!classifier) notAssessed.push('scene/summary rhythm and arc shape: passage classifier unavailable');
+    else if (measured.length < 3) notAssessed.push('scene/summary rhythm and arc shape: fewer than three classified units');
+    else {
+      const shares = measured.map(u => u.sceneShare);
+      const peak = Math.max(...shares), low = Math.min(...shares), peakIdx = shares.indexOf(peak);
+      const half = Math.floor(shares.length / 2);
+      const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+      curve = { peakUnit: measured[peakIdx].label, peakIndex: peakIdx + 1, peakPosition: Math.round(peakIdx / Math.max(shares.length - 1, 1) * 100) / 100, peakShare: peak, lowShare: low, amplitude: peak - low, firstHalfMean: Math.round(mean(shares.slice(0, half))), secondHalfMean: Math.round(mean(shares.slice(half))), lastUnitShare: shares[shares.length - 1], release: shares[shares.length - 1] <= peak - 5 };
+      components.rhythm = { value: Math.min(1, curve.amplitude / 25), applicable: true, basis: 'scene share ranges ' + low + '% to ' + peak + '% across ' + measured.length + ' units (' + curve.amplitude + '-point range; full credit at 25)' };
+      // 3. Arc shape, full manuscripts only: the most scene-heavy stretch sits in the back half
+      // and the final unit comes down from it.
+      if (mode === 'book' && measured.length >= 4 && curve.amplitude < 5) notAssessed.push('arc shape: scene share is flat (under a 5-point range), so there is no peak to place');
+      else if (mode === 'book' && measured.length >= 4) {
+        const placement = curve.peakPosition >= 0.5 ? 1 : curve.peakPosition / 0.5;
+        components.shape = { value: 0.5 * placement + 0.5 * (curve.release ? 1 : 0), applicable: true, basis: 'most scene-heavy unit is ' + curve.peakUnit + ' (' + Math.round(curve.peakPosition * 100) + '% of the way through) \u00B7 final unit ' + (curve.release ? 'comes down ' + (peak - curve.lastUnitShare) + ' points from the peak' : 'is at the peak: no release measured') };
+      } else notAssessed.push('arc shape: ' + (mode === 'book' ? 'fewer than four classified units' : 'not a full manuscript'));
+    }
+    // 4. Cast persistence: named characters recur across units; the lead is present in most.
+    const cast = characters && characters.list ? characters.list : this.analyzeCharacters(text, genre).list;
+    const named = (cast || []).slice(0, 40);
+    let castInfo = { qualified: named.length, recurring: 0, lead: null, leadPresence: null, names: [] };
+    if (named.length >= 2 && n >= 2) {
+      const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      castInfo.names = named.map(c => { const re = new RegExp('\\b' + esc(c.name) + '\\b'); const inUnits = units.filter(u => re.test(text.slice(u.start, u.end))).length; return { name: c.name, units: inUnits, mentions: c.mentions }; });
+      castInfo.recurring = castInfo.names.filter(c => c.units >= 2).length;
+      castInfo.lead = castInfo.names[0].name; castInfo.leadPresence = Math.round(castInfo.names[0].units / n * 100);
+      for (const u of units) u.cast = castInfo.names.filter(c => new RegExp('\\b' + esc(c.name) + '\\b').test(text.slice(u.start, u.end))).map(c => c.name).slice(0, 8);
+      components.cast = { value: 0.5 * (castInfo.recurring / named.length) + 0.5 * (castInfo.names[0].units / n), applicable: true, basis: castInfo.recurring + ' of ' + named.length + ' named characters recur across units \u00B7 ' + castInfo.lead + ' present in ' + castInfo.names[0].units + ' of ' + n + ' units' };
+    } else notAssessed.push('cast persistence: fewer than two named characters');
+    const vals = Object.values(components).filter(c => c.applicable).map(c => c.value);
+    const score = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 100) : null;
+    return { score, applicable: score != null, arc: 'structure', mode: mode === 'book' ? 'book' : 'chapter',
+      methodology: 'Structure measured from the manuscript\'s units, the scene-versus-summary share of each unit (passage classifier), the placement of the most scene-heavy unit, unit-length control against the manuscript\'s own median, and cast persistence. Stakes, causality and character want are not measured.',
+      units: units.map(u => ({ label: u.label, words: u.words, sceneShare: u.sceneShare, actionShare: u.actionShare, dialogueShare: u.dialogueShare, reflectionShare: u.reflectionShare, descriptionShare: u.descriptionShare, expositionShare: u.expositionShare, classifiedShare: u.classifiedShare, meanSentence: u.meanSentence, cast: u.cast || [] })),
+      unitCount: n, unitSource: source, curve, cast: castInfo, components, notAssessed, ...legacy };
   },
 
   // ========================
@@ -3623,7 +3716,8 @@ const Analyzer = {
     const narrativeWords = segmentation.narrativeWords;
 
     // STAGE 2: literary analysis — every narrative dimension reads narrative text only.
-    const plot = this.analyzePlot(aText, mode, genre);
+    const characters = this.analyzeCharacters(aText, genre);
+    const plot = this.analyzePlot(aText, mode, genre, characters);
     const transitions = this.analyzeTransitions(aText);
     const dialogue = this.analyzeDialogue(aText, genre);
     const style = this.analyzeStyle(aText);
@@ -3634,7 +3728,6 @@ const Analyzer = {
     // Backfill readerPerspective.dnfRisk from new engine for backward compat
     readerPerspective.dnfRisk = dnfAnalysis.dnf_risk;
     const pacing = this.analyzePacing(aText);
-    const characters = this.analyzeCharacters(aText, genre);
     const blurbs = this.generateBlurbs(aText, characters, genre, mode);
     const scifiWorld = this.analyzeSciFiWorldbuilding(aText, genre);
     const genreElements = this.analyzeGenreElements(aText, genre);

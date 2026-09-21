@@ -32,12 +32,20 @@ test('copy score is length-normalized and monotonic',()=>{
   assert.equal(A.scoreCopyEditing(mk(10),10000),A.scoreCopyEditing(mk(20),20000));
 });
 
-test('fiction structure exposes measured quarter provenance',()=>{
-  const p=A.analyzePlot(fictionText(),{}, {primary:'fiction'});
-  assert.equal(p.applicable,true);
-  assert.equal(p.quarters.length,4);
-  assert.ok(p.quarters.every(q=>Number.isFinite(q.wordCount)&&Number.isFinite(q.tensionPerK)&&Number.isFinite(q.actionPerK)));
-  assert.ok(['measured-arc-signals','insufficient-data'].includes(p.arc));
+test('fiction structure exposes measured unit provenance, and says what it could not assess',()=>{
+  const short=A.analyzePlot(fictionText(),'chapter',{primary:'fiction'});
+  assert.equal(short.applicable,false,'four short paragraphs are too little to measure structure');
+  assert.equal(short.score,null);
+  const chapters=Array.from({length:5},(_,i)=>'Chapter '+(i+1)+'\n\n'+Array.from({length:12},()=>fictionText()).join('\n\n')).join('\n\n');
+  const p=A.analyzePlot(chapters,'book',{primary:'fiction'});
+  assert.equal(p.arc,'structure');
+  assert.equal(p.unitSource,'chapter');
+  assert.equal(p.unitCount,5);
+  assert.ok(p.units.every(u=>Number.isFinite(u.words)));
+  // This context has no passage classifier: rhythm and shape are declared not assessed, not faked.
+  assert.ok(p.notAssessed.some(s=>/classifier unavailable/.test(s)));
+  assert.ok(p.components.lengthControl&&p.components.cast,'length control and cast persistence need no classifier');
+  assert.ok(Number.isFinite(p.score));
 });
 
 test('nonfiction structure uses argument evidence and never fiction substitutions',()=>{
