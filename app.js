@@ -317,7 +317,9 @@ function renderAll(){
   _renderSubScores(r);
   // Topbar genre shows the user-overridden label (secondary cleared on override)
   if(activeGenre&&r.genre)r.genre.secondary=null;
-  $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
+  // The genre select beside this already shows the chosen genre; repeat it only when the
+  // genre was detected rather than chosen, since the select then reads "Auto-detect".
+  $('top-status').textContent=(activeGenre?'':(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 ')+(r.manuscriptMode?.label||'');
 
   renderSceneIntel(r);
   // Book preview now renders on-demand when the Preview tab is activated — not here
@@ -865,7 +867,9 @@ function updateScoresOnly(r){
   _renderSubScores(r);
   // Topbar
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
-  $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
+  // The genre select beside this already shows the chosen genre; repeat it only when the
+  // genre was detected rather than chosen, since the select then reads "Auto-detect".
+  $('top-status').textContent=(activeGenre?'':(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 ')+(r.manuscriptMode?.label||'');
   drawGauge(r.overall||0);
   $('top-score').textContent=r.overall||0;
 
