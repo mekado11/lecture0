@@ -11,7 +11,9 @@ function clearPrivateStorage(preserveLegacy=false){
   sessionStorage.clear();
 }
 firebase.auth().onAuthStateChanged(async function(user) {
-  if (!user) { window.location.href = 'index.html'; return; }
+  if (!user) { localStorage.removeItem('ml_signed_in'); window.location.href = 'index.html'; return; }
+  // Lets the homepage recognise a returning author before anyone clicks (see landing-init.js).
+  localStorage.setItem('ml_signed_in', '1');
   // UI hint only. Server authorization uses ADMIN_UIDS, never email alone.
   window.__isAdmin = user.emailVerified && ADMIN_EMAILS.includes((user.email||'').toLowerCase());
   const previousOwner=localStorage.getItem('ml_storage_owner');
@@ -48,7 +50,7 @@ firebase.auth().onAuthStateChanged(async function(user) {
     btn.onclick = async function() {
       if(window.AuthorScrollsEditor?.save&&!await window.AuthorScrollsEditor.save())return;
       // Preserve quarantined legacy drafts until the explicit recovery decision.
-      try{await firebase.auth().signOut();clearPrivateStorage(true);window.location.href='index.html';}
+      try{await firebase.auth().signOut();clearPrivateStorage(true);localStorage.removeItem('ml_signed_in');window.location.href='index.html';}
       catch(_){alert('Sign-out failed. Please try again.');}
     };
     topRight.appendChild(btn);

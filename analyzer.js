@@ -230,10 +230,17 @@ const Analyzer = {
   // PASSIVE VOICE DETECTION
   // ========================
   PASSIVE_PATTERNS: [
-    /\b(was|were|is|are|been|being|be)\s+(being\s+)?([\w]+ed|[\w]+en|built|caught|chosen|cut|done|drawn|driven|eaten|fallen|felt|found|forgotten|fought|given|gone|grown|heard|held|hidden|hit|hung|hurt|kept|known|laid|led|left|lent|let|lost|made|meant|met|paid|put|read|rid|run|said|sat|seen|sent|set|shot|shown|shut|sold|spent|spoken|stood|stuck|struck|sung|sworn|taken|taught|thought|thrown|told|torn|understood|woken|won|worn|written)\b/gi
+    // Irregular participles are listed by word. A bare "-en" ending is not one: "was then",
+    // "was open", "were seven" and "was even" are not passive. "gone" and "fallen" are
+    // intransitive and never passive either.
+    /\b(was|were|is|are|been|being|be)\s+(being\s+)?([\w]+ed|awoken|beaten|bitten|blown|broken|built|caught|chosen|cut|done|drawn|driven|eaten|felt|flown|forbidden|forgiven|forgotten|fought|found|frozen|given|gotten|grown|heard|held|hidden|hit|hung|hurt|kept|known|laden|laid|led|left|lent|let|lost|made|meant|met|mistaken|overtaken|overthrown|paid|proven|put|read|rewritten|rid|ridden|run|said|sat|seen|sent|set|sewn|shaken|shot|shown|shrunken|shut|smitten|sold|sown|spent|spoken|stolen|stood|stricken|struck|stuck|sung|sunken|sworn|swollen|taken|taught|thought|thrown|told|torn|trodden|understood|undertaken|withdrawn|woken|won|worn|woven|written)\b/gi
   ],
   // Non-passive -ed words that look passive but aren't (adjectives)
   PASSIVE_EXCEPTIONS: new Set([
+    // Words that end in "-ed" but are not participles at all
+    'red','bed','shed','sled','bred','need','indeed','seed','weed','reed','feed','speed',
+    'sacred','hundred','kindred','hatred','naked','wicked','wretched','crooked','ragged',
+    'rugged','jagged','dogged','aged','beloved','learned','blessed','cursed','wed',
     'interested','excited','bored','tired','married','worried','surprised',
     'pleased','satisfied','determined','experienced','advanced','complicated',
     'dedicated','detailed','distinguished','educated','exhausted','fascinated',
@@ -670,8 +677,19 @@ const Analyzer = {
       'do','does','did','will','would','could','should','may','might','shall','can','that',
       'this','these','those','i','you','he','she','we','they','me','him','her','us','them',
       'my','your','his','our','their','not','no','so','as','if','then','than','into','up',
-      'out','about','just','very','all','also','how','what','when','where','which','who']);
-    const synMap={said:['stated','replied','remarked','noted','added'],looked:['glanced','gazed','peered','watched','studied'],walked:['strode','moved','paced','strolled','crossed'],made:['created','crafted','formed','produced','built'],came:['arrived','appeared','emerged','approached','entered'],went:['headed','moved','traveled','crossed','departed'],turned:['pivoted','shifted','swung','rotated','spun'],stood:['rose','remained','lingered','waited','stayed'],knew:['understood','recognized','realized','sensed','grasped'],thought:['considered','wondered','reflected','believed','imagined'],felt:['sensed','experienced','noticed','detected','perceived'],took:['grabbed','seized','claimed','accepted','retrieved'],gave:['offered','handed','presented','provided','delivered'],started:['began','initiated','launched','commenced','opened'],seemed:['appeared','looked','sounded','suggested','indicated'],told:['informed','explained','revealed','instructed','described'],asked:['questioned','inquired','wondered','requested','demanded'],eyes:['gaze','stare','glance','look','vision'],face:['expression','features','countenance','visage','look'],hand:['grip','palm','fingers','fist','grasp'],head:['mind','thoughts','skull','brow','temple'],voice:['tone','words','speech','whisper','sound'],door:['entrance','doorway','threshold','entry','gate'],room:['chamber','space','quarters','hall','area'],time:['moment','occasion','instance','period','while'],back:['spine','rear','return','retreat','behind'],long:['extended','prolonged','lengthy','enduring','sustained'],dark:['dim','shadowed','unlit','gloomy','murky'],small:['little','slight','tiny','compact','modest'],found:['discovered','located','uncovered','encountered','spotted'],called:['named','summoned','addressed','hailed','dubbed'],people:['individuals','figures','crowd','group','folk'],world:['realm','domain','land','sphere','landscape'],place:['location','spot','position','site','area'],still:['motionless','calm','quiet','unmoving','yet'],words:['speech','language','phrases','remarks','terms'],thing:['object','matter','item','element','detail'],woman:['figure','lady','person','character','she'],before:['earlier','previously','prior','ahead','formerly'],every:['each','all','entire','whole','total'],never:['rarely','seldom','hardly','not once','at no point'],always:['constantly','perpetually','inevitably','forever','endlessly'],around:['surrounding','about','nearby','encircling','throughout']};
+      'out','about','just','very','all','also','how','what','when','where','which','who',
+      // Function words of four letters or more, and the invisible dialogue tags. Their
+      // recurrence is grammar, not a word-choice habit.
+      'there','here','like','some','never','always','ever','mine','yours','ours','theirs',
+      'herself','himself','itself','myself','yourself','themselves','ourselves','only','even',
+      'much','many','more','most','such','other','others','over','under','onto','upon','from',
+      'been','being','again','still','while','until','after','before','because','though',
+      'although','whether','either','neither','both','each','every','quite','rather','really',
+      'would','could','should','might','must','shall','will','have','does','done','said','asked',
+      'something','nothing','anything','everything','someone','anyone','everyone','nobody']);
+    // No synonym table. A fixed list of alternatives ("said" → "stated, remarked") is not
+    // advice about this manuscript; the finding says where the echo is and leaves the word
+    // to the author.
     const seen = new Set();
     // Names repeat because they are names. A capitalised word whose lowercase form never
     // occurs anywhere in this manuscript is treated as one and never raised; "Alice" is a
@@ -713,12 +731,11 @@ const Analyzer = {
           const key = word + ':' + wordIdx;
           if (seen.has(key)) continue;
           seen.add(key);
-          const alts = synMap[word];
-          const sugText = alts ? 'Try: ' + alts.slice(0, 3).join(', ') : 'Vary your word choice — try a synonym or restructure the sentence.';
           issues.push({
             type: 'repetition', text: word, index: wordIdx, length: word.length,
             severity: 'low', confidence: 0.85, message: `"${word}" repeated in consecutive sentences.`,
-            suggestion: sugText,
+            suggestion: `"${word}" also appears in the sentence before. Vary it if the echo is accidental; keep it if it is doing work.`,
+            autoFix: false,
             ...(parallel ? { rhetorical: 'parallel' } : {})
           });
         }
@@ -1249,33 +1266,126 @@ const Analyzer = {
   },
 
   // ========================
-  // PLOT STRUCTURE ANALYSIS
+  // STRUCTURE (fiction)
   // ========================
-  analyzePlot(text, mode, genre) {
-    if(this.isNonfiction(genre)) return this._analyzeArgumentStructure(text,mode);
-    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
-    if(paragraphs.length<3)return {score:null,applicable:false,arc:'insufficient-data',details:'Too little narrative text for structural measurement.',paragraphCount:paragraphs.length,quarters:[]};
-    const qSize=Math.ceil(paragraphs.length/4);
-    const tensionRe=/\b(conflict|struggle|fight|danger|threat|problem|challenge|crisis|desperate|fear|terror|panic|attack|escape|chase|betray|confront|demand|risk|urgent|trapped|failed|loss|enemy|pressure)\b/gi;
-    const resolutionRe=/\b(resolved|forgive|forgiven|healed|returned|reunited|safe|calm|accepted|reconciled|settled|answered|solution|peace)\b/gi;
-    const actionRe=/\b(ran|rushed|grabbed|threw|struck|fought|attacked|escaped|chased|drove|pulled|pushed|fell|burst|charged|fired|slammed|crashed)\b/gi;
-    const quarters=[];
-    for(let i=0;i<4;i++){
-      const ps=paragraphs.slice(i*qSize,Math.min((i+1)*qSize,paragraphs.length));
-      const txt=ps.join(' '), wc=(txt.match(/\b[\w’'-]+\b/g)||[]).length;
-      const tension=(txt.match(tensionRe)||[]).length, resolution=(txt.match(resolutionRe)||[]).length, action=(txt.match(actionRe)||[]).length;
-      quarters.push({quarter:i+1,paragraphStart:i*qSize+1,paragraphEnd:Math.min((i+1)*qSize,paragraphs.length),wordCount:wc,tensionSignals:tension,resolutionSignals:resolution,actionSignals:action,tensionPerK:+(tension/Math.max(wc,1)*1000).toFixed(2),resolutionPerK:+(resolution/Math.max(wc,1)*1000).toFixed(2),actionPerK:+(action/Math.max(wc,1)*1000).toFixed(2)});
+  // The manuscript's skeleton, measured from how it is built rather than from a lexicon of
+  // tension words: its units (chapters, scene breaks, or equal segments when it has
+  // neither); how much of each unit is scene (action and dialogue, the modes a reader lives
+  // through in real time) against summary (reflection, description, exposition); where the
+  // most scene-heavy stretch sits and whether the book comes down from it; how the unit
+  // lengths hold to the book's own median; and whether the named cast persists across
+  // units. It does not measure stakes, causality or what a character wants: nothing
+  // lexical can, and the methodology says so.
+  _structureUnits(text, mode) {
+    const wordsIn = s => (s.match(/\b[\w\u2019'-]+\b/g) || []).length;
+    let m, marks = [], source = 'chapter';
+    const headingRe = /^[ \t]*(?:(?:chapter|part|book)\s+(?:\d+|[ivxlc]+|[a-z]+(?:[- ][a-z]+)?)\b[^\n]{0,80}|(?:prologue|epilogue|interlude)\b[^\n]{0,80})$/gim;
+    const shortLabel = s => { const t = s.trim().replace(/\s+/g, ' '); if (t.length <= 36) return t; const cut = t.slice(0, 36); return cut.slice(0, Math.max(cut.lastIndexOf(' '), 12)) + '…'; };
+    while ((m = headingRe.exec(text)) !== null) marks.push({ at: m.index, end: m.index + m[0].length, label: shortLabel(m[0]) });
+    if (marks.length < 2) {
+      marks = []; source = 'scene-break';
+      const breakRe = /\n[ \t]*(?:\*\s*\*\s*\*|#{1,3}|-{3,}|~{3,})[ \t]*\n/g;
+      let n = 1;
+      while ((m = breakRe.exec(text)) !== null) marks.push({ at: m.index, end: m.index + m[0].length, label: 'Scene ' + (++n) });
     }
-    const curve=quarters.map(q=>q.tensionPerK+q.actionPerK*.5);
-    const risingCandidate=curve[1]>curve[0];
-    const peak=Math.max(...curve),peakQuarter=curve.indexOf(peak)+1;
-    const climaxCandidate=peakQuarter===3||peakQuarter===4;
-    const resolutionCandidate=quarters[3].resolutionPerK>Math.max(quarters[0].resolutionPerK,quarters[1].resolutionPerK);
-    // Structural score reflects only measured arc-shape evidence. Labels remain candidates:
-    // deterministic lexical signals cannot prove a literary climax or resolution.
-    const measured=[risingCandidate,climaxCandidate,resolutionCandidate];
-    const score=Math.round(measured.filter(Boolean).length/measured.length*100);
-    return {score,applicable:true,arc:'measured-arc-signals',methodology:'Quarter-normalized tension/action/resolution signals; structural labels are candidates, not facts.',quarters,paragraphCount:paragraphs.length,risingActionCandidate:risingCandidate,climaxCandidate,resolutionCandidate,peakQuarter,hasRisingAction:risingCandidate,hasClimax:climaxCandidate,hasResolution:resolutionCandidate,hasCliffhanger:null,hasSceneGoal:null};
+    if (marks.length >= 2) {
+      const units = [];
+      let cursor = 0, label = source === 'chapter' ? 'Opening' : 'Scene 1';
+      for (const mk of marks) {
+        const body = text.slice(cursor, mk.at), w = wordsIn(body);
+        if (w >= 60) units.push({ label, start: cursor, end: mk.at, words: w });
+        cursor = mk.end; label = mk.label;
+      }
+      const tail = text.slice(cursor), tw = wordsIn(tail);
+      if (tw >= 60) units.push({ label, start: cursor, end: text.length, words: tw });
+      if (units.length >= 3) return { units, source };
+    }
+    // Neither headings nor breaks: equal segments cut at paragraph boundaries.
+    const total = wordsIn(text);
+    const n = Math.max(3, Math.min(24, Math.round(total / (mode === 'book' ? 1500 : 400))));
+    const paras = [];
+    const splitter = /\n\s*\n/g; let last = 0;
+    while ((m = splitter.exec(text)) !== null) { paras.push({ start: last, end: m.index }); last = m.index + m[0].length; }
+    paras.push({ start: last, end: text.length });
+    const units = []; let acc = 0, uStart = 0, k = 1;
+    for (const p of paras) {
+      acc += wordsIn(text.slice(p.start, p.end));
+      if (acc >= k * total / n && k < n) { units.push({ label: 'Segment ' + k, start: uStart, end: p.end, words: acc - (units.length ? units.reduce((a, u) => a + u.words, 0) : 0) }); uStart = p.end; k++; }
+    }
+    const used = units.reduce((a, u) => a + u.words, 0);
+    if (total - used >= 60) units.push({ label: 'Segment ' + k, start: uStart, end: text.length, words: total - used });
+    return { units, source: 'segment' };
+  },
+  analyzePlot(text, mode, genre, characters) {
+    if(this.isNonfiction(genre)) return this._analyzeArgumentStructure(text,mode);
+    const wordsIn = s => (s.match(/\b[\w\u2019'-]+\b/g) || []).length;
+    const totalWords = wordsIn(text);
+    const legacy = { hasRisingAction: null, hasClimax: null, hasResolution: null, hasCliffhanger: null, hasSceneGoal: null };
+    if (totalWords < 1200) return { score: null, applicable: false, arc: 'insufficient-data', details: 'Under 1,200 words: too short to measure structure.', units: [], unitCount: 0, components: {}, notAssessed: ['structure: under 1,200 words'], ...legacy };
+    const { units, source } = this._structureUnits(text, mode);
+    const notAssessed = [];
+    // Composition per unit from the passage classifier (every unit sums the passages inside it).
+    const classifier = typeof ProseContext !== 'undefined';
+    let passages = [];
+    if (classifier) { try { passages = ProseContext.classify(text); } catch (e) { passages = []; } }
+    for (const u of units) {
+      const tally = { dialogue: 0, action: 0, reflection: 0, description: 0, exposition: 0, mixed: 0 };
+      for (const p of passages) { if (p.start >= u.start && p.start < u.end) tally[p.mode] = (tally[p.mode] || 0) + p.wordCount; }
+      const classified = tally.dialogue + tally.action + tally.reflection + tally.description + tally.exposition;
+      u.classifiedShare = u.words ? Math.round(classified / u.words * 100) : 0;
+      const pct = n => classified ? Math.round(n / classified * 100) : null;
+      u.sceneShare = classified ? Math.round((tally.action + tally.dialogue) / classified * 100) : null;
+      u.actionShare = pct(tally.action); u.dialogueShare = pct(tally.dialogue); u.reflectionShare = pct(tally.reflection);
+      u.descriptionShare = pct(tally.description); u.expositionShare = pct(tally.exposition);
+      const sents = text.slice(u.start, u.end).match(/[^.!?]+[.!?]+/g) || [];
+      u.meanSentence = sents.length ? Math.round(u.words / sents.length * 10) / 10 : null;
+    }
+    const n = units.length;
+    const measured = units.filter(u => u.sceneShare != null);
+    const components = {};
+    // 1. Unit length holds to the book's own median (outliers under 0.3x or over 3x).
+    if (n >= 4) {
+      const sorted = units.map(u => u.words).sort((a, b) => a - b), median = sorted[n >> 1];
+      const outliers = units.filter(u => u.words < median * 0.3 || u.words > median * 3);
+      components.lengthControl = { value: 1 - outliers.length / n, applicable: true, median, outliers: outliers.map(u => u.label + ' (' + u.words.toLocaleString() + ' words)'), basis: outliers.length + ' of ' + n + ' units outside 0.3x to 3x the median of ' + median.toLocaleString() + ' words' };
+    } else notAssessed.push('unit length control: fewer than four units');
+    // 2. Rhythm: scene share varies across the book (full credit at a 25-point range).
+    let curve = null;
+    if (!classifier) notAssessed.push('scene/summary rhythm and arc shape: passage classifier unavailable');
+    else if (measured.length < 3) notAssessed.push('scene/summary rhythm and arc shape: fewer than three classified units');
+    else {
+      const shares = measured.map(u => u.sceneShare);
+      const peak = Math.max(...shares), low = Math.min(...shares), peakIdx = shares.indexOf(peak);
+      const half = Math.floor(shares.length / 2);
+      const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+      curve = { peakUnit: measured[peakIdx].label, peakIndex: peakIdx + 1, peakPosition: Math.round(peakIdx / Math.max(shares.length - 1, 1) * 100) / 100, peakShare: peak, lowShare: low, amplitude: peak - low, firstHalfMean: Math.round(mean(shares.slice(0, half))), secondHalfMean: Math.round(mean(shares.slice(half))), lastUnitShare: shares[shares.length - 1], release: shares[shares.length - 1] <= peak - 5 };
+      components.rhythm = { value: Math.min(1, curve.amplitude / 25), applicable: true, basis: 'scene share ranges ' + low + '% to ' + peak + '% across ' + measured.length + ' units (' + curve.amplitude + '-point range; full credit at 25)' };
+      // 3. Arc shape, full manuscripts only: the most scene-heavy stretch sits in the back half
+      // and the final unit comes down from it.
+      if (mode === 'book' && measured.length >= 4 && curve.amplitude < 5) notAssessed.push('arc shape: scene share is flat (under a 5-point range), so there is no peak to place');
+      else if (mode === 'book' && measured.length >= 4) {
+        const placement = curve.peakPosition >= 0.5 ? 1 : curve.peakPosition / 0.5;
+        components.shape = { value: 0.5 * placement + 0.5 * (curve.release ? 1 : 0), applicable: true, basis: 'most scene-heavy unit is ' + curve.peakUnit + ' (' + Math.round(curve.peakPosition * 100) + '% of the way through) \u00B7 final unit ' + (curve.release ? 'comes down ' + (peak - curve.lastUnitShare) + ' points from the peak' : 'is at the peak: no release measured') };
+      } else notAssessed.push('arc shape: ' + (mode === 'book' ? 'fewer than four classified units' : 'not a full manuscript'));
+    }
+    // 4. Cast persistence: named characters recur across units; the lead is present in most.
+    const cast = characters && characters.list ? characters.list : this.analyzeCharacters(text, genre).list;
+    const named = (cast || []).slice(0, 40);
+    let castInfo = { qualified: named.length, recurring: 0, lead: null, leadPresence: null, names: [] };
+    if (named.length >= 2 && n >= 2) {
+      const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      castInfo.names = named.map(c => { const re = new RegExp('\\b' + esc(c.name) + '\\b'); const inUnits = units.filter(u => re.test(text.slice(u.start, u.end))).length; return { name: c.name, units: inUnits, mentions: c.mentions }; });
+      castInfo.recurring = castInfo.names.filter(c => c.units >= 2).length;
+      castInfo.lead = castInfo.names[0].name; castInfo.leadPresence = Math.round(castInfo.names[0].units / n * 100);
+      for (const u of units) u.cast = castInfo.names.filter(c => new RegExp('\\b' + esc(c.name) + '\\b').test(text.slice(u.start, u.end))).map(c => c.name).slice(0, 8);
+      components.cast = { value: 0.5 * (castInfo.recurring / named.length) + 0.5 * (castInfo.names[0].units / n), applicable: true, basis: castInfo.recurring + ' of ' + named.length + ' named characters recur across units \u00B7 ' + castInfo.lead + ' present in ' + castInfo.names[0].units + ' of ' + n + ' units' };
+    } else notAssessed.push('cast persistence: fewer than two named characters');
+    const vals = Object.values(components).filter(c => c.applicable).map(c => c.value);
+    const score = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 100) : null;
+    return { score, applicable: score != null, arc: 'structure', mode: mode === 'book' ? 'book' : 'chapter',
+      methodology: 'Structure measured from the manuscript\'s units, the scene-versus-summary share of each unit (passage classifier), the placement of the most scene-heavy unit, unit-length control against the manuscript\'s own median, and cast persistence. Stakes, causality and character want are not measured.',
+      units: units.map(u => ({ label: u.label, words: u.words, sceneShare: u.sceneShare, actionShare: u.actionShare, dialogueShare: u.dialogueShare, reflectionShare: u.reflectionShare, descriptionShare: u.descriptionShare, expositionShare: u.expositionShare, classifiedShare: u.classifiedShare, meanSentence: u.meanSentence, cast: u.cast || [] })),
+      unitCount: n, unitSource: source, curve, cast: castInfo, components, notAssessed, ...legacy };
   },
 
   // ========================
@@ -1469,15 +1579,34 @@ const Analyzer = {
   // ========================
   // TRANSITION ANALYSIS
   // ========================
+  // A boundary is measured only between two prose paragraphs. A spoken line shares no
+  // content words with the line before it and needs no connective, so an exchange of
+  // dialogue is not a run of broken transitions; a chapter heading is not a paragraph at all.
+  // Those boundaries are counted and reported, never scored.
+  _paragraphKind(p){
+    const t=p.trim();
+    if(/^["“]/.test(t)||/["“][A-Z][^"”\n]{18,}[.,!?…][”"]/.test(t)) return 'dialogue';
+    if(/^(chapter|part|book|prologue|epilogue|interlude)\b/i.test(t)&&t.split(/\s+/).length<=12) return 'heading';
+    if(!/\n/.test(t)&&t.split(/\s+/).length<=8&&!/[.!?,;:]["”]?$/.test(t)) return 'heading';
+    return 'prose';
+  },
   analyzeTransitions(text) {
     const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
-    if(paragraphs.length<2) return {score:null,totalParagraphs:paragraphs.length,transitionsUsed:0,smoothTransitions:0,smoothRate:null,details:[],applicable:false};
+    const kinds=paragraphs.map(p=>this._paragraphKind(p));
+    const skipped={dialogue:0,heading:0};
+    const notMeasured=(reason)=>({score:null,totalParagraphs:paragraphs.length,measuredBoundaries:0,skipped,transitionsUsed:0,smoothTransitions:0,smoothRate:null,details:[],applicable:false,reason,metric:'supported prose-to-prose paragraph boundaries'});
+    if(paragraphs.length<2) return notMeasured('Fewer than two paragraphs.');
     const stop=new Set('the a an and or but of to in on at for from with by as is are was were be been being it this that these those he she they we you i his her their our your my not no do did does have has had'.split(' '));
     const contentWords=s=>(s.toLowerCase().match(/\b[a-z]{4,}\b/g)||[]).filter(w=>!stop.has(w));
     const transitionRe=/^(however|moreover|furthermore|meanwhile|consequently|therefore|nevertheless|nonetheless|additionally|similarly|conversely|in contrast|on the other hand|as a result|in addition|for example|for instance|in other words|in fact|indeed|likewise|accordingly|thus|hence|still|yet|also|then|next|finally|afterwards|later|before|after|during|while|although|though|even though|because|since|when|once|until|unless)\b/i;
     let transitionsUsed=0,smoothTransitions=0;
     const details=[];
     for(let i=1;i<paragraphs.length;i++){
+      if(kinds[i]!=='prose'||kinds[i-1]!=='prose'){
+        const why=(kinds[i]==='heading'||kinds[i-1]==='heading')?'heading':'dialogue';
+        skipped[why]++;
+        continue;
+      }
       const prev=contentWords(paragraphs[i-1]), curr=contentWords(paragraphs[i]);
       const prevSet=new Set(prev), currSet=new Set(curr);
       const shared=[...new Set(curr.filter(w=>prevSet.has(w)))];
@@ -1493,10 +1622,11 @@ const Analyzer = {
       if(supported) smoothTransitions++;
       details.push({fromParagraph:i,toParagraph:i+1,marker,sharedTerms:shared.slice(0,8),overlapScore:Math.round(overlap*100),pronounBridge,supported});
     }
+    if(details.length<3) return notMeasured('Fewer than three prose-to-prose paragraph boundaries ('+skipped.dialogue+' dialogue and '+skipped.heading+' heading boundaries were not measured).');
     const smoothRate=Math.round(smoothTransitions/details.length*100);
     // Score is explicitly the supported-boundary rate. No arbitrary +20 floor or bonus
     // for using a preferred percentage of transition words.
-    return {score:smoothRate,totalParagraphs:paragraphs.length,transitionsUsed,smoothTransitions,smoothRate,details,applicable:true,metric:'supported paragraph boundaries'};
+    return {score:smoothRate,totalParagraphs:paragraphs.length,measuredBoundaries:details.length,skipped,transitionsUsed,smoothTransitions,smoothRate,details,applicable:true,metric:'supported prose-to-prose paragraph boundaries'};
   },
 
   // ========================
@@ -1510,10 +1640,17 @@ const Analyzer = {
     const lengths=matches.map(d=>(d.match(/\b[\w’'-]+\b/g)||[]).length);
     const dialogueWords=lengths.reduce((a,b)=>a+b,0), ratio=dialogueWords/Math.max(totalWords,1)*100;
     if(isNF&&ratio<5)return {score:null,n_a:true,count:matches.length,ratio:+ratio.toFixed(1),applicable:false,findings:[],methodology:'Minimal nonfiction dialogue is descriptive only.'};
-    const tagRe=/[”"]\s*(said|asked|whispered|shouted|muttered|replied|exclaimed|declared|murmured|yelled|cried|answered|stated|remarked|noted|suggested|demanded|insisted|pleaded|warned|admitted|announced|argued|claimed|complained|confirmed|denied|explained|protested|responded|snapped|stammered)\b/gi;
+    // A density over a handful of lines is noise: one "Fine." in three lines is 33 per 100.
+    if(matches.length<10)return {score:null,n_a:true,count:matches.length,ratio:+ratio.toFixed(1),applicable:false,findings:[],methodology:'Fewer than ten dialogue lines; too few to score a density.'};
+    const speechVerbs='said|asked|whispered|shouted|muttered|replied|exclaimed|declared|murmured|yelled|cried|answered|stated|remarked|noted|suggested|demanded|insisted|pleaded|warned|admitted|announced|argued|claimed|complained|confirmed|denied|explained|protested|responded|snapped|stammered|added|sighed|laughed|called|repeated|growled|hissed|breathed|grumbled|urged|begged|inquired|echoed';
+    const tagRe=new RegExp('[”"]\\s*('+speechVerbs+')\\b','gi');
     const tags={}; for(const m of text.matchAll(tagRe)){const v=m[1].toLowerCase();tags[v]=(tags[v]||0)+1;}
     const totalTags=Object.values(tags).reduce((a,b)=>a+b,0),saidAsked=(tags.said||0)+(tags.asked||0);
-    const adverbTags=(text.match(/[”"]\s*\w+\s+\w+ly\b/gi)||[]).length;
+    // A tag adverb sits on a speech verb: "she said softly", "said Mary coldly". Any "-ly"
+    // word after any closing quote ("not only", "for only") is not one.
+    const notAdverb=/^(only|early|family|reply|supply|apply|holy|ugly|likely|lonely|friendly|lively|silly|jolly|belly|daily|elderly|kindly|lovely|deadly|costly|timely|italy|july|fly|ally|rally|bully|tally|folly|lily|jelly)$/i;
+    const tagAdverbRe=new RegExp('[”"]\\s*(?:\\w+\\s+){0,2}(?:'+speechVerbs+')\\s+(?:\\w+\\s+)?(\\w+ly)\\b|[”"]\\s*(?:\\w+\\s+){0,2}(\\w+ly)\\s+(?:'+speechVerbs+')\\b','gi');
+    let adverbTags=0; for(const m of text.matchAll(tagAdverbRe)){const w=m[1]||m[2];if(w&&!notAdverb.test(w))adverbTags++;}
     const smallTalk=matches.filter(d=>/^[“"]\s*(hi|hello|hey|how are you|good morning|good evening|goodbye|bye|thanks|thank you|okay|ok|yeah|yes|no|fine|right|well|hmm|oh)\s*[.!?]?[”"]$/i.test(d)).length;
     const expositionMarkers=(text.match(/[“"][^”"]*\b(as you know|as we discussed|as i mentioned|let me explain|you need to understand)\b[^”"]*[”"]/gi)||[]).length;
     const longLines=lengths.filter(n=>n>60).length;
@@ -1551,19 +1688,19 @@ const Analyzer = {
     for(let i=0;i<lowerWords.length;i+=window){const w=lowerWords.slice(i,i+window);if(w.length>=50)ttrs.push(new Set(w).size/w.length);}
     const lexicalDiversity=ttrs.length?mean(ttrs):(uniqueWords.size/Math.max(totalWords,1));
     const avgWordLen=mean(words.map(w=>w.length));
-    const firstPerson=(text.match(/\b(I|me|my|mine|myself)\b/g)||[]).length;
+    // Case-insensitive like the other two: "My" and "Me" at a sentence start are first person.
+    const firstPerson=(text.match(/\b(I|me|my|mine|myself)\b/gi)||[]).length;
     const secondPerson=(text.match(/\b(you|your|yours|yourself|yourselves)\b/gi)||[]).length;
     const thirdPerson=(text.match(/\b(he|she|they|him|her|them|his|hers|their|theirs)\b/gi)||[]).length;
-    const pov=firstPerson>Math.max(secondPerson,thirdPerson)*1.5?'First Person':secondPerson>Math.max(firstPerson,thirdPerson)*1.5?'Second Person':thirdPerson>Math.max(firstPerson,secondPerson)*1.5?'Third Person':'Mixed';
+    // A first-person narrator still says "he" and "she" of everyone else, so first person
+    // wins whenever it leads; the 1.5x margin applies only between second and third.
+    const pov=firstPerson>0&&firstPerson>=Math.max(secondPerson,thirdPerson)*0.6?'First Person':secondPerson>Math.max(firstPerson,thirdPerson)*1.5?'Second Person':thirdPerson>Math.max(firstPerson,secondPerson)*1.5?'Third Person':'Mixed';
     const sentenceStdDev=sd(sentLens),paragraphStdDev=sd(paraLens);
-    // Style score measures observable control/variety only. POV choice and average word
-    // length are descriptive traits, not quality points.
-    let score=100;
-    if(sentLens.length>=5 && sentenceStdDev<3) score-=20;
-    if(paraLens.length>=5 && paragraphStdDev<8) score-=15;
-    if(lexicalDiversity<0.45) score-=15;
-    if(lexicalDiversity<0.35) score-=15;
-    return {score:Math.max(0,Math.min(100,Math.round(score))),totalWords,uniqueWords:uniqueWords.size,lexicalDiversity:Math.round(lexicalDiversity*100),lexicalMetric:'MSTTR-100',avgWordLength:Math.round(avgWordLen*10)/10,avgSentenceLength:Math.round(mean(sentLens)*10)/10,sentenceLengthStdDev:Math.round(sentenceStdDev*10)/10,avgParagraphLength:Math.round(mean(paraLens)),paragraphLengthStdDev:Math.round(paragraphStdDev*10)/10,pov,pronouns:{first:firstPerson,second:secondPerson,third:thirdPerson},paragraphCount:paragraphs.length,sentenceCount:sentences.length};
+    // Style is described, not scored. The old score was 100 minus fixed penalties at
+    // thresholds real prose never crosses (MSTTR under 45%, sentence SD under 3), so every
+    // manuscript scored 100 and the dimension only inflated the overall. The measurements
+    // stay; a score returns when there is one that discriminates.
+    return {score:null,scored:false,totalWords,uniqueWords:uniqueWords.size,lexicalDiversity:Math.round(lexicalDiversity*100),lexicalMetric:'MSTTR-100',avgWordLength:Math.round(avgWordLen*10)/10,avgSentenceLength:Math.round(mean(sentLens)*10)/10,sentenceLengthStdDev:Math.round(sentenceStdDev*10)/10,avgParagraphLength:Math.round(mean(paraLens)),paragraphLengthStdDev:Math.round(paragraphStdDev*10)/10,pov,pronouns:{first:firstPerson,second:secondPerson,third:thirdPerson},paragraphCount:paragraphs.length,sentenceCount:sentences.length};
   },
 
   // ========================
@@ -1881,7 +2018,8 @@ const Analyzer = {
     const doubleRe = /\b(\w{2,})\s+\1\b/gi;
     let dm;
     while ((dm = doubleRe.exec(text)) !== null) {
-      if (/^(had|that|is|do|was|in|so|no)$/i.test(dm[1])) continue;
+      // "had had", "that that", and a double object ("gave her her own way") are grammar.
+      if (/^(had|that|is|do|was|in|so|no|her|him|them|us|me|you)$/i.test(dm[1])) continue;
       issues.push({
         type: 'grammar', text: dm[0], index: dm.index, length: dm[0].length,
         severity: 'high', confidence: 0.95,
@@ -1907,6 +2045,8 @@ const Analyzer = {
       while ((m = r.exec(text)) !== null) {
         const inDialogue = this._isInsideQuotes(text, m.index);
         if (inDialogue) continue;
+        // "as if she were", "I wish it were", "if he were": the subjunctive is correct.
+        if (/^were$/i.test(m[2]) && /\b(as if|as though|if|even if|wish|wished|wishes|wishing|suppose|supposing|though|unless|whether|lest)\s*$/i.test(text.slice(Math.max(0, m.index - 24), m.index))) continue;
         const fixed = p.fix.replace('$1', m[1]).replace('$2', m[2]);
         issues.push({
           type: 'grammar', text: m[0], index: m.index, length: m[0].length,
@@ -1921,6 +2061,9 @@ const Analyzer = {
     const capRe = /([.!?])\s+([a-z])/g;
     let cm;
     while ((cm = capRe.exec(text)) !== null) {
+      // Inside speech, "Eh! you mustn't" and "My word! she's" are the speaker's cadence,
+      // not a capitalisation error. The agreement rules skip quoted text; so does this one.
+      if (this._isInsideQuotes(text, cm.index)) continue;
       const before = text.substring(Math.max(0, cm.index - 15), cm.index + 1);
       if (/\.\.\.$/.test(before)) continue;
       // Single uppercase letter + period (U.S., A.M., D.C.)
@@ -1941,7 +2084,7 @@ const Analyzer = {
 
     // --- 4. DIALOGUE PUNCTUATION ---
     // Missing comma before dialogue tag: "Hello" he said
-    const dtagRe = /([.!?]?)("|")\s+(he|she|they|I|we|it|[A-Z][a-z]+)\s+(said|asked|whispered|shouted|yelled|muttered|replied|murmured|growled|hissed|snapped|stammered|called|cried|exclaimed|answered|demanded|pleaded|begged|insisted|warned|suggested|offered|added|continued|began|started|interrupted|responded|acknowledged|admitted|agreed|announced|argued|barked|bellowed|blurted|boasted|breathed|chanted|chided|chimed|choked|clucked|coaxed|commanded|commented|complained|conceded|concluded|confessed|confided|confirmed|croaked|crooned|cursed|declared|denied|drawled|echoed|elaborated|emphasized|encouraged|estimated|explained|faltered|gasped|giggled|gloated|grumbled|grunted|guessed|gulped|huffed|hummed|implored|informed|interjected|joked|lamented|laughed|lectured|lied|lisped|maintained|marveled|mentioned|mimicked|moaned|mocked|mumbled|mused|nagged|narrated|noted|objected|observed|ordered|panted|parroted|persisted|persuaded|piped|pondered|pouted|praised|prayed|pressed|proclaimed|promised|prompted|pronounced|proposed|protested|provoked|purred|quavered|quipped|quoted|ranted|reasoned|recalled|reckoned|recounted|reflected|refused|reminded|repeated|reported|requested|resumed|retorted|revealed|roared|sang|scoffed|scolded|screamed|sighed|slurred|smiled|smirked|sneered|snickered|sniffed|snorted|sobbed|speculated|spluttered|squeaked|squealed|stammered|stated|stuttered|surmised|taunted|teased|threatened|thundered|urged|uttered|ventured|vowed|wailed|warned|wept|whimpered|whined|whispered|wondered|worried|yawned)\b/g;
+    const dtagRe = /([.!?,]?)(["\u201D])\s+(he|she|they|I|we|it|[A-Z][a-z]+)\s+(said|asked|whispered|shouted|yelled|muttered|replied|murmured|growled|hissed|snapped|stammered|called|cried|exclaimed|answered|demanded|pleaded|begged|insisted|warned|suggested|offered|added|continued|began|started|interrupted|responded|acknowledged|admitted|agreed|announced|argued|barked|bellowed|blurted|boasted|breathed|chanted|chided|chimed|choked|clucked|coaxed|commanded|commented|complained|conceded|concluded|confessed|confided|confirmed|croaked|crooned|cursed|declared|denied|drawled|echoed|elaborated|emphasized|encouraged|estimated|explained|faltered|gasped|giggled|gloated|grumbled|grunted|guessed|gulped|huffed|hummed|implored|informed|interjected|joked|lamented|laughed|lectured|lied|lisped|maintained|marveled|mentioned|mimicked|moaned|mocked|mumbled|mused|nagged|narrated|noted|objected|observed|ordered|panted|parroted|persisted|persuaded|piped|pondered|pouted|praised|prayed|pressed|proclaimed|promised|prompted|pronounced|proposed|protested|provoked|purred|quavered|quipped|quoted|ranted|reasoned|recalled|reckoned|recounted|reflected|refused|reminded|repeated|reported|requested|resumed|retorted|revealed|roared|sang|scoffed|scolded|screamed|sighed|slurred|smiled|smirked|sneered|snickered|sniffed|snorted|sobbed|speculated|spluttered|squeaked|squealed|stammered|stated|stuttered|surmised|taunted|teased|threatened|thundered|urged|uttered|ventured|vowed|wailed|warned|wept|whimpered|whined|whispered|wondered|worried|yawned)\b/g;
     let dtm;
     while ((dtm = dtagRe.exec(text)) !== null) {
       if (dtm[1]) continue;
@@ -2249,10 +2392,10 @@ const Analyzer = {
       if(!supported&&flowEvidence.length<20) flowEvidence.push({fromSentence:i,toSentence:i+1,excerpt:sentences[i].slice(0,140)});
     }
     const unsupportedRate=unsupported/Math.max(sentences.length-1,1)*100;
-    // Word overlap between sentences is the wrong test for instructional and rhetorical prose
-    // (short punches, deliberate turns, anaphora): nonfiction is not scored on it.
-    let flowScore=isNF?null:clamp(100-Math.min(45,unsupportedRate*1.2));
-    if(!isNF&&unsupportedRate>25) findings.push({type:'flow',severity:'medium',count:unsupported,rate:+unsupportedRate.toFixed(1),message:unsupported+' sentence boundaries ('+unsupportedRate.toFixed(1)+'%) lack an explicit connector or repeated content term. Inspect these boundaries before revising.',evidence:flowEvidence});
+    // Word overlap between adjacent sentences is not a test of flow in any register: a
+    // published novel runs near 80% "unsupported" and floored at the maximum penalty. The
+    // counts stay as description; nothing is scored on them.
+    const flowScore=null;
 
     // Precision: normalize all penalties by manuscript length. Common words are candidates,
     // not automatically "bad"; the score responds only to unusually high density.
@@ -2290,9 +2433,10 @@ const Analyzer = {
     const shares={first:first/totalPronouns,second:second/totalPronouns,third:third/totalPronouns};
     const dominant=Object.entries(shares).sort((a,b)=>b[1]-a[1])[0][0];
     const sorted=Object.values(shares).sort((a,b)=>b-a);
+    // A first-person narrator who describes other people uses "he" and "she" constantly;
+    // a pronoun mix cannot tell that from a slip. The shares are reported, not scored.
     const mixedNarration=!isNF&&totalPronouns>=30&&sorted[0]<0.7&&sorted[1]>0.2;
-    const povScore=isNF?null:clamp(100-(mixedNarration?20:0));
-    if(mixedNarration) findings.push({type:'pov',severity:'low',message:'Narration pronouns are materially mixed (first '+Math.round(shares.first*100)+'%, second '+Math.round(shares.second*100)+'%, third '+Math.round(shares.third*100)+'%). This is a review candidate, not proof of a POV error.'});
+    const povScore=null;
 
     // Extraneous language: length-normalized candidate density. "That" and dialogue tags
     // are not automatically errors, so they remain telemetry instead of fixed penalties.
@@ -2304,17 +2448,15 @@ const Analyzer = {
     if(filterRate>3) findings.push({type:'extraneous',severity:'low',count:filterMatches.length,ratePerK:+filterRate.toFixed(1),message:filterMatches.length+' filter-phrase candidates ('+filterRate.toFixed(1)+' per 1K words). Review for places where the direct verb is stronger.'});
 
     const dims=[toneScore,precisionScore,pacingScore,extraneousScore];
-    if(flowScore!==null)dims.push(flowScore);
-    if(povScore!==null)dims.push(povScore);
     const score=clamp(mean(dims));
     return {
       score,applicable:true,
-      methodology:'Evidence-normalized line-editing model; counts are normalized by manuscript length and POV is advisory.',
+      methodology:'Evidence-normalized line-editing model over tone, precision, rhythm and extraneous language; counts are normalized by manuscript length. Sentence continuity and POV are described, not scored.',
       tone:{score:toneScore,formalWords:formal,casualWords:casual,registerMix,registerMixRate:+registerMixRate.toFixed(2)},
-      flow:{score:flowScore,advisory:isNF,unsupportedBoundaries:unsupported,unsupportedRate:+unsupportedRate.toFixed(1),evidence:flowEvidence},
+      flow:{score:flowScore,advisory:true,unsupportedBoundaries:unsupported,unsupportedRate:+unsupportedRate.toFixed(1),evidence:flowEvidence},
       precision:{score:precisionScore,vagueWords:vagueMatches.length,vagueRatePerK:+vagueRate.toFixed(1),redundantMods:redundant.length,redundantRatePerK:+redundantRate.toFixed(1)},
       pacing:{score:pacingScore,avgSentenceLength:+avgLen.toFixed(1),stdDev:+stdDev.toFixed(1),longDialogueParagraphs:longDialogue.length,longDialogueRate:+longDialogueRate.toFixed(1)},
-      pov:{score:povScore,advisory:isNF,dominant,firstPerson:first,secondPerson:second,thirdPerson:third,shares:{first:Math.round(shares.first*100),second:Math.round(shares.second*100),third:Math.round(shares.third*100)},mixedCandidate:mixedNarration},
+      pov:{score:povScore,advisory:true,dominant,firstPerson:first,secondPerson:second,thirdPerson:third,shares:{first:Math.round(shares.first*100),second:Math.round(shares.second*100),third:Math.round(shares.third*100)},mixedCandidate:mixedNarration},
       extraneous:{score:extraneousScore,filterPhrases:filterMatches.length,filterRatePerK:+filterRate.toFixed(1),thatCount,thatRatePerK:+thatRate.toFixed(1)},
       findings
     };
@@ -3445,7 +3587,9 @@ const Analyzer = {
   // COPY EDITING SCORE
   // ========================
   scoreCopyEditing(issues, totalWords) {
-    const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition','grammar']);
+    // Grammar has its own dimension and is not counted here a second time; this set is
+    // the same one the workbench lists under Copy Editing.
+    const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
     const copyIssues=issues.filter(i=>copyTypes.has(i.type));
     const perK=copyIssues.length/Math.max(totalWords,1)*1000;
     // A transparent density index: 0 validated findings = 100. The curve is monotonic
@@ -3572,7 +3716,8 @@ const Analyzer = {
     const narrativeWords = segmentation.narrativeWords;
 
     // STAGE 2: literary analysis — every narrative dimension reads narrative text only.
-    const plot = this.analyzePlot(aText, mode, genre);
+    const characters = this.analyzeCharacters(aText, genre);
+    const plot = this.analyzePlot(aText, mode, genre, characters);
     const transitions = this.analyzeTransitions(aText);
     const dialogue = this.analyzeDialogue(aText, genre);
     const style = this.analyzeStyle(aText);
@@ -3583,7 +3728,6 @@ const Analyzer = {
     // Backfill readerPerspective.dnfRisk from new engine for backward compat
     readerPerspective.dnfRisk = dnfAnalysis.dnf_risk;
     const pacing = this.analyzePacing(aText);
-    const characters = this.analyzeCharacters(aText, genre);
     const blurbs = this.generateBlurbs(aText, characters, genre, mode);
     const scifiWorld = this.analyzeSciFiWorldbuilding(aText, genre);
     const genreElements = this.analyzeGenreElements(aText, genre);

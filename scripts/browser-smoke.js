@@ -340,6 +340,25 @@ function pdf(){
     await page.locator('#genre-override').selectOption('selfHelp');
     assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getAnalysis().scores.dialogue),null);
     assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getText()),longBook,'Genre switches preserve source');
+    // A signed-in author who goes back to the homepage stays signed in: the nav offers the
+    // workspace, not Sign in, and the sign-up link the demo banner uses goes straight to the app.
+    await page.goto(base);
+    await page.locator('#nu:not(.hidden)').waitFor();
+    assert.equal(await page.locator('#nl').isVisible(),false,'no Sign in / Get started for a signed-in author');
+    assert.equal(await page.evaluate(()=>localStorage.getItem('ml_signed_in')),'1','the workspace leaves the session hint');
+    await page.goto(base+'/index.html#signup');
+    await page.waitForURL(/app\.html/);
+    await page.locator('#lib-loading.hidden').waitFor({state:'attached'});
+    // Sign out from the homepage nav: the signed-out buttons return and the hint is gone.
+    await page.goto(base);
+    await page.locator('#nav-signout').click();
+    await page.locator('#nl:not(.hidden)').waitFor();
+    assert.equal(await page.locator('#nu').isVisible(),false,'Open workspace hidden after sign-out');
+    assert.equal(await page.evaluate(()=>localStorage.getItem('ml_signed_in')),null,'sign-out clears the hint');
+    await page.locator('#nav-signin').click();
+    await page.locator('#auth-dialog[open]').waitFor();
+    await page.keyboard.press('Escape');
+    console.log('PASS returning author: homepage keeps the session, sign-up link opens the workspace, sign out from the nav');
     // Workspace demo: a visitor opens the real workspace on a public-domain sample with no
     // account, no cloud, no API call, and nothing left in browser storage.
     let apiCalls=0;page.on('request',req=>{if(req.url().includes('/api/'))apiCalls++;});

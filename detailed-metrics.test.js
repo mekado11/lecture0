@@ -48,8 +48,9 @@ test('a clean manuscript is not held under a hidden ceiling, and POV is N/A for 
   assert.equal(nf.flow.advisory,true);
   assert.ok(nf.score>=85,'the composite is over the applicable dimensions only: '+nf.score);
   const fic=Analyzer.analyzeLineEditing(Array(30).fill(plain).join('\n\n'),'literary');
-  assert.ok(fic.pov.score>=90,'consistent third person: '+fic.pov.score);
-  assert.ok(Number.isFinite(fic.flow.score),'fiction continuity is scored');
+  assert.equal(fic.pov.score,null,'POV shares are described, never scored');
+  assert.equal(fic.flow.score,null,'word overlap between sentences is not scored in fiction either');
+  assert.ok(Number.isFinite(fic.flow.unsupportedRate)&&fic.pov.shares,'the measurements are still reported');
 });
 
 test('self-help dimensions are rates: the same book five times over scores the same',()=>{

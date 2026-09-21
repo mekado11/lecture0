@@ -2,7 +2,8 @@
 firebase.initializeApp(FIREBASE_CONFIG);
 document.querySelectorAll('.faq-item').forEach(function(item){item.querySelector('.faq-q').addEventListener('click',function(){item.classList.toggle('open')})});
 document.querySelectorAll('.checkout-tier').forEach(function(btn){btn.addEventListener('click',async function(){
-  var user=firebase.auth().currentUser;
+  // Wait for the restored session rather than reading currentUser before Firebase has loaded it.
+  var user=await new Promise(function(resolve){var stop=firebase.auth().onAuthStateChanged(function(u){stop();resolve(u)})});
   if(!user){alert('Please sign in first at the home page');window.location.href='index.html';return}
   var plan=btn.dataset.plan;btn.textContent='Redirecting...';btn.disabled=true;
   try{
