@@ -55,8 +55,13 @@ test('fiction answers carry the basis they were chosen on, and missing beats are
     assert.ok(!INVENTED.test(bl.text),bl.style+' contains an invented line: '+bl.text);
     assert.ok(Number.isFinite(bl.gaps));
   }
-  // Every shape ends in something the author writes, never a stock closer.
-  assert.ok(b.blurbs.every(bl=>bl.gaps>=1),'each shape leaves at least the closing line to the author');
+  // The three shapes that used to end on a stock closer now end on a gap the author writes;
+  // the other two may end on a manuscript sentence when every beat was found.
+  for(const style of ['Question Hook','Stakes Forward','Cinematic']){
+    const bl=b.blurbs.find(x=>x.style===style);
+    assert.ok(bl.gaps>=1,style+' leaves its closing line to the author');
+    assert.match(bl.text,/\[[^\]]+\]\s*$/,style+' ends on a gap, not an invented line');
+  }
 });
 
 test('tone is a rate per thousand words, and a handful of dark words in a long book is not "dark"',()=>{
