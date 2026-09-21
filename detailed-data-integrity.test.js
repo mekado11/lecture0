@@ -53,7 +53,11 @@ test('nonfiction structure uses argument evidence and never fiction substitution
 });
 
 test('dialogue score reports observed candidates, not invented literary subscores',()=>{
-  const d=A.analyzeDialogue(fictionText(),{primary:'fiction'});
+  const one=A.analyzeDialogue(fictionText(),{primary:'fiction'});
+  assert.equal(one.applicable,false,'one line is too few to score a density');
+  assert.equal(one.score,null);
+  const lines=Array.from({length:12},(_,i)=>'"We leave at dawn and we take the north road, whatever the guards say," '+(i%2?'Mara':'Jonas')+' said.').join('\n\n');
+  const d=A.analyzeDialogue(fictionText()+'\n\n'+lines,{primary:'fiction'});
   assert.equal(d.applicable,true);
   assert.ok(Number.isFinite(d.score));
   assert.ok(Number.isFinite(d.candidateCount));
