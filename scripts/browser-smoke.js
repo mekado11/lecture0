@@ -113,6 +113,15 @@ function pdf(){
     await page.keyboard.press('Control+z');
     assert.equal(providerCalls,0,'No automatic paid calls on manuscript open');
     await page.screenshot({path:path.join(root,'test-results/editor-desktop.png')});
+    // Header: one row, the title leads, the meta line sits under it, and the header is a plane
+    // over the page (a shadow), not a second bar.
+    assert.equal(await page.locator('.author-metadata').count(),0,'the second header row is gone');
+    assert.ok(await page.locator('.author-document .document-meta #top-wc').count()===1,'word count sits under the title');
+    const headerStyle=await page.locator('.author-header').evaluate(el=>{const s=getComputedStyle(el);return {shadow:s.boxShadow,title:parseFloat(getComputedStyle(el.querySelector('#top-filename')).fontSize)}});
+    assert.ok(headerStyle.shadow!=='none','the header casts a shadow onto the page');
+    assert.ok(headerStyle.title>=18,'the title leads: '+headerStyle.title+'px');
+    assert.ok(!/Fantasy · Fantasy/.test(await page.locator('.author-header').innerText()),'the genre is not said twice');
+    console.log('PASS header: one row, title leads, layered depth, genre said once');
     // Inline suggestions: a list synonym is shown to weigh, never applied for the author,
     // and a finding set aside for its passage is drawn quietly with its reason.
     const weakVerb=page.locator('.hl[data-t="weak-verb"]:not(.hl-ctx)').first();
@@ -263,6 +272,14 @@ function pdf(){
     assert.match(nfRail,/Self-Help reader comes for/i,nfRail);
     assert.ok(!/Strong dialogue|Fast pacing|Build tension/.test(nfRail),'a self-help book is not judged against fiction goals');
     assert.match(await page.locator('#rp-scores').innerText(),/imperatives/,'self-help cards show the counts behind the score');
+    // Blurbs for nonfiction: material by role from the author's sentences, no protagonist.
+    await page.locator('.btab[data-p="blurbs"]').click();
+    await page.locator('#ed-blurbs .bm-row').first().waitFor();
+    await page.locator('#ed-blurbs').getByText('Write down a small experiment',{exact:false}).first().waitFor();
+    const blurbText=await page.locator('#ed-blurbs').innerText();
+    assert.match(blurbText,/Blurb material/);
+    assert.ok(!/protagonist|must face a choice|chance to survive/i.test(blurbText),'no fiction frame on a self-help book');
+    await page.locator('.btab[data-p="annotated"]').click();
     await page.locator('#rp-scores .rsc[data-cat="sh_evidence"]').click();
     await page.locator('#rp-detail .rpd-sub').filter({hasText:'fewest attributed claims'}).waitFor();
     assert.match(await page.locator('#rp-detail').innerText(),/Built from: .*evidence cues/);

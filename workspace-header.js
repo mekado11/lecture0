@@ -7,9 +7,15 @@
     'intel-open','save-btn','new-btn','export-btn','optional-checks-btn','signout-btn'];
   const controls = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
   header.classList.add('author-header');
+  // One row: the manuscript's title leads; the reading context and the counts sit under it as
+  // a meta line; the mark is the brand and Library is a quiet link beside it; one filled
+  // action, one outlined, and the two menus as text. Depth comes from the header being a
+  // plane over the page (one shadow), not from bevels.
   header.innerHTML = `
-    <div class="author-brand"><a href="index.html" aria-label="AuthorScrolls home"><img src="assets/mark.svg" alt="" width="30" height="30"><span class="brand">AuthorScrolls</span></a><span class="header-divider"></span><div data-slot="library"></div></div>
-    <div class="author-document"><span class="document-eyebrow">YOUR MANUSCRIPT</span><div data-slot="title"></div></div>
+    <div class="author-brand"><a href="index.html" aria-label="AuthorScrolls home" title="AuthorScrolls"><img src="assets/mark.svg" alt="" width="30" height="30"></a><div data-slot="library"></div></div>
+    <div class="author-document"><span class="document-eyebrow">YOUR MANUSCRIPT</span><div data-slot="title"></div>
+      <div class="document-meta"><div class="manuscript-context"><label for="genre-override">Reading as</label><div data-slot="genre"></div><span class="metadata-dot">·</span><div data-slot="status"></div></div><span class="metadata-dot">·</span><div class="manuscript-metrics"><span><b data-slot="words"></b> words</span><span class="metadata-dot">·</span><span class="health-indicator" title="Deterministic editing signals, not a verdict on your voice. AI advice does not change this score.">Editing signals <b data-slot="score"></b><span data-slot="delta"></span></span></div></div>
+    </div>
     <nav class="author-actions" aria-label="Manuscript actions">
       <span id="save-state" role="status" aria-live="polite">Cloud manuscript</span>
       <div data-slot="save"></div><div data-slot="intelligence"></div>
@@ -19,8 +25,7 @@
       <details class="header-menu"><summary aria-label="Account and help">Account <span aria-hidden="true">⌄</span></summary>
         <div class="header-menu-panel" id="account-actions"><span class="menu-label">YOUR WORKSPACE</span><a href="profile.html">Profile & preferences</a><a href="pricing.html">Plan & billing</a><a href="faq.html">Help & resources</a></div>
       </details>
-    </nav>
-    <div class="author-metadata"><div class="manuscript-context"><label for="genre-override">Reading as</label><div data-slot="genre"></div><span class="metadata-dot">·</span><div data-slot="status"></div></div><div class="manuscript-metrics"><span><b data-slot="words"></b> words</span><span class="metadata-dot">·</span><span class="health-indicator" title="Deterministic editing signals, not a verdict on your voice. AI advice does not change this score.">Editing signals <b data-slot="score"></b><span data-slot="delta"></span></span></div></div>`;
+    </nav>`;
   const place = (slot,id,label) => {
     const el=controls[id];if(!el)return;
     if(label)el.textContent=label;
@@ -29,7 +34,7 @@
   place('library','new-btn','Library');
   place('title','top-filename');place('status','top-status');place('genre','genre-override');
   place('words','top-wc');place('score','top-score');place('delta','top-delta');
-  place('save','save-btn','Save');place('intelligence','intel-open','Intelligence');
+  place('save','save-btn','Save');place('intelligence','intel-open','✦ Intelligence');
   for (const [id,label] of [['export-btn','Export manuscript'],['optional-checks-btn','Optional AI & grammar checks']]) {
     if(controls[id]){controls[id].textContent=label;document.getElementById('document-actions').append(controls[id]);}
   }

@@ -317,7 +317,9 @@ function renderAll(){
   _renderSubScores(r);
   // Topbar genre shows the user-overridden label (secondary cleared on override)
   if(activeGenre&&r.genre)r.genre.secondary=null;
-  $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
+  // The genre select beside this already shows the chosen genre; repeat it only when the
+  // genre was detected rather than chosen, since the select then reads "Auto-detect".
+  $('top-status').textContent=(activeGenre?'':(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 ')+(r.manuscriptMode?.label||'');
 
   renderSceneIntel(r);
   // Book preview now renders on-demand when the Preview tab is activated — not here
@@ -865,7 +867,10 @@ function updateScoresOnly(r){
   _renderSubScores(r);
   // Topbar
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
-  $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
+  // Same rule as renderAll: the select already shows a chosen genre, so only a detected one is
+  // repeated here. (activeGenre is renderAll's local; it is not in scope in this function.)
+  const chosenGenre=($('genre-override')&&$('genre-override').value)||($('genre-select')&&$('genre-select').value)||'';
+  $('top-status').textContent=(chosenGenre?'':(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 ')+(r.manuscriptMode?.label||'');
   drawGauge(r.overall||0);
   $('top-score').textContent=r.overall||0;
 
@@ -1804,55 +1809,76 @@ function renderBlurbs(r){
   const d=$('ed-blurbs');if(!d||!r)return;d.className='ms-page dark-page';
   const b=r.blurbs;
   if(!b||!b.available){
-    d.innerHTML='<div class="a-sec"><h3>Blurb Generator</h3><p style="color:var(--muted);font-size:.85rem">'+(b?.reason||'Upload a full manuscript to generate blurb suggestions.')+'</p><p style="color:var(--dim);font-size:.75rem;margin-top:.5rem">Blurbs are generated for books and manuscripts over 5,000 words. The engine extracts your story\'s core elements — protagonist, conflict, stakes — and assembles 5 variations in different styles.</p></div>';
+    d.innerHTML='<div class="a-sec"><h3>Blurb Generator</h3><p style="color:var(--muted);font-size:.85rem">'+(b?.reason||'Upload a full manuscript to generate blurb suggestions.')+'</p><p style="color:var(--dim);font-size:.75rem;margin-top:.5rem">Blurbs are generated for books and manuscripts over 5,000 words.</p></div>';
     return;
   }
-  let h='<div class="a-sec"><h3>Blurb Generator</h3>';
-  h+='<div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:.75rem;font-size:.72rem;color:var(--muted)">';
-  h+='<span>Protagonist: <strong style="color:var(--gold-l)">'+esc(b.protagonist)+'</strong></span>';
-  if(b.antagonist)h+='<span>Antagonist: <strong style="color:var(--red)">'+esc(b.antagonist)+'</strong></span>';
-  h+='<span>Tone: <strong style="color:var(--text)">'+esc(b.toneDetected)+'</strong></span>';
-  h+='<span>Words: <strong>'+b.wordCount.toLocaleString()+'</strong></span>';
-  h+='</div></div>';
-
-  // 6-question framework breakdown
+  const tone=b.toneRates?Object.entries(b.toneRates).map(([k,v])=>k+' '+v+'/1K').join(' \u00B7 ')+(b.toneDetected?' \u2192 '+b.toneDetected:''):'';
+  let h='';
+  if(b.kind==='material'){
+    // Nonfiction: material by role, from the author's own sentences. No protagonist, no crisis.
+    h+='<div class="a-sec"><h3>Blurb material</h3><div class="bm-meta"><span>Words: <strong>'+b.wordCount.toLocaleString()+'</strong></span>'+(tone?'<span title="Tone vocabulary per 1,000 words">Tone vocabulary: '+esc(tone)+'</span>':'')+'</div><p class="bm-note">'+esc(b.note||'')+'</p></div>';
+    const section=(title,rows,empty)=>'<div class="a-sec"><h3>'+esc(title)+'</h3>'+(rows.length?rows.map(row=>'<div class="bm-row"><div class="bm-text">\u201C'+esc(row.text)+'\u201D</div><div class="bm-src">'+esc(row.section||'')+'</div></div>').join(''):'<p class="bm-empty">'+esc(empty)+'</p>')+'</div>';
+    for(const key of ['promise','problem','audience','authorStake']){
+      const m=b.material[key];if(!m)continue;
+      h+=section(m.label,m.rows,'No sentence in the manuscript matched this role. If the book does this, it does it in words the engine does not recognise \u2014 or it is worth writing.');
+    }
+    h+='<div class="a-sec"><h3>The method</h3><div id="bm-method" class="bm-empty">Reading chapters\u2026</div></div>';
+    h+='<div class="a-sec"><h3>The proof</h3><div id="bm-proof" class="bm-empty">Reading chapters\u2026</div></div>';
+    d.innerHTML=h;
+    _renderBlurbMaterialFromIntel(r);
+    return;
+  }
+  h+='<div class="a-sec"><h3>Blurb Generator</h3><div class="bm-meta">';
+  if(b.protagonist)h+='<span>Protagonist: <strong style="color:var(--gold-l)">'+esc(b.protagonist)+'</strong></span>';
+  else h+='<span>Protagonist: <em style="color:var(--dim)">no recurring name found</em></span>';
+  if(b.antagonist)h+='<span>Second lead: <strong style="color:var(--red)">'+esc(b.antagonist)+'</strong></span>';
+  if(tone)h+='<span title="Tone vocabulary per 1,000 words">Tone vocabulary: <strong style="color:var(--text)">'+esc(tone)+'</strong></span>';
+  h+='<span>Words: <strong>'+b.wordCount.toLocaleString()+'</strong></span></div></div>';
   const fw=b.framework;
-  h+='<div class="a-sec"><h3>Story Framework <span style="font-size:.7rem;color:var(--muted);font-weight:400">(extracted from manuscript)</span></h3>';
+  h+='<div class="a-sec"><h3>Story Framework <span style="font-size:.7rem;color:var(--muted);font-weight:400">each answer says how it was chosen</span></h3>';
   const questions=[
-    {q:'What does the character want?',a:fw.statusQuo},
-    {q:'How does it change?',a:fw.incitingIncident},
-    {q:'How does it get worse?',a:fw.conflict},
-    {q:'How do they try to fix it?',a:fw.attempt},
-    {q:'How does that make it worse?',a:fw.crisis},
-    {q:'What is at stake?',a:fw.stakes}
+    {q:'What does the character want?',a:fw.statusQuo},{q:'How does it change?',a:fw.incitingIncident},{q:'How does it get worse?',a:fw.conflict},
+    {q:'How do they try to fix it?',a:fw.attempt},{q:'How does that make it worse?',a:fw.crisis},{q:'What is at stake?',a:fw.stakes}
   ];
   questions.forEach((q,i)=>{
-    h+='<div style="margin-bottom:.5rem"><div style="font-size:.72rem;color:var(--gold);font-weight:600;margin-bottom:.15rem">Q'+(i+1)+': '+q.q+'</div><div style="font-size:.8rem;color:'+(q.a?'var(--text)':'var(--dim)')+';padding-left:.6rem;border-left:2px solid var(--border)">'+(q.a?esc(q.a):'<em>Could not extract — try adding clearer story beats</em>')+'</div></div>';
+    const ans=q.a||{};
+    h+='<div style="margin-bottom:.55rem"><div style="font-size:.72rem;color:var(--gold);font-weight:600;margin-bottom:.15rem">Q'+(i+1)+': '+q.q+'</div>'
+      +'<div style="font-size:.8rem;color:'+(ans.text?'var(--text)':'var(--dim)')+';padding-left:.6rem;border-left:2px solid var(--border)">'+(ans.text?esc(ans.text):'<em>No sentence found</em>')+'</div>'
+      +'<div class="bm-basis">'+esc(ans.basis||'')+'</div></div>';
   });
   h+='</div>';
-
-  // 5 Blurb variations
   b.blurbs.forEach((bl,i)=>{
-    h+='<div class="a-sec blurb-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem"><h3 style="margin:0">'+esc(bl.style)+'</h3><span style="font-size:.65rem;color:var(--muted)">'+bl.wordCount+' words</span></div>';
+    h+='<div class="a-sec blurb-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem"><h3 style="margin:0">'+esc(bl.style)+'</h3><span style="font-size:.65rem;color:var(--muted)">'+bl.wordCount+' words'+(bl.gaps?' \u00B7 '+bl.gaps+' gap'+(bl.gaps===1?'':'s')+' to write':'')+'</span></div>';
     h+='<div style="font-size:.7rem;color:var(--dim);margin-bottom:.5rem;font-style:italic">'+esc(bl.description)+'</div>';
-    h+='<div class="blurb-text" id="blurb-'+i+'">'+esc(bl.text).replace(/\n/g,'<br>')+'</div>';
+    // Gaps are the beats the manuscript did not supply a sentence for; they are yours to write.
+    const body=esc(bl.text).replace(/\[([^\]]+)\]/g,'<span class="blurb-gap">$1</span>').replace(/\n/g,'<br>');
+    h+='<div class="blurb-text" id="blurb-'+i+'">'+body+'</div>';
     h+='<div style="display:flex;gap:.3rem;margin-top:.5rem"><button class="btn-dark blurb-copy" data-idx="'+i+'" style="font-size:.7rem;padding:.25rem .6rem">Copy</button><button class="btn-dark blurb-edit" data-idx="'+i+'" style="font-size:.7rem;padding:.25rem .6rem">Edit</button></div>';
     h+='</div>';
   });
-
   d.innerHTML=h;
-
-  // Copy buttons
   d.querySelectorAll('.blurb-copy').forEach(btn=>{btn.addEventListener('click',()=>{
     const idx=btn.dataset.idx;const el=$('blurb-'+idx);
     navigator.clipboard.writeText(el.textContent);btn.textContent='Copied!';setTimeout(()=>{btn.textContent='Copy'},1500);
   })});
-  // Edit buttons - make blurb editable
   d.querySelectorAll('.blurb-edit').forEach(btn=>{btn.addEventListener('click',()=>{
     const idx=btn.dataset.idx;const el=$('blurb-'+idx);
     if(el.contentEditable==='true'){el.contentEditable='false';el.style.outline='';btn.textContent='Edit'}
     else{el.contentEditable='true';el.style.outline='1px solid var(--gold-d)';el.style.outlineOffset='4px';el.focus();btn.textContent='Done'}
   })});
+}
+// The method and the proof come from Document Intelligence's per-chapter extraction (explicit
+// actions; attributed claims and personal evidence), the same rows the Intelligence window shows.
+function _renderBlurbMaterialFromIntel(r){
+  if(typeof IntelligenceWindow==='undefined'||typeof IntelligenceWindow.data!=='function'){$('bm-method')?.remove();$('bm-proof')?.remove();return}
+  IntelligenceWindow.data(data=>{
+    const method=$('bm-method'),proof=$('bm-proof');if(!method&&!proof)return;
+    const nf=data&&data.intel&&data.intel.nonfiction;const chapters=(data&&data.parsed&&data.parsed.chapters)||[];
+    const title=id=>{const c=chapters.find(x=>x.id===id);return c?(c.title||c.id):''};
+    const rows=(list,n)=>(list||[]).slice(0,n).map(row=>'<div class="bm-row"><div class="bm-text">\u201C'+esc(row.text||row.evidence||'')+'\u201D</div><div class="bm-src">'+esc(title(row.chapterId))+'</div></div>').join('');
+    if(method)method.outerHTML=nf&&(nf.actions||[]).length?rows(nf.actions,5):'<p class="bm-empty">No explicit action was found. If the book gives the reader something to do, it is worth saying so in a sentence the cover can quote.</p>';
+    if(proof)proof.outerHTML=nf&&((nf.claims||[]).length||(nf.personalEvidence||[]).length)?rows(nf.claims,4)+rows(nf.personalEvidence,3):'<p class="bm-empty">No attributed claim or personal evidence was found.</p>';
+  },extractedText,r);
 }
 
 // TABS (bottom)
