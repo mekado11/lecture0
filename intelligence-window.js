@@ -36,6 +36,7 @@ const IntelligenceWindow = (() => {
     if (!text.trim()) return null;
     const analysis = window.AuthorScrollsEditor?.getAnalysis();
     latest = { ...IntelligencePipeline.build(text, analysis), analysis, sig: analysisSignature(analysis) };
+    noteChapters(latest);
     return latest;
   }
   // Building the pipeline on a large manuscript (chapter parsing + a POV/character
@@ -59,11 +60,24 @@ const IntelligenceWindow = (() => {
     IntelligencePipeline.buildAsync(text, analysis).then(result => {
       if (token !== buildToken) return; // superseded by a newer request — discard
       latest = { ...result, analysis, sig: analysisSignature(analysis) };
+      noteChapters(latest);
       onReady(latest);
     }).catch(() => { if (token === buildToken) onReady(build()); });
   }
   const empty = text => `<p class="workspace-nav-hint">${esc(text)}</p>`;
-  const evidence = rows => rows.map(row => `<small>${esc(row.chapterId || '')} · ${esc(row.text || row.evidence || '')}</small>`).join('');
+  // Internal identifiers never reach the author: a chapter is named by its title, and a
+  // row's provenance is said in words ("a term the author coined"), not as a source key.
+  const chapterTitles = new Map();
+  function noteChapters(data) {
+    chapterTitles.clear();
+    ((data && data.parsed && data.parsed.chapters) || []).forEach(c => chapterTitles.set(c.id, c.title || c.id));
+  }
+  const chapterLabel = id => chapterTitles.get(id) || String(id || '').replace(/^chapter-0*(\d+)$/, 'Chapter $1');
+  const SOURCE_WORDS = { author_named_concept: 'a term the author coined', explicit_action: 'an explicit action',
+    explicit_reflection_question: 'a reflection question', explicit_recommendations: 'a recommendation',
+    deterministic: 'measured from the text', languagetool: 'grammar check' };
+  const sourceLabel = s => SOURCE_WORDS[s] || String(s || '').replace(/_/g, ' ');
+  const evidence = rows => rows.map(row => `<small>${esc(chapterLabel(row.chapterId))} · ${esc(row.text || row.evidence || '')}</small>`).join('');
   let renderToken = 0;
   function render() {
     const host = $('intel-body');
@@ -85,7 +99,7 @@ const IntelligenceWindow = (() => {
     if(nf){
       const groups=[['Concepts',nf.concepts],['Attributed claims',nf.claims],['Personal evidence',nf.personalEvidence],['Reflection questions',nf.reflectionQuestions],['Actions',nf.actions],['Recommendations',nf.recommendations]];
       host.innerHTML='<p class="workspace-nav-hint">Nonfiction intelligence · Source-linked signals for your review, not fact-checking or a judgment of your voice.</p>'+
-        groups.map(([label,rows])=>`<section><h4>${label} <small>${rows.length}</small></h4>${rows.slice(0,12).map(row=>`<article><b>${esc(row.name||row.text||row.evidence)}</b><small>${esc(row.chapterId)} · ${esc(row.source)}</small></article>`).join('')||empty('No explicit signals detected. This does not mean your book lacks them.')}</section>`).join('');
+        groups.map(([label,rows])=>`<section><h4>${label} <small>${rows.length}</small></h4>${rows.slice(0,12).map(row=>`<article><b>${esc(row.name||row.text||row.evidence)}</b><small>${esc(chapterLabel(row.chapterId))} · ${esc(sourceLabel(row.source))}</small></article>`).join('')||empty('No explicit signals detected. This does not mean your book lacks them.')}</section>`).join('');
     }else{
     const sections = [
       ['Characters', i.characterLedger.characters.slice(0,12).map(c => `<article><b>${esc(c.name)}</b><small>${c.mentions} mentions · ${c.chapterIds.length} chapters</small>${c.facts.slice(0,2).map(f=>`<small>${esc(f.predicate)} ${esc(f.object)}</small>`).join('')}</article>`).join('')],
@@ -295,7 +309,7 @@ const IntelligenceWindow = (() => {
     }
     if(nf&&(mode==='characters'||mode==='threads')){
       const rows=mode==='characters'?nf.concepts:[...nf.claims,...nf.personalEvidence];
-      host.innerHTML=rows.map(c=>item('data-chapter',c.chapterId,c.name||c.evidence,c.chapterId+' · '+c.source)).join('')||empty('No explicit evidence detected. Review the source text.');
+      host.innerHTML=rows.map(c=>item('data-chapter',c.chapterId,c.name||c.evidence,chapterLabel(c.chapterId)+' · '+sourceLabel(c.source))).join('')||empty('No explicit evidence detected. Review the source text.');
     }
     else if(mode==='characters')host.innerHTML=data.intel.characterLedger.characters.map(c=>item('data-character',c.id,c.name,`${c.chapterIds.length} chapters · ${c.threads.length} threads`)).join('')||empty('No recurring characters detected.');
     else if(mode==='threads')host.innerHTML=data.intel.narrativeMomentum.arcs.map(t=>item('data-thread',t.id,t.label,`${t.pressure} · ${t.recurrence} signals`)).join('')||empty('No narrative threads detected.');
@@ -390,9 +404,10 @@ const IntelligenceWindow = (() => {
     if (latest && latest.text === text && latest.sig === sig) { onReady(latest); return; }
     IntelligencePipeline.buildAsync(text, analysis).then(result => {
       latest = { ...result, analysis, sig };
+      noteChapters(latest);
       onReady(latest);
     }).catch(() => {
-      try { latest = { ...IntelligencePipeline.build(text, analysis), analysis, sig }; onReady(latest); }
+      try { latest = { ...IntelligencePipeline.build(text, analysis), analysis, sig }; noteChapters(latest); onReady(latest); }
       catch (_) { onReady(null); }
     });
   }
