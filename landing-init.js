@@ -3,8 +3,13 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const dialog = $('auth-dialog');
-  let mode = 'signin', busy = false, authPromise = null, currentUser = null;
+  let mode = 'signin', busy = false, authPromise = null, currentUser = null, firstState = null;
   let returnFocus = null;
+  // The workspace sets this hint on sign-in and clears it on sign-out. It only decides whether the
+  // homepage loads the auth SDK before anyone clicks; Firebase itself says whether a session exists.
+  const SESSION_HINT = 'ml_signed_in';
+  function hasSessionHint() { try { return localStorage.getItem(SESSION_HINT) === '1'; } catch (_) { return false; } }
+  function setSessionHint(on) { try { on ? localStorage.setItem(SESSION_HINT, '1') : localStorage.removeItem(SESSION_HINT); } catch (_) { /* storage blocked */ } }
   const root = document.documentElement;
   function setTheme(theme) {
     root.dataset.theme = theme;
@@ -37,23 +42,38 @@
       if (typeof FIREBASE_CONFIG === 'undefined') await loadScript('firebase-config.js');
       if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
       const auth = firebase.auth();
-      auth.onAuthStateChanged(user => {
+      firstState = new Promise(resolve => auth.onAuthStateChanged(user => {
         currentUser = user;
+        setSessionHint(!!user);
         $('nl').classList.toggle('hidden', !!user);
         $('nu').classList.toggle('hidden', !user);
-      });
+        resolve(user);
+      }));
       return auth;
-    })().catch(error => { authPromise = null; throw error; });
+    })().catch(error => { authPromise = null; $('nl').classList.remove('hidden'); throw error; });
     return authPromise;
   }
+  // Who is here? Null for a visitor with no session hint (no SDK load, no wait); otherwise the
+  // restored user once Firebase has reported, or null if it cannot within a few seconds.
+  function knownUser() {
+    if (currentUser) return Promise.resolve(currentUser);
+    if (!hasSessionHint()) return Promise.resolve(null);
+    return Promise.race([
+      getAuth().then(() => firstState),
+      new Promise(resolve => setTimeout(() => resolve(null), 5000))
+    ]).catch(() => null);
+  }
+  // A returning author sees "Open workspace", not "Sign in": load auth now instead of on click, and
+  // keep the signed-out buttons out of sight until Firebase has answered.
+  if (hasSessionHint()) { $('nl').classList.add('hidden'); knownUser().then(user => { if (!user) $('nl').classList.remove('hidden'); }); }
   function message(text) { $('auth-message').textContent = text; }
   function setBusy(value) {
     busy = value;
     ['auth-submit','google-signin','auth-toggle','forgot-password'].forEach(id => $(id).disabled = value);
     $('auth-submit').textContent = value ? 'Please wait…' : mode === 'signup' ? 'Create account' : mode === 'reset' ? 'Send reset email' : 'Sign in';
   }
-  function showAuth(nextMode = 'signin') {
-    if (currentUser && nextMode !== 'reset') { location.href = 'app.html'; return; }
+  async function showAuth(nextMode = 'signin') {
+    if (nextMode !== 'reset' && await knownUser()) { location.href = 'app.html'; return; }
     mode = nextMode;
     $('auth-title').textContent = mode === 'signup' ? 'Begin your story.' : mode === 'reset' ? 'A fresh start.' : 'Welcome back.';
     $('auth-subtitle').textContent = mode === 'signup' ? 'Create your free writing workspace.' : mode === 'reset' ? 'We’ll email you a password reset link.' : 'Sign in to return to your manuscripts.';
@@ -106,6 +126,7 @@
           const name = $('auth-name').value.trim();
           if (name) await credential.user.updateProfile({ displayName: name });
         } else await auth.signInWithEmailAndPassword(email, password);
+        setSessionHint(true);
         location.href = 'app.html';
       }
     } catch (error) { message(errors[error.code] || 'Unable to complete sign-in. Please try again.'); }
@@ -117,6 +138,7 @@
     try {
       const auth = await getAuth();
       await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+      setSessionHint(true);
       location.href = 'app.html';
     } catch (error) {
       if (error.code !== 'auth/popup-closed-by-user') message(errors[error.code] || 'Google sign-in did not complete. Try again or use email.');
