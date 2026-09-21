@@ -2,7 +2,7 @@
 'use strict';
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path');
 const root=__dirname;
-const mime={'.html':'text/html','.css':'text/css','.js':'application/javascript','.mjs':'application/javascript','.webp':'image/webp','.png':'image/png','.svg':'image/svg+xml','.ico':'image/x-icon','.json':'application/json'};
+const mime={'.txt':'text/plain; charset=utf-8','.html':'text/html','.css':'text/css','.js':'application/javascript','.mjs':'application/javascript','.webp':'image/webp','.png':'image/png','.svg':'image/svg+xml','.ico':'image/x-icon','.json':'application/json'};
 const apiRoutes=new Set(['claude','checkout','webhook','grammar','redeem','notify','account']);
 const publicFiles=new Set(fs.readdirSync(root).filter(name=>
   /\.(html|css|js)$/.test(name)&&!name.endsWith('.test.js')&&!['server.js'].includes(name)
@@ -30,7 +30,8 @@ const server=http.createServer(async(req,res)=>{
   }
   if(!['GET','HEAD'].includes(req.method)){res.status(405).end();return;}
   const relative=pathname==='/'?'index.html':pathname.slice(1);
-  const asset=/^assets\/[a-zA-Z0-9_.-]+\.(webp|png|svg|ico|js|mjs)$/.test(relative);
+  // Public assets: flat files, plus the workspace demo's public-domain samples.
+  const asset=/^assets\/[a-zA-Z0-9_.-]+\.(webp|png|svg|ico|js|mjs)$/.test(relative)||/^assets\/samples\/[a-zA-Z0-9_-]+\.txt$/.test(relative);
   if(!publicFiles.has(relative)&&!asset){res.status(404).end('Not found');return;}
   try{
     const content=await fs.promises.readFile(path.join(root,relative));
