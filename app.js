@@ -311,8 +311,8 @@ function renderAll(){
   {const gc=$('gauge-cats');if(gc){
     const gp=r.genre?.primary;
     gc.innerHTML=gp==='selfHelp'?'Insight &middot; Clarity &middot; Momentum &middot; Evidence'
-      :Analyzer.isNonfiction(r.genre)?'Structure &middot; Clarity &middot; Pacing &middot; Authority'
-      :'Plot &middot; Clarity &middot; Pacing &middot; Dialogue';
+      :Analyzer.isNonfiction(r.genre)?'Clarity &middot; Copy &middot; Grammar &middot; Line editing'
+      :'Clarity &middot; Dialogue &middot; Copy &middot; Show vs tell';
   }}
   _renderSubScores(r);
   // Topbar genre shows the user-overridden label (secondary cleared on override)
@@ -613,13 +613,9 @@ function renderSceneIntel(r){
       if(mix.mixed>=5)h+='<div class="si-row"><span class="si-label">Unclassified</span><span class="si-val">'+mix.mixed+'%</span></div>';
     }else h+='<div class="si-row"><span class="si-label">Too little text to classify</span></div>';
   }else h+='<div class="si-row"><span class="si-label">Not available</span></div>';
-  // Fiction only: scene share (action + dialogue) across the last two structural units.
-  const su=(r.plot&&r.plot.units)||[];
-  if(!isNF&&su.length>=2&&Number.isFinite(su[su.length-1].sceneShare)&&Number.isFinite(su[su.length-2].sceneShare)){
-    const last=su[su.length-1].sceneShare,prev=su[su.length-2].sceneShare;
-    const dir=last>prev+5?'Rising':last<prev-5?'Falling':'Steady';
-    h+='<div class="si-row" title="Share of each unit that is action or dialogue, second-to-last unit to last"><span class="si-label">Scene share, last two units</span><span class="si-val">'+dir+' \u00b7 '+prev+'%\u2192'+last+'%</span></div>';
-  }
+  // Structure: the first thing an editor would point at, if there is one.
+  const sf=((r.plot&&r.plot.findings)||[]).find(f=>!f.info);
+  if(sf)h+='<div class="si-row" title="'+escA(sf.text)+'"><span class="si-label">Structure</span><span class="si-val">'+esc(sf.title)+'</span></div>';
   h+='</div>';
   h+='<div id="lp-start" class="lp-cards"></div>'; // filled by renderLeft: the one "Start here" card
   h+='<div class="focus-toggle" id="focus-toggle">Focus Mode <span class="focus-badge off">OFF</span></div>';
@@ -923,15 +919,15 @@ function _dimensionCards(r){
       {k:'sh_evidence', name:'Evidence & Support',    score:Math.round(sh.evidenceSupport||0),     density:null,issues:0,weight:'5%', evidence:ev.evidence}
     ];
   }
-  const p=r.plot||{};const su=p.units||[];
-  const plotEv=isNF
-    ? (p.thesisSignals||0)+' thesis \u00B7 '+(p.evidenceSignals||0)+' evidence \u00B7 '+(p.transitionSignals||0)+' transition \u00B7 '+(p.synthesisSignals||0)+' synthesis signals'
-    : (su.length?'scene share by '+(p.unitSource==='chapter'?'chapter':p.unitSource==='scene-break'?'scene':'segment')+' '+su.map(u=>u.sceneShare==null?'\u2014':u.sceneShare+'%').join(' \u2192 ')+(p.curve?' \u00B7 peak '+p.curve.peakUnit:''):'');
+  const p=r.plot||{};
+  // Structure is described, not scored: the card carries the first thing an editor would point at.
+  const plotLead=(p.findings||[]).find(f=>!f.info)||(p.findings||[])[0];
+  const plotEv=plotLead?plotLead.title:(p.overview||p.details||'not measured');
   const t=r.transitions||{};
   const dl=r.dialogue||{};
   const st=r.style||{};
   return [
-    {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot??null,density:null,issues:0,weight:'9%',evidence:scores.plot==null?'not measured: '+(p.details||'too little text'):plotEv},
+    {k:'plot',name:isNF?'Argument Structure':'Narrative Structure',score:null,density:null,issues:(p.findings||[]).filter(f=>!f.info).length,weight:'not scored',evidence:plotEv},
     {k:'transitions',name:'Transitions',score:scores.transitions??null,density:null,issues:(t.details||[]).filter(x=>!x.supported).length,weight:'7%',evidence:t.smoothRate!=null?t.smoothRate+'% of '+(t.measuredBoundaries??'')+' prose-to-prose boundaries supported'+((t.skipped?.dialogue||0)?' · '+t.skipped.dialogue+' dialogue boundaries not judged':''):'not measured: '+(t.reason||'too few prose paragraphs')},
     {k:'hook',name:'Hook Strength',score:hookScore,density:null,issues:hookScore<80?hookProblems:0,weight:'9%',evidence:hookProblems?hookProblems+' opening problem'+(hookProblems===1?'':'s')+' diagnosed':'no opening problems diagnosed'},
     // Style is described, not scored: its measurements never separated one manuscript from another.
@@ -1220,9 +1216,10 @@ function showDetail(cat){
     return;
   }
 
-  const titles={plot:isNF?'Argument Structure':'Plot Structure',transitions:'Transitions',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
+  if(cat==='plot'){_renderStructureDetail(r,d);return;}
+  const titles={plot:isNF?'Argument Structure':'Narrative Structure',transitions:'Transitions',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
   const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar',pov:'POV Issue',hook:'Opening Problem',tags:'Dialogue Tags',conciseness:'Conciseness',showing:'Show Don\'t Tell',purpose:'Dialogue Purpose',naturalness:'Naturalness'};
-  const catWhy={transitions:'This section measures whether adjacent paragraphs have explicit connective, lexical, or referential support. Unsupported boundaries are review candidates, not automatic errors.',pacing:'Pacing is described from observed manuscript segments rather than a borrowed quality score.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Style & Voice is described, not scored: POV, lexical diversity (MSTTR-100) and sentence and paragraph rhythm are measured for you to read, because none of them separates a strong manuscript from a weak one on its own.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing is the density of validated passive-voice, adverb, cliché, wordy-phrase, confused-word and repetition findings per 1,000 narrative words. Grammar is scored on its own.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:isNF?'Strong nonfiction needs a clear thesis, evidence to support it, logical transitions, and a conclusion that synthesizes.':'Structure is measured from how the manuscript is built: its units, the share of each unit that is scene (action and dialogue) rather than summary, where the most scene-heavy unit sits and whether the book comes down from it, unit-length control against its own median, and whether the named cast persists. Stakes, causality and what a character wants are not measured.'};
+  const catWhy={transitions:'This section measures whether adjacent paragraphs have explicit connective, lexical, or referential support. Unsupported boundaries are review candidates, not automatic errors.',pacing:'Pacing is described from observed manuscript segments rather than a borrowed quality score.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Style & Voice is described, not scored: POV, lexical diversity (MSTTR-100) and sentence and paragraph rhythm are measured for you to read, because none of them separates a strong manuscript from a weak one on its own.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing is the density of validated passive-voice, adverb, cliché, wordy-phrase, confused-word and repetition findings per 1,000 narrative words. Grammar is scored on its own.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:isNF?'Argument structure is described, not scored: how much of each chapter illustrates (example, story, scene) rather than asserts, where the signposting thins, chapter length, and whether the book’s key terms run through it. Whether the argument is sound is not measured.':'Narrative structure is described, not scored: how much of each chapter is scene (action and dialogue) rather than summary, where that thins or spikes, chapter length, and whether the cast persists. Stakes, causality and what a character wants are not measured.'};
 
   // Canonical issue source per category — both card and detail derive from the same data
   const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
@@ -1343,6 +1340,92 @@ function renderAnnotated(text,issues){
   }
 }
 
+// NARRATIVE / ARGUMENT STRUCTURE — described, not scored. One curve drawn from the units the
+// engine measured, then findings phrased the way an editor would say them, each with a way
+// into the manuscript. No act labels: nothing measures "midpoint" or "climax", so nothing
+// here claims one.
+function _structureVocab(r){
+  const nf=Analyzer.isNonfiction(r&&r.genre);const p=(r&&r.plot)||{};
+  const noun=p.unitSource==='chapter'?'chapter':p.unitSource==='scene-break'?(nf?'section':'scene'):'segment';
+  return {nf,noun,Noun:noun.charAt(0).toUpperCase()+noun.slice(1),share:nf?'illustrationShare':'sceneShare',
+    title:nf?'Argument Structure':'Narrative Structure',
+    curveLabel:nf?'Share of each '+noun+' that is example, story or scene, rather than exposition':'Share of each '+noun+' that is action or dialogue, rather than summary',
+    note:nf?'Measures how the argument is built: illustration against exposition, signposting, '+noun+' length, and whether the book’s key terms persist. It does not judge whether the argument is sound.':'Measures structure, pacing and the presence of the cast. It does not evaluate stakes, causality or theme.'};
+}
+function _unitName(u,v){return u.heading?u.label:v.Noun+' '+u.index}
+function _structureCurve(p,v){
+  const units=(p.units||[]).filter(u=>Number.isFinite(u[v.share]));
+  if(units.length<3)return '';
+  const W=640,H=190,L=34,R=12,T=14,B=34,iw=W-L-R,ih=H-T-B,n=units.length;
+  const x=i=>L+(n===1?iw/2:i/(n-1)*iw),y=val=>T+ih-val/100*ih;
+  const raw=units.map(u=>u[v.share]);
+  const smooth=raw.map((_,i)=>{const a=raw.slice(Math.max(0,i-1),Math.min(n,i+2));return a.reduce((s,q)=>s+q,0)/a.length});
+  const path=smooth.map((val,i)=>(i?'L':'M')+x(i).toFixed(1)+' '+y(val).toFixed(1)).join(' ');
+  const area=path+' L'+x(n-1).toFixed(1)+' '+y(0)+' L'+x(0).toFixed(1)+' '+y(0)+' Z';
+  const flagged=new Map();(p.findings||[]).forEach(f=>(f.units||[]).forEach(i=>{if(!flagged.has(i))flagged.set(i,f)}));
+  const drop=(p.findings||[]).find(f=>f.id==='ending-drop');
+  let h='<svg class="ns-curve" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+escA(v.curveLabel)+'">';
+  [0,50,100].forEach(g=>{h+='<line class="ns-grid" x1="'+L+'" x2="'+(W-R)+'" y1="'+y(g)+'" y2="'+y(g)+'"/><text class="ns-tick" x="'+(L-6)+'" y="'+(y(g)+4)+'" text-anchor="end">'+g+'%</text>'});
+  if(drop&&drop.units.length){const i0=units.findIndex(u=>u.index===drop.units[0]);if(i0>=0)h+='<rect class="ns-drop" x="'+(x(i0)-iw/(n-1)/2).toFixed(1)+'" y="'+T+'" width="'+(x(n-1)-x(i0)+iw/(n-1)/2).toFixed(1)+'" height="'+ih+'"/>'}
+  h+='<path class="ns-area" d="'+area+'"/><path class="ns-line" d="'+path+'"/>';
+  units.forEach((u,i)=>{const f=flagged.get(u.index);h+='<circle class="ns-dot'+(f?' flagged':'')+'" cx="'+x(i).toFixed(1)+'" cy="'+y(raw[i]).toFixed(1)+'" r="'+(f?4:2.5)+'"><title>'+escA(_unitName(u,v)+': '+raw[i]+'% · '+u.words.toLocaleString()+' words'+(f?' · '+f.title:''))+'</title></circle>'});
+  const step=Math.max(1,Math.ceil(n/10));
+  units.forEach((u,i)=>{if(i%step===0||i===n-1)h+='<text class="ns-tick" x="'+x(i).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+u.index+'</text>'});
+  h+='<text class="ns-axis" x="'+(L+iw/2)+'" y="'+(H-4)+'" text-anchor="middle">'+esc(v.Noun)+'</text></svg>';
+  return h;
+}
+function _structureFindingsHtml(p,v){
+  const fs=(p.findings||[]).slice().sort((a,b)=>(a.info?1:0)-(b.info?1:0));
+  if(!fs.length)return '<p class="ns-empty">Nothing in the '+esc(v.noun)+' structure stands out from the rest of the manuscript.</p>';
+  return '<div class="ns-findings">'+fs.map(f=>{
+    const u=f.unit?(p.units||[]).find(x=>x.index===f.unit):null;
+    const btn=u?'<button class="ns-inspect" data-unit="'+u.index+'">Inspect '+esc(_unitName(u,v))+' →</button>':'';
+    return '<div class="ns-finding'+(f.info?' info':'')+'"><h4>'+esc(f.title)+'</h4><p>'+esc(f.text)+'</p>'+btn+'</div>';
+  }).join('')+'</div>';
+}
+function renderStructureSection(r){
+  const p=(r&&r.plot)||{};const v=_structureVocab(r);
+  let h='<div class="a-sec ns-sec"><h3>'+v.title+' <span class="ns-unscored">described, not scored</span></h3>';
+  if(!p.units||!p.units.length){return h+'<p>'+esc(p.details||'Not measured.')+'</p></div>'}
+  h+='<p class="ns-lede">'+esc(p.overview||'')+'</p>';
+  h+=_structureCurve(p,v);
+  h+='<div class="ns-curve-label">'+esc(v.curveLabel)+'</div>';
+  h+=_structureFindingsHtml(p,v);
+  const flagged=new Map();(p.findings||[]).forEach(f=>(f.units||[]).forEach(i=>{if(!flagged.has(i))flagged.set(i,f.title)}));
+  h+='<details class="ns-table"><summary>All '+p.units.length+' '+esc(v.noun)+'s</summary><table><thead><tr><th>'+esc(v.Noun)+'</th><th>Words</th><th>'+(v.nf?'Illustration':'Scene')+'</th><th></th></tr></thead><tbody>'
+    +p.units.map(u=>{const val=u[v.share];return '<tr><td>'+esc(_unitName(u,v))+'</td><td>'+u.words.toLocaleString()+'</td><td><span class="ns-bar"><span style="width:'+(val==null?0:val)+'%"></span></span> '+(val==null?'—':val+'%')+'</td><td class="ns-note">'+esc(flagged.get(u.index)||'')+' <button class="ns-inspect ns-inspect-sm" data-unit="'+u.index+'">Inspect →</button></td></tr>'}).join('')
+    +'</tbody></table></details>';
+  if(p.notAssessed&&p.notAssessed.length)h+='<p class="ns-not">Not assessed: '+esc(p.notAssessed.join('; '))+'.</p>';
+  h+='<p class="ns-note">'+esc(v.note)+'</p></div>';
+  return h;
+}
+function _renderStructureDetail(r,d){
+  const p=(r&&r.plot)||{};const v=_structureVocab(r);
+  d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+v.title+'</span><span style="font-size:.7rem;color:var(--muted)">described, not scored</span></div>'
+    +(p.overview?'<div class="rpd-basis">'+esc(p.overview)+'</div>':p.details?'<div class="rpd-basis">'+esc(p.details)+'</div>':'')
+    +(p.units&&p.units.length?_structureFindingsHtml(p,v):'')
+    +'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-top:.4rem;border-left:2px solid var(--gold-d)">'+esc(v.note)+'</div>';
+  _wireInspect(d);
+}
+function _wireInspect(root){
+  root.querySelectorAll('.ns-inspect').forEach(b=>b.addEventListener('click',()=>_inspectUnit(Number(b.dataset.unit))));
+}
+// Scroll the manuscript to a unit: by its heading line when it has one, else by its first words.
+function _inspectUnit(index){
+  const p=(analysisResult&&analysisResult.plot)||{};const u=(p.units||[]).find(x=>x.index===index);if(!u)return;
+  document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.ms-page').forEach(pg=>pg.classList.remove('active'));
+  document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
+  const page=$('ed-annotated');if(!page)return;page.classList.add('active');
+  const norm=t=>(t||'').replace(/\s+/g,' ').trim();
+  const els=[...page.querySelectorAll('h1,h2,h3,h4,p,div')];
+  let target=null;
+  if(u.heading){const want=norm(u.heading).slice(0,40).toLowerCase();target=els.find(el=>norm(el.textContent).toLowerCase().startsWith(want))}
+  if(!target&&u.opening){const want=norm(u.opening).slice(0,40).toLowerCase();target=els.find(el=>norm(el.textContent).toLowerCase().startsWith(want))}
+  if(!target){_showSaveToast('Could not locate this '+_structureVocab(analysisResult).noun+' in the manuscript view');return}
+  target.scrollIntoView({behavior:'smooth',block:'start'});
+  target.style.outline='3px solid var(--gold)';target.style.outlineOffset='4px';setTimeout(()=>{target.style.outline=''},3000);
+}
 // DETAILED
 function renderDetailed(r){
   const d=$('ed-detailed');if(!d)return;d.className='ms-page dark-page';
@@ -1362,33 +1445,7 @@ function renderDetailed(r){
   const trans=r.transitions||{};
   const ic=r.issueCounts||{};
   const isNFDetail=Analyzer.isNonfiction(r.genre);
-  const plotLabel=isNFDetail?'Argument Structure':(isChapter?'Scene Structure':'Plot Structure');
-  const plotRows=[];
-  if(isNFDetail){
-    plotRows.push(sr('Explicit claim signals',plot.thesisSignals??0));
-    plotRows.push(sr('Evidence signals',plot.evidenceSignals??0));
-    plotRows.push(sr('Evidence / 1K words',plot.evidencePerK??0));
-    plotRows.push(sr('Logical transition signals',plot.transitionSignals??0));
-    plotRows.push(sr('Closing synthesis signals',plot.synthesisSignals??0));
-  }else if(plot.units&&plot.units.length){
-    const src={chapter:'from chapter headings','scene-break':'from scene breaks',segment:'equal segments; no headings or scene breaks found'}[plot.unitSource]||'';
-    plotRows.push('Measured from how the manuscript is built: its units, how much of each is scene (action and dialogue) rather than summary, where the most scene-heavy unit sits, unit-length control, and cast persistence. Stakes and causality are not measured.');
-    plotRows.push(sr('Units',plot.unitCount+' ('+src+')'));
-    plotRows.push(sr('Scene share by unit',plot.units.map(u=>u.sceneShare==null?'—':u.sceneShare+'%').join(' → ')));
-    const comp=plot.components||{};
-    if(plot.curve){
-      plotRows.push(sr('Most scene-heavy unit',plot.curve.peakUnit+' · '+plot.curve.peakShare+'% · '+Math.round(plot.curve.peakPosition*100)+'% of the way through'));
-      plotRows.push(sr('Final unit vs peak',plot.curve.release?'comes down '+(plot.curve.peakShare-plot.curve.lastUnitShare)+' points':'at the peak: no release measured'));
-      plotRows.push(sr('Scene-share range',plot.curve.amplitude+' points (first half mean '+plot.curve.firstHalfMean+'%, second half '+plot.curve.secondHalfMean+'%)'));
-    }
-    if(comp.lengthControl)plotRows.push(sr('Unit length',comp.lengthControl.basis));
-    if(comp.cast)plotRows.push(sr('Cast',comp.cast.basis));
-    if(plot.notAssessed&&plot.notAssessed.length)plotRows.push(sr('Not assessed',plot.notAssessed.join('; ')));
-  }else if(plot.details){
-    plotRows.push(plot.details);
-  }
-  plotRows.push(sr('Mode',(r.manuscriptMode?.label||'Unknown')+' (~'+(r.manuscriptMode?.estPages||0)+' pages)'));
-  h+=secWithTip(plotLabel,scores.plot??null,plotRows,'plot',r);
+  h+=renderStructureSection(r);
   h+=secWithTip('Transitions',scores.transitions??null,[trans.smoothRate!=null?trans.smoothRate+'% of prose-to-prose paragraph boundaries supported by a connective, shared terms or a referential bridge':(trans.reason||'Not measured.'),sr('Boundaries measured',trans.measuredBoundaries??0),sr('Supported',(trans.smoothTransitions||0)+'/'+(trans.measuredBoundaries??0)),sr('Opening connectives',trans.transitionsUsed||0),sr('Dialogue boundaries not judged',trans.skipped?.dialogue??0),sr('Heading boundaries not judged',trans.skipped?.heading??0)],'transitions',r);
   h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0)+(ic.repetition||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Wordy',ic.wordy||0),sr('Repetition',ic.repetition||0),sr('Confused Words',ic['confused-word']||0)],'copy',r);
   // Line Editing (true stylistic editing, not just readability)
@@ -1494,6 +1551,7 @@ function renderDetailed(r){
     h+='</div>';
   }
   d.innerHTML=h;
+  _wireInspect(d);
 }
 // A null score renders as "not scored", never as 0.
 function scoreBadge(s){return Number.isFinite(s)?'<span style="color:'+sc(s)+'">'+s+'/100</span>':'<span style="color:var(--muted);font-size:.7rem;font-weight:400">not scored</span>'}

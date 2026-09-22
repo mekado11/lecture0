@@ -44,18 +44,20 @@ test('fiction structure exposes measured unit provenance, and says what it could
   assert.ok(p.units.every(u=>Number.isFinite(u.words)));
   // This context has no passage classifier: rhythm and shape are declared not assessed, not faked.
   assert.ok(p.notAssessed.some(s=>/classifier unavailable/.test(s)));
-  assert.ok(p.components.lengthControl&&p.components.cast,'length control and cast persistence need no classifier');
-  assert.ok(Number.isFinite(p.score));
+  assert.ok(p.findings.some(f=>f.id==='length')&&p.findings.some(f=>f.id==='cast'),'length and cast persistence need no classifier');
+  assert.equal(p.score,null,'structure is described, not scored');
 });
 
-test('nonfiction structure uses argument evidence and never fiction substitutions',()=>{
-  const p=A.analyzePlot(nonfictionText(),{}, {primary:'nonfiction'});
-  assert.equal(p.arc,'nonfiction');
-  assert.equal(p.applicable,true);
-  assert.ok(p.thesisSignals>0);
-  assert.ok(p.evidenceSignals>0);
-  assert.ok(p.transitionSignals>0);
-  assert.ok(p.synthesisSignals>0);
+test('nonfiction structure is its own model, unscored, and never borrows fiction labels',()=>{
+  const short=A.analyzePlot(nonfictionText(),'chapter',{primary:'nonfiction'});
+  assert.equal(short.applicable,false,'four paragraphs are too little to measure');
+  const chapters=Array.from({length:5},(_,i)=>'Chapter '+(i+1)+'\n\n'+Array.from({length:12},()=>nonfictionText()).join('\n\n')).join('\n\n');
+  const p=A.analyzePlot(chapters,'book',{primary:'nonfiction'});
+  assert.equal(p.arc,'nonfiction-structure');
+  assert.equal(p.score,null);
+  assert.equal(p.unitCount,5);
+  assert.ok(p.notAssessed.some(s=>/classifier unavailable/.test(s)),'no classifier in this context: said, not faked');
+  assert.ok(p.findings.some(f=>f.id==='length'||f.id==='concepts'),'what needs no classifier is still reported');
   assert.equal(p.hasClimax,null);
   assert.equal(p.hasResolution,null);
 });

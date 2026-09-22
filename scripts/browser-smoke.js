@@ -340,6 +340,23 @@ function pdf(){
     await page.locator('#genre-override').selectOption('selfHelp');
     assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getAnalysis().scores.dialogue),null);
     assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getText()),longBook,'Genre switches preserve source');
+    // Structure is described, not scored: a curve drawn from the units, findings an editor would
+    // say, and a way into the manuscript. No 40-number dump, no act labels nothing measured.
+    await page.locator('.btab[data-p="detailed"]').click();
+    const nsText=await page.locator('#ed-detailed .ns-sec').innerText();
+    assert.match(nsText,/Argument Structure/);
+    assert.match(nsText,/described, not scored/);
+    assert.ok(!/\/100/.test(nsText.split('\n')[0]),'no score on the structure card');
+    assert.equal(await page.locator('#ed-detailed svg.ns-curve').count(),1,'one curve from the measured units');
+    assert.ok(await page.locator('#ed-detailed .ns-finding').count()>=1,'at least one finding phrased for the author');
+    assert.ok(!/\d+%\s*→\s*\d+%\s*→/.test(nsText),'no raw percentage chain');
+    assert.ok(!/Midpoint|Climax|Escalation/.test(nsText),'no act labels the engine did not measure');
+    await page.locator('#ed-detailed .ns-table summary').click();
+    assert.ok(await page.locator('#ed-detailed .ns-table tbody tr').count()>=4,'every chapter is listed with its own Inspect');
+    await page.locator('#ed-detailed .ns-inspect:visible').first().click();
+    assert.equal(await page.locator('#ed-annotated.active').count(),1,'Inspect opens the manuscript view');
+    await page.locator('.rsc[data-cat="plot"]').count().then(async n=>{if(n){await page.locator('.rsc[data-cat="plot"]').click();assert.match(await page.locator('#rp-detail').innerText(),/described, not scored/);}});
+    console.log('PASS narrative structure: unscored, one curve, editor-phrased findings, inspect into the manuscript');
     // A signed-in author who goes back to the homepage stays signed in: the nav offers the
     // workspace, not Sign in, and the sign-up link the demo banner uses goes straight to the app.
     await page.goto(base);
