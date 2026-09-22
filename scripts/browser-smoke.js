@@ -381,6 +381,23 @@ function pdf(){
     await page.locator('#auth-dialog[open]').waitFor();
     await page.keyboard.press('Escape');
     console.log('PASS returning author: homepage keeps the session, sign-up link opens the workspace, sign out from the nav');
+    // AI analysis runs once per 24 hours: the server's refusal becomes a time the author can read,
+    // and the browser does not spend another request until then.
+    {
+      await page.goto(base+'/app.html');
+      await page.locator('#lib-loading.hidden').waitFor({state:'attached'});
+      const nextAt=Date.now()+2*3600000;let cooldownHits=0;
+      await context.route('**/api/claude',route=>{cooldownHits++;route.fulfill({status:429,json:{error:{code:'ANALYSIS_COOLDOWN',message:'AI analysis runs once every 24 hours.',nextAt}}});});
+      const first=await page.evaluate(()=>AIEngine._callClaude(null,'system','user','Some manuscript text for the cooldown check.','deepCritique').then(()=>'ok').catch(e=>e.message));
+      assert.match(first,/once every 24 hours\. The next run is available/);
+      assert.equal(cooldownHits,1);
+      const second=await page.evaluate(()=>AIEngine._callClaude(null,'system','user','Different manuscript text for the cooldown check.','deepCritique').then(()=>'ok').catch(e=>e.message));
+      assert.match(second,/once every 24 hours/);
+      assert.equal(cooldownHits,1,'the browser remembers the next run time instead of asking again');
+      await context.unroute('**/api/claude');
+      await page.evaluate(()=>localStorage.removeItem('ml_ai_next_run'));
+      console.log('PASS AI analysis cooldown: refusal carries the next run time, no repeat request');
+    }
     // Workspace demo: a visitor opens the real workspace on a public-domain sample with no
     // account, no cloud, no API call, and nothing left in browser storage.
     let apiCalls=0;page.on('request',req=>{if(req.url().includes('/api/'))apiCalls++;});
@@ -409,6 +426,26 @@ function pdf(){
     await page.locator('[data-wsnav="characters"]').click();
     await page.locator('#workspace-nav-content').getByText('Mary',{exact:false}).first().waitFor();
     console.log('PASS workspace demo: real workspace on public-domain samples, no account, no API, nothing saved');
+    // Features page: no emoji, the product frame is real output, the copy names real features,
+    // and the surfaces move on hover.
+    await page.setViewportSize({width:1440,height:1000});
+    await page.goto(base+'/features.html');
+    await page.getByRole('heading',{name:/manuscript diagnostic/}).waitFor();
+    const fxText=await page.locator('main').innerText();
+    assert.ok(!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(fxText),'no emoji on the features page');
+    assert.match(fxText,/described, not scored/);
+    assert.match(fxText,/Narrative structure/i);
+    assert.ok(!/Midpoint|Climax|Escalation/.test(fxText),'no act labels the engine does not measure');
+    assert.equal(await page.locator('.fx-curve').count(),1);
+    assert.equal(await page.locator('.fx-chips li').count(),20,'the genre count matches the app');
+    const card=page.locator('.fx-card').first();
+    await card.scrollIntoViewIfNeeded();
+    await page.waitForFunction(()=>document.querySelector('.fx-card').classList.contains('is-in'));
+    const box=await card.boundingBox();await page.mouse.move(box.x+box.width/2,box.y+box.height/2);
+    await page.waitForFunction(()=>{const el=document.querySelector('.fx-card');return el.matches(':hover')&&getComputedStyle(el).transform!=='none';},null,{timeout:5000});
+    assert.ok(true,'a card lifts on hover');
+    await page.screenshot({path:path.join(root,'test-results/features-desktop.png'),fullPage:true});
+    console.log('PASS features page: no emoji, real product frame, real feature list, hover motion');
     await page.setViewportSize({width:375,height:812});
     for(const filename of ['features.html','pricing.html','faq.html','blog.html','legal.html','profile.html']){
       await page.goto(base+'/'+filename);

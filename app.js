@@ -2498,11 +2498,15 @@ async function runAI(key){
   }catch(e){
     st.classList.add('hidden');
     const msg=e.message||'Unknown error';
-    const isRateLimit=msg.includes('limit reached')||msg.includes('RATE_LIMITED');
+    const isCooldown=msg.includes('once every 24 hours');
+    const isRateLimit=!isCooldown&&(msg.includes('limit reached')||msg.includes('RATE_LIMITED'));
     const isAuthErr=msg.startsWith('SERVER_AUTH_ERROR:');
     const intro=document.querySelector('.ai-intro');
     if(intro){
-      if(isRateLimit){
+      if(isCooldown){
+        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#9203;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">AI analysis runs once every 24 hours</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:.4rem">'+esc(msg.replace(/^AI analysis runs once every 24 hours\.\s*/,''))+'</p><p style="color:var(--dim);font-size:.72rem">Your last results stay open. Ask Book, rewrites and fixes are not affected.</p></div>';
+        intro.classList.remove('hidden');
+      }else if(isRateLimit){
         intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Daily Limit Reached</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Free accounts get 3 AI analyses per day.</p><p style="color:var(--muted);font-size:.78rem">Resets at midnight UTC.</p><button class="btn-gold ai-upgrade-btn" style="width:auto;padding:.5rem 1.5rem;margin-top:1rem">&#9733; Upgrade to Premium — $5/mo</button><p style="color:var(--dim);font-size:.7rem;margin-top:.5rem">50 AI analyses/day + Claude deep critique</p></div>';
         intro.querySelector('.ai-upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
       }else if(isAuthErr){
