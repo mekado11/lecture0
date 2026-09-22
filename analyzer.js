@@ -1453,7 +1453,8 @@ const Analyzer = {
     let s = n + ' ' + noun + 's' + (source === 'chapter' ? ' from headings' : source === 'scene-break' ? ' from scene breaks' : ' (no headings or scene breaks found, so equal segments)') + '. ';
     if (curve) {
       const peak = units.find(u => u.index === curve.peakIndex);
-      s += what.charAt(0).toUpperCase() + what.slice(1) + ' ranges from ' + curve.lowShare + '% to ' + curve.peakShare + '% of a ' + noun + ', highest in ' + (peak.heading ? peak.label : noun.charAt(0).toUpperCase() + noun.slice(1) + ' ' + peak.index) + '.';
+      const peakName = peak.heading ? peak.label : noun.charAt(0).toUpperCase() + noun.slice(1) + ' ' + peak.index;
+      s += what.charAt(0).toUpperCase() + what.slice(1) + ' ranges from ' + curve.lowShare + '% to ' + curve.peakShare + '% of a ' + noun + ', highest in ' + peakName + (/…$/.test(peakName) ? '' : '.');
       const drop = findings.find(f => f.id === 'ending-drop');
       if (drop) s += ' It thins through the final third.';
     }
