@@ -6,7 +6,7 @@ class AnalysisRunner {
     const error=new Error('Analysis superseded');error.name='AbortError';
     this.pending.fail(error);
   }
-  analyze(text,genreKey){
+  analyze(text,genreKey,modeKey){
     this.cancel();
     return new Promise((resolve,reject)=>{
       const version=++this.version;
@@ -26,7 +26,7 @@ class AnalysisRunner {
       const timer=setTimeout(()=>fail(new Error('Analysis timed out. Your draft is unchanged; retry or export it.')),this.timeout);
       this.pending={fail};
       worker.addEventListener('message',message);worker.addEventListener('error',onError);
-      try{worker.postMessage({type:'analyze',text,genreKey,version});}catch(error){fail(error);}
+      try{worker.postMessage({type:'analyze',text,genreKey,modeKey,version});}catch(error){fail(error);}
     });
   }
 }

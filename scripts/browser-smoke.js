@@ -272,6 +272,11 @@ function pdf(){
     assert.match(nfRail,/Self-Help reader comes for/i,nfRail);
     assert.ok(!/Strong dialogue|Fast pacing|Build tension/.test(nfRail),'a self-help book is not judged against fiction goals');
     assert.match(await page.locator('#rp-scores').innerText(),/imperatives/,'self-help cards show the counts behind the score');
+    // Twelve short chapters and no closing marker read as a partial manuscript; the author of
+    // a short complete book confirms it in the header, and blurbs (a whole-book feature) open.
+    assert.match(await page.locator('#top-status').innerText(),/Partial manuscript/);
+    await page.locator('#mode-override').selectOption('book');
+    await page.waitForFunction(()=>/Full Manuscript/.test(document.getElementById('top-status').textContent));
     // Blurbs for nonfiction: material by role from the author's sentences, no protagonist.
     await page.locator('.btab[data-p="blurbs"]').click();
     await page.locator('#ed-blurbs .bm-row').first().waitFor();
@@ -340,6 +345,23 @@ function pdf(){
     await page.locator('#genre-override').selectOption('selfHelp');
     assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getAnalysis().scores.dialogue),null);
     assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getText()),longBook,'Genre switches preserve source');
+    // Structure is described, not scored: a curve drawn from the units, findings an editor would
+    // say, and a way into the manuscript. No 40-number dump, no act labels nothing measured.
+    await page.locator('.btab[data-p="detailed"]').click();
+    const nsText=await page.locator('#ed-detailed .ns-sec').innerText();
+    assert.match(nsText,/Argument Structure/);
+    assert.match(nsText,/described, not scored/);
+    assert.ok(!/\/100/.test(nsText.split('\n')[0]),'no score on the structure card');
+    assert.equal(await page.locator('#ed-detailed svg.ns-curve').count(),1,'one curve from the measured units');
+    assert.ok(await page.locator('#ed-detailed .ns-finding').count()>=1,'at least one finding phrased for the author');
+    assert.ok(!/\d+%\s*→\s*\d+%\s*→/.test(nsText),'no raw percentage chain');
+    assert.ok(!/Midpoint|Climax|Escalation/.test(nsText),'no act labels the engine did not measure');
+    await page.locator('#ed-detailed .ns-table summary').click();
+    assert.ok(await page.locator('#ed-detailed .ns-table tbody tr').count()>=4,'every chapter is listed with its own Inspect');
+    await page.locator('#ed-detailed .ns-inspect:visible').first().click();
+    assert.equal(await page.locator('#ed-annotated.active').count(),1,'Inspect opens the manuscript view');
+    await page.locator('.rsc[data-cat="plot"]').count().then(async n=>{if(n){await page.locator('.rsc[data-cat="plot"]').click();assert.match(await page.locator('#rp-detail').innerText(),/described, not scored/);}});
+    console.log('PASS narrative structure: unscored, one curve, editor-phrased findings, inspect into the manuscript');
     // A signed-in author who goes back to the homepage stays signed in: the nav offers the
     // workspace, not Sign in, and the sign-up link the demo banner uses goes straight to the app.
     await page.goto(base);
@@ -374,6 +396,16 @@ function pdf(){
     await page.goto(base+'/app.html?demo=novel');
     await page.locator('#editor-view:not(.hidden)').waitFor({timeout:30000});
     assert.match(await page.locator('#top-filename').innerText(),/Secret Garden/);
+    // Eight chapters of a novel are a partial manuscript until the author says otherwise; the
+    // whole-book judgments wait for that.
+    assert.match(await page.locator('#top-status').innerText(),/Partial manuscript \(chapters 1–8\)/);
+    await page.locator('.btab[data-p="detailed"]').click();
+    assert.match(await page.locator('#ed-detailed .ns-sec').innerText(),/not confirmed as a full manuscript/);
+    await page.locator('#mode-override').selectOption('book');
+    await page.waitForFunction(()=>/Full Manuscript/.test(document.getElementById('top-status').textContent));
+    assert.ok(!/not confirmed as a full manuscript/.test(await page.locator('#ed-detailed .ns-sec').innerText()),'the author’s word lifts the whole-book gate');
+    await page.locator('#mode-override').selectOption('');
+    await page.waitForFunction(()=>/Partial manuscript/.test(document.getElementById('top-status').textContent));
     await page.locator('[data-wsnav="characters"]').click();
     await page.locator('#workspace-nav-content').getByText('Mary',{exact:false}).first().waitFor();
     console.log('PASS workspace demo: real workspace on public-domain samples, no account, no API, nothing saved');

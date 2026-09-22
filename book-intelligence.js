@@ -129,9 +129,8 @@ const BookIntelligence = (() => {
       status: Number.isFinite(value) ? 'measured' : 'not_measured'
     });
     const plot=analysis.plot||{}, pacing=analysis.pacing||{}, dialogue=analysis.dialogue||{};
-    const plotEvidence=plot.arc==='nonfiction'
-      ? ['claim signals='+(plot.thesisSignals??0),'evidence signals='+(plot.evidenceSignals??0),'transition signals='+(plot.transitionSignals??0),'synthesis signals='+(plot.synthesisSignals??0)]
-      : ['units='+(plot.unitCount??0)+(plot.unitSource?' ('+plot.unitSource+')':''),'scene share by unit='+(plot.units||[]).map(u=>u.sceneShare==null?'-':u.sceneShare).join('>'),'peak unit='+(plot.curve?plot.curve.peakUnit:'N/A'),...Object.entries(plot.components||{}).map(([k,c])=>k+'='+Math.round(c.value*100))];
+    const shareKey=plot.arc==='nonfiction-structure'?'illustrationShare':'sceneShare';
+    const plotEvidence=['described, not scored','units='+(plot.unitCount??0)+(plot.unitSource?' ('+plot.unitSource+')':''),shareKey+' by unit='+(plot.units||[]).map(u=>u[shareKey]==null?'-':u[shareKey]).join('>'),...(plot.findings||[]).map(f=>f.id+': '+f.title)];
     const paceSegments=Array.isArray(pacing.segments)?pacing.segments:[];
     return {
       overall: metric(analysis.overall, 'Analyzer._computeScoreBundle', ['applicable dimensions only; weights renormalized']),

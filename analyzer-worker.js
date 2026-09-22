@@ -6,7 +6,7 @@
 // the main-thread fallback produced context-aware ones.
 // Keep these versions in step with app.html: a stale analyzer here means the worker scores
 // with old detectors while the page believes it is running the new ones.
-importScripts('prose-context.js?v=1', 'prose-norms.js?v=4', 'analyzer.js?v=32');
+importScripts('prose-context.js?v=1', 'prose-norms.js?v=4', 'analyzer.js?v=34');
 
 // Note: _currentVersion tracking here is structurally inert — the Worker JS runtime
 // is single-threaded, so _currentVersion cannot change while Analyzer.analyze() runs
@@ -19,7 +19,7 @@ self.onmessage = function(e) {
     const version = e.data.version;
     _currentVersion = version;
     try {
-      const result = Analyzer.analyze(e.data.text, e.data.genreKey || undefined);
+      const result = Analyzer.analyze(e.data.text, e.data.genreKey || undefined, { modeOverride: e.data.modeKey || undefined });
       self.postMessage({ type: 'result', data: result, version: version });
     } catch (err) {
       self.postMessage({ type: 'error', message: err.message || String(err), version: version });

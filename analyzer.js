@@ -183,46 +183,47 @@ const Analyzer = {
   // ========================
   // MANUSCRIPT MODE DETECTION
   // ========================
-  detectMode(text) {
+  // What kind of text this is: an excerpt, a single chapter, several chapters of something
+  // longer, or a full manuscript. Whole-book judgments (where the climax sits, whether the
+  // ending thins, book-level DNF reading) are made only in 'book' mode, so a text is called a
+  // full manuscript only on evidence: a closing marker, novel length, or the author saying so.
+  // Three chapter headings used to be enough, which judged every eight-chapter sample as a
+  // whole book.
+  MODE_LABELS: { excerpt: 'Excerpt / Scene', chapter: 'Chapter', partial: 'Partial manuscript', book: 'Full Manuscript' },
+  detectMode(text, override) {
     const words = (text.match(/\b\w+\b/g) || []).length;
-    const lower = text.toLowerCase();
-
-    // Check for chapter headings
-    const chapterHeadings = (text.match(/^(chapter\s+\d+|chapter\s+[a-z]+|part\s+\d+|part\s+[a-z]+)/gim) || []).length;
-    // Scene breaks
-    const sceneBreaks = (text.match(/\n\s*(\*\s*\*\s*\*|---|\* \* \*|#)\s*\n/g) || []).length;
-    // Estimated pages (~250 words/page)
     const estPages = Math.round(words / 250);
-
-    let mode = 'chapter'; // default
-    let confidence = 'auto';
-
-    if (chapterHeadings >= 3) {
-      mode = 'book';
-    } else if (words > 25000) {
-      mode = 'book';
-    } else if (words > 8000 && (chapterHeadings >= 1 || sceneBreaks >= 3)) {
-      mode = 'book';
-    } else if (words < 1500) {
-      mode = 'excerpt';
-    } else {
-      mode = 'chapter';
+    const headingRe = /^[ \t]*(?:chapter|part|book)\s+(\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)\b/gim;
+    const numberWords = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50 };
+    const roman = s => { const v = { i: 1, v: 5, x: 10, l: 50, c: 100 }; let n = 0; s = s.toLowerCase(); for (let i = 0; i < s.length; i++) n += v[s[i]] < (v[s[i + 1]] || 0) ? -v[s[i]] : v[s[i]]; return n; };
+    const numbers = [];
+    let m;
+    while ((m = headingRe.exec(text)) !== null) { const t = m[1].toLowerCase(); numbers.push(/^\d+$/.test(t) ? Number(t) : numberWords[t] || roman(t)); }
+    const capsTitles = (text.match(/^[ \t]*[A-Z][A-Z0-9 ,'’:;&\-]{3,70}[ \t]*$/gm) || []).filter(t => t.trim().split(/\s+/).length <= 10 && /[A-Z]{2}/.test(t)).length;
+    const chapterHeadings = numbers.length || (capsTitles >= 3 ? capsTitles : 0);
+    const sceneBreaks = (text.match(/\n\s*(\*\s*\*\s*\*|---|\* \* \*|#)\s*\n/g) || []).length;
+    const tail = text.slice(Math.floor(text.length * 0.92));
+    const closingMarker = /^[ \t]*(?:the end|fin|epilogue|afterword|acknowledg(?:e)?ments|about the author|author’s note|author's note)\b/im.test(tail);
+    const first = numbers.length ? Math.min(...numbers) : null, last = numbers.length ? Math.max(...numbers) : null;
+    const reasons = [];
+    let mode;
+    if (override && this.MODE_LABELS[override]) { mode = override; reasons.push('set by the author'); }
+    else if (words < 1500) { mode = 'excerpt'; reasons.push(words.toLocaleString() + ' words'); }
+    else if (first != null && first > 1) { mode = 'partial'; reasons.push('chapter numbering starts at ' + first); }
+    else if (chapterHeadings >= 2 && closingMarker) { mode = 'book'; reasons.push(chapterHeadings + ' chapters with a closing marker'); }
+    else if (words >= 25000) { mode = 'book'; reasons.push(words.toLocaleString() + ' words'); }
+    else if (chapterHeadings >= 2 || (words > 8000 && (chapterHeadings >= 1 || sceneBreaks >= 3))) {
+      mode = 'partial';
+      reasons.push(chapterHeadings >= 2 ? chapterHeadings + ' chapters' + (first != null ? ' numbered ' + first + '–' + last : '') : sceneBreaks + ' scene breaks');
+      reasons.push(words.toLocaleString() + ' words, under the 25,000 that would establish a complete book, and no closing marker');
     }
-
-    const modeLabels = {
-      excerpt: 'Excerpt / Scene',
-      chapter: 'Chapter',
-      book: 'Full Manuscript'
-    };
-
+    else { mode = 'chapter'; reasons.push(words.toLocaleString() + ' words, ' + (chapterHeadings ? 'one heading' : 'no chapter headings')); }
+    const label = this.MODE_LABELS[mode] + (mode === 'partial' && first != null && !override ? ' (chapters ' + first + '–' + last + ')' : '');
     return {
-      mode,
-      label: modeLabels[mode],
-      confidence,
-      wordCount: words,
-      estPages,
-      chapterHeadings,
-      sceneBreaks
+      mode, label, confidence: override ? 'author' : 'auto', reasons, wordCount: words, estPages, chapterHeadings, sceneBreaks,
+      chapterRange: first != null ? { first, last } : null, closingMarker,
+      // Whole-book judgments are made only here; the header offers the author the override.
+      wholeBook: mode === 'book'
     };
   },
 
@@ -1281,7 +1282,14 @@ const Analyzer = {
     let m, marks = [], source = 'chapter';
     const headingRe = /^[ \t]*(?:(?:chapter|part|book)\s+(?:\d+|[ivxlc]+|[a-z]+(?:[- ][a-z]+)?)\b[^\n]{0,80}|(?:prologue|epilogue|interlude)\b[^\n]{0,80})$/gim;
     const shortLabel = s => { const t = s.trim().replace(/\s+/g, ' '); if (t.length <= 36) return t; const cut = t.slice(0, 36); return cut.slice(0, Math.max(cut.lastIndexOf(' '), 12)) + '…'; };
-    while ((m = headingRe.exec(text)) !== null) marks.push({ at: m.index, end: m.index + m[0].length, label: shortLabel(m[0]) });
+    while ((m = headingRe.exec(text)) !== null) marks.push({ at: m.index, end: m.index + m[0].length, label: shortLabel(m[0]), heading: m[0].trim().replace(/\s+/g, ' ') });
+    // Titles set in capitals on their own line ("THOUGHT AND CHARACTER") are headings when
+    // the manuscript has at least three of them.
+    if (marks.length < 2) {
+      const caps = [], capsRe = /^[ \t]*([A-Z][A-Z0-9 ,'’:;&\-]{3,70})[ \t]*$/gm;
+      while ((m = capsRe.exec(text)) !== null) { const t = m[1].trim(); if (t.split(/\s+/).length <= 10 && /[A-Z]{2}/.test(t)) caps.push({ at: m.index, end: m.index + m[0].length, label: shortLabel(t), heading: t }); }
+      if (caps.length >= 3) marks = caps;
+    }
     if (marks.length < 2) {
       marks = []; source = 'scene-break';
       const breakRe = /\n[ \t]*(?:\*\s*\*\s*\*|#{1,3}|-{3,}|~{3,})[ \t]*\n/g;
@@ -1290,19 +1298,19 @@ const Analyzer = {
     }
     if (marks.length >= 2) {
       const units = [];
-      let cursor = 0, label = source === 'chapter' ? 'Opening' : 'Scene 1';
+      let cursor = 0, label = source === 'chapter' ? 'Opening' : 'Scene 1', heading = null;
       for (const mk of marks) {
         const body = text.slice(cursor, mk.at), w = wordsIn(body);
-        if (w >= 60) units.push({ label, start: cursor, end: mk.at, words: w });
-        cursor = mk.end; label = mk.label;
+        if (w >= 60) units.push({ label, heading, start: cursor, end: mk.at, words: w });
+        cursor = mk.end; label = mk.label; heading = mk.heading || null;
       }
       const tail = text.slice(cursor), tw = wordsIn(tail);
-      if (tw >= 60) units.push({ label, start: cursor, end: text.length, words: tw });
+      if (tw >= 60) units.push({ label, heading, start: cursor, end: text.length, words: tw });
       if (units.length >= 3) return { units, source };
     }
     // Neither headings nor breaks: equal segments cut at paragraph boundaries.
     const total = wordsIn(text);
-    const n = Math.max(3, Math.min(24, Math.round(total / (mode === 'book' ? 1500 : 400))));
+    const n = Math.max(3, Math.min(24, Math.round(total / (mode === 'book' || mode === 'partial' ? 1500 : 400))));
     const paras = [];
     const splitter = /\n\s*\n/g; let last = 0;
     while ((m = splitter.exec(text)) !== null) { paras.push({ start: last, end: m.index }); last = m.index + m[0].length; }
@@ -1316,76 +1324,200 @@ const Analyzer = {
     if (total - used >= 60) units.push({ label: 'Segment ' + k, start: uStart, end: text.length, words: total - used });
     return { units, source: 'segment' };
   },
-  analyzePlot(text, mode, genre, characters) {
-    if(this.isNonfiction(genre)) return this._analyzeArgumentStructure(text,mode);
-    const wordsIn = s => (s.match(/\b[\w\u2019'-]+\b/g) || []).length;
-    const totalWords = wordsIn(text);
-    const legacy = { hasRisingAction: null, hasClimax: null, hasResolution: null, hasCliffhanger: null, hasSceneGoal: null };
-    if (totalWords < 1200) return { score: null, applicable: false, arc: 'insufficient-data', details: 'Under 1,200 words: too short to measure structure.', units: [], unitCount: 0, components: {}, notAssessed: ['structure: under 1,200 words'], ...legacy };
+  // Shared by both structure models: units, their prose composition, robust statistics.
+  _structureBase(text, mode) {
+    const wordsIn = s => (s.match(/\b[\w’'-]+\b/g) || []).length;
     const { units, source } = this._structureUnits(text, mode);
-    const notAssessed = [];
-    // Composition per unit from the passage classifier (every unit sums the passages inside it).
     const classifier = typeof ProseContext !== 'undefined';
     let passages = [];
     if (classifier) { try { passages = ProseContext.classify(text); } catch (e) { passages = []; } }
-    for (const u of units) {
+    units.forEach((u, i) => {
+      u.index = i + 1;
       const tally = { dialogue: 0, action: 0, reflection: 0, description: 0, exposition: 0, mixed: 0 };
       for (const p of passages) { if (p.start >= u.start && p.start < u.end) tally[p.mode] = (tally[p.mode] || 0) + p.wordCount; }
       const classified = tally.dialogue + tally.action + tally.reflection + tally.description + tally.exposition;
       u.classifiedShare = u.words ? Math.round(classified / u.words * 100) : 0;
       const pct = n => classified ? Math.round(n / classified * 100) : null;
-      u.sceneShare = classified ? Math.round((tally.action + tally.dialogue) / classified * 100) : null;
       u.actionShare = pct(tally.action); u.dialogueShare = pct(tally.dialogue); u.reflectionShare = pct(tally.reflection);
       u.descriptionShare = pct(tally.description); u.expositionShare = pct(tally.exposition);
-      const sents = text.slice(u.start, u.end).match(/[^.!?]+[.!?]+/g) || [];
+      u.sceneShare = classified ? Math.round((tally.action + tally.dialogue) / classified * 100) : null;
+      u.illustrationShare = classified ? Math.round((tally.action + tally.dialogue + tally.description) / classified * 100) : null;
+      const slice = text.slice(u.start, u.end);
+      const sents = slice.match(/[^.!?]+[.!?]+/g) || [];
       u.meanSentence = sents.length ? Math.round(u.words / sents.length * 10) / 10 : null;
+      // The first line of prose after the heading, so the editor can be scrolled to this unit.
+      const afterHeading = u.heading ? slice.replace(u.heading, '') : slice;
+      u.opening = afterHeading.trim().replace(/\s+/g, ' ').slice(0, 90);
+      // Paragraph-level signposting: paragraphs that open with a connective, per 1,000 words.
+      const paras = slice.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+      const signposts = paras.filter(p => /^(however|moreover|furthermore|meanwhile|consequently|therefore|nevertheless|nonetheless|additionally|similarly|conversely|in contrast|on the other hand|as a result|in addition|for example|for instance|in other words|in fact|indeed|likewise|accordingly|thus|hence|first|second|third|finally|next|then|but|so|yet|still|also)\b/i.test(p)).length;
+      u.paragraphs = paras.length; u.signposts = signposts; u.signpostRate = u.words ? Math.round(signposts / u.words * 10000) / 10 : 0;
+    });
+    return { units, source, classifier, wordsIn };
+  },
+  _robust(values) {
+    const v = values.filter(x => Number.isFinite(x)).sort((a, b) => a - b);
+    if (!v.length) return { median: null, mad: null };
+    const median = v[v.length >> 1];
+    const dev = v.map(x => Math.abs(x - median)).sort((a, b) => a - b);
+    return { median, mad: dev[dev.length >> 1] };
+  },
+  // Structural findings shared by fiction and nonfiction: "what should the author look at, and
+  // why". Every sentence is built from a measurement of this manuscript; the thresholds (a unit
+  // 2.5 MADs and at least 12 points from the manuscript's own median; a final third at 70% or
+  // less of the rest) are stated in the methodology and are the only fixed numbers here.
+  _structureFindings(units, share, vocab, mode) {
+    const findings = [];
+    const n = units.length, measured = units.filter(u => u[share] != null);
+    const noun = vocab.unitNoun, Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
+    const nameOf = u => u.heading ? u.label : Noun + ' ' + u.index;
+    const range = list => list.length === 1 ? nameOf(list[0]) : list.length === 2 ? nameOf(list[0]) + ' and ' + nameOf(list[1]) : nameOf(list[0]) + ' to ' + nameOf(list[list.length - 1]);
+    if (measured.length >= 4) {
+      const { median, mad } = this._robust(measured.map(u => u[share]));
+      const band = Math.max(12, 2.5 * (mad || 0));
+      const heavy = measured.filter(u => u[share] >= median + band);
+      const light = measured.filter(u => u[share] <= median - band || (u[share] <= 10 && median >= 25));
+      for (const u of heavy) findings.push({ id: 'heavy', unit: u.index, units: [u.index], title: nameOf(u) + ' is unusually ' + vocab.heavy, text: Math.round(u[share]) + '% of it is ' + vocab.what + ', against a typical ' + median + '% in this manuscript. ' + vocab.heavyWhy });
+      for (const u of light) findings.push({ id: 'light', unit: u.index, units: [u.index], title: (u.index === 1 ? 'The opening ' + noun : nameOf(u)) + ' is almost entirely ' + vocab.light, text: Math.round(u[share]) + '% of it is ' + vocab.what + ', against a typical ' + median + '%. ' + vocab.lightWhy });
+      // Drop-off or build near the end: the final third against everything before it.
+      const cut = Math.floor(measured.length * 2 / 3);
+      const before = measured.slice(0, cut), after = measured.slice(cut);
+      const mean = a => a.reduce((x, u) => x + u[share], 0) / a.length;
+      if (mode === 'book' && after.length >= 2 && before.length >= 2) {
+        const mb = Math.round(mean(before)), ma = Math.round(mean(after));
+        if (ma <= mb * 0.7 && mb - ma >= 8) findings.push({ id: 'ending-drop', unit: after[0].index, units: after.map(u => u.index), title: vocab.dropTitle, text: range(after) + ' average ' + ma + '% ' + vocab.what + ', against ' + mb + '% in the ' + noun + 's before them. ' + vocab.dropWhy });
+      }
+      // Flat: nothing rises or falls.
+      const max = Math.max(...measured.map(u => u[share])), min = Math.min(...measured.map(u => u[share]));
+      if (max - min < 5) findings.push({ id: 'flat', unit: null, units: [], title: 'Every ' + noun + ' is built the same way', text: vocab.what.charAt(0).toUpperCase() + vocab.what.slice(1) + ' stays between ' + min + '% and ' + max + '% across all ' + n + ' ' + noun + 's. ' + vocab.flatWhy });
+      // Where the most concentrated unit sits, full manuscripts only.
+      if (mode === 'book' && max - min >= 5) {
+        const peak = measured.find(u => u[share] === max);
+        const pos = (peak.index - 1) / Math.max(n - 1, 1);
+        if (pos < 0.34) findings.push({ id: 'peak-early', unit: peak.index, units: [peak.index], title: 'The most ' + vocab.heavy + ' ' + noun + ' comes early', text: nameOf(peak) + ' carries the most ' + vocab.what + ' in the manuscript (' + max + '%), ' + Math.round(pos * 100) + '% of the way through. ' + vocab.earlyWhy });
+      }
     }
-    const n = units.length;
-    const measured = units.filter(u => u.sceneShare != null);
-    const components = {};
-    // 1. Unit length holds to the book's own median (outliers under 0.3x or over 3x).
+    // Unit length against the manuscript's own median.
     if (n >= 4) {
-      const sorted = units.map(u => u.words).sort((a, b) => a - b), median = sorted[n >> 1];
+      const { median } = this._robust(units.map(u => u.words));
       const outliers = units.filter(u => u.words < median * 0.3 || u.words > median * 3);
-      components.lengthControl = { value: 1 - outliers.length / n, applicable: true, median, outliers: outliers.map(u => u.label + ' (' + u.words.toLocaleString() + ' words)'), basis: outliers.length + ' of ' + n + ' units outside 0.3x to 3x the median of ' + median.toLocaleString() + ' words' };
-    } else notAssessed.push('unit length control: fewer than four units');
-    // 2. Rhythm: scene share varies across the book (full credit at a 25-point range).
-    let curve = null;
-    if (!classifier) notAssessed.push('scene/summary rhythm and arc shape: passage classifier unavailable');
-    else if (measured.length < 3) notAssessed.push('scene/summary rhythm and arc shape: fewer than three classified units');
-    else {
-      const shares = measured.map(u => u.sceneShare);
-      const peak = Math.max(...shares), low = Math.min(...shares), peakIdx = shares.indexOf(peak);
-      const half = Math.floor(shares.length / 2);
-      const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
-      curve = { peakUnit: measured[peakIdx].label, peakIndex: peakIdx + 1, peakPosition: Math.round(peakIdx / Math.max(shares.length - 1, 1) * 100) / 100, peakShare: peak, lowShare: low, amplitude: peak - low, firstHalfMean: Math.round(mean(shares.slice(0, half))), secondHalfMean: Math.round(mean(shares.slice(half))), lastUnitShare: shares[shares.length - 1], release: shares[shares.length - 1] <= peak - 5 };
-      components.rhythm = { value: Math.min(1, curve.amplitude / 25), applicable: true, basis: 'scene share ranges ' + low + '% to ' + peak + '% across ' + measured.length + ' units (' + curve.amplitude + '-point range; full credit at 25)' };
-      // 3. Arc shape, full manuscripts only: the most scene-heavy stretch sits in the back half
-      // and the final unit comes down from it.
-      if (mode === 'book' && measured.length >= 4 && curve.amplitude < 5) notAssessed.push('arc shape: scene share is flat (under a 5-point range), so there is no peak to place');
-      else if (mode === 'book' && measured.length >= 4) {
-        const placement = curve.peakPosition >= 0.5 ? 1 : curve.peakPosition / 0.5;
-        components.shape = { value: 0.5 * placement + 0.5 * (curve.release ? 1 : 0), applicable: true, basis: 'most scene-heavy unit is ' + curve.peakUnit + ' (' + Math.round(curve.peakPosition * 100) + '% of the way through) \u00B7 final unit ' + (curve.release ? 'comes down ' + (peak - curve.lastUnitShare) + ' points from the peak' : 'is at the peak: no release measured') };
-      } else notAssessed.push('arc shape: ' + (mode === 'book' ? 'fewer than four classified units' : 'not a full manuscript'));
+      findings.push({ id: 'length', unit: outliers[0] ? outliers[0].index : null, units: outliers.map(u => u.index), title: (n - outliers.length) + ' of ' + n + ' ' + noun + 's are within the manuscript’s normal length', text: 'The typical ' + noun + ' runs ' + median.toLocaleString() + ' words.' + (outliers.length ? ' ' + outliers.map(u => nameOf(u) + ' (' + u.words.toLocaleString() + ' words)').join(' and ') + (outliers.length === 1 ? ' is' : ' are') + ' far outside that range.' : ' None is far outside that range.'), info: !outliers.length });
     }
-    // 4. Cast persistence: named characters recur across units; the lead is present in most.
+    return findings;
+  },
+  analyzePlot(text, mode, genre, characters) {
+    if(this.isNonfiction(genre)) return this._analyzeNonfictionStructure(text,mode,genre);
+    const legacy = { hasRisingAction: null, hasClimax: null, hasResolution: null, hasCliffhanger: null, hasSceneGoal: null };
+    const totalWords = (text.match(/\b[\w’'-]+\b/g) || []).length;
+    if (totalWords < 1200) return { score: null, scored: false, applicable: false, arc: 'insufficient-data', details: 'Under 1,200 words: too short to measure structure.', units: [], unitCount: 0, findings: [], components: {}, notAssessed: ['structure: under 1,200 words'], ...legacy };
+    const { units, source, classifier } = this._structureBase(text, mode);
+    const n = units.length, notAssessed = [];
+    const measured = units.filter(u => u.sceneShare != null);
+    if (!classifier) notAssessed.push('scene and summary: passage classifier unavailable');
+    else if (measured.length < 4) notAssessed.push('scene and summary: fewer than four classified units');
+    if (mode !== 'book') notAssessed.push('where the most scene-heavy unit sits and whether the ending thins: ' + (mode === 'partial' ? 'not confirmed as a full manuscript (set "Full manuscript" in the header if it is complete)' : 'not a full manuscript'));
+    const findings = this._structureFindings(units, 'sceneShare', {
+      unitNoun: source === 'chapter' ? 'chapter' : source === 'scene-break' ? 'scene' : 'segment',
+      what: 'action or dialogue', heavy: 'scene-heavy', light: 'summary',
+      heavyWhy: 'This is where the manuscript spends its dramatised time. Make sure the moment earns that weight.',
+      lightWhy: 'If this stretch carries a turn in the story, it is being told rather than shown.',
+      dropTitle: 'Scene-driven writing falls away near the ending',
+      dropWhy: 'Review whether the conclusion is being summarised rather than dramatised.',
+      flatWhy: 'Nothing rises or falls: the reader gets the same proportion of scene in every unit.',
+      earlyWhy: 'Nothing later reaches that level of dramatisation; check whether the ending is carried by scene or by summary.'
+    }, mode);
+    // Cast persistence, from the same character analysis the cast tab shows.
     const cast = characters && characters.list ? characters.list : this.analyzeCharacters(text, genre).list;
     const named = (cast || []).slice(0, 40);
-    let castInfo = { qualified: named.length, recurring: 0, lead: null, leadPresence: null, names: [] };
+    let castInfo = { qualified: named.length, recurring: 0, lead: null, leadUnits: null, names: [] };
     if (named.length >= 2 && n >= 2) {
-      const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const esc = s => s.replace(/[.*+?^$\{\}()|[\]\\]/g, '\\$&');
       castInfo.names = named.map(c => { const re = new RegExp('\\b' + esc(c.name) + '\\b'); const inUnits = units.filter(u => re.test(text.slice(u.start, u.end))).length; return { name: c.name, units: inUnits, mentions: c.mentions }; });
       castInfo.recurring = castInfo.names.filter(c => c.units >= 2).length;
-      castInfo.lead = castInfo.names[0].name; castInfo.leadPresence = Math.round(castInfo.names[0].units / n * 100);
+      castInfo.lead = castInfo.names[0].name; castInfo.leadUnits = castInfo.names[0].units;
       for (const u of units) u.cast = castInfo.names.filter(c => new RegExp('\\b' + esc(c.name) + '\\b').test(text.slice(u.start, u.end))).map(c => c.name).slice(0, 8);
-      components.cast = { value: 0.5 * (castInfo.recurring / named.length) + 0.5 * (castInfo.names[0].units / n), applicable: true, basis: castInfo.recurring + ' of ' + named.length + ' named characters recur across units \u00B7 ' + castInfo.lead + ' present in ' + castInfo.names[0].units + ' of ' + n + ' units' };
+      const noun = source === 'chapter' ? 'chapter' : 'unit';
+      findings.push({ id: 'cast', unit: null, units: [], title: castInfo.recurring + ' of ' + named.length + ' named characters appear in more than one ' + noun, text: castInfo.lead + ', the most-mentioned, appears in ' + castInfo.leadUnits + ' of ' + n + ' ' + noun + 's.' + (castInfo.leadUnits / n < 0.5 ? ' The character the book names most is absent from more than half of it.' : ''), info: castInfo.leadUnits / n >= 0.5 });
     } else notAssessed.push('cast persistence: fewer than two named characters');
-    const vals = Object.values(components).filter(c => c.applicable).map(c => c.value);
-    const score = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 100) : null;
-    return { score, applicable: score != null, arc: 'structure', mode: mode === 'book' ? 'book' : 'chapter',
-      methodology: 'Structure measured from the manuscript\'s units, the scene-versus-summary share of each unit (passage classifier), the placement of the most scene-heavy unit, unit-length control against the manuscript\'s own median, and cast persistence. Stakes, causality and character want are not measured.',
-      units: units.map(u => ({ label: u.label, words: u.words, sceneShare: u.sceneShare, actionShare: u.actionShare, dialogueShare: u.dialogueShare, reflectionShare: u.reflectionShare, descriptionShare: u.descriptionShare, expositionShare: u.expositionShare, classifiedShare: u.classifiedShare, meanSentence: u.meanSentence, cast: u.cast || [] })),
-      unitCount: n, unitSource: source, curve, cast: castInfo, components, notAssessed, ...legacy };
+    const shares = measured.map(u => u.sceneShare);
+    const curve = shares.length ? { peakIndex: measured[shares.indexOf(Math.max(...shares))].index, peakShare: Math.max(...shares), lowShare: Math.min(...shares), lastUnitShare: shares[shares.length - 1] } : null;
+    const overview = this._structureOverview(units, source, curve, 'sceneShare', 'action or dialogue', findings);
+    return { score: null, scored: false, applicable: n >= 3, arc: 'structure', mode: mode || 'chapter',
+      methodology: 'Structure is described, not scored. Units come from chapter headings, scene breaks, or equal segments; each unit’s share of scene (action and dialogue) against summary comes from the passage classifier; a unit is called unusual when it sits 2.5 MADs and at least 12 points from the manuscript’s own median; the ending is compared as the final third against the rest. Stakes, causality and what a character wants are not measured.',
+      overview, findings,
+      units: units.map(u => ({ index: u.index, label: u.label, heading: u.heading || null, opening: u.opening, words: u.words, sceneShare: u.sceneShare, actionShare: u.actionShare, dialogueShare: u.dialogueShare, reflectionShare: u.reflectionShare, descriptionShare: u.descriptionShare, expositionShare: u.expositionShare, classifiedShare: u.classifiedShare, meanSentence: u.meanSentence, cast: u.cast || [] })),
+      unitCount: n, unitSource: source, curve, cast: castInfo, notAssessed, ...legacy };
+  },
+  _structureOverview(units, source, curve, share, what, findings) {
+    const noun = source === 'chapter' ? 'chapter' : source === 'scene-break' ? 'scene' : 'segment';
+    const n = units.length;
+    let s = n + ' ' + noun + 's' + (source === 'chapter' ? ' from headings' : source === 'scene-break' ? ' from scene breaks' : ' (no headings or scene breaks found, so equal segments)') + '. ';
+    if (curve) {
+      const peak = units.find(u => u.index === curve.peakIndex);
+      const peakName = peak.heading ? peak.label : noun.charAt(0).toUpperCase() + noun.slice(1) + ' ' + peak.index;
+      s += what.charAt(0).toUpperCase() + what.slice(1) + ' ranges from ' + curve.lowShare + '% to ' + curve.peakShare + '% of a ' + noun + ', highest in ' + peakName + (/…$/.test(peakName) ? '' : '.');
+      const drop = findings.find(f => f.id === 'ending-drop');
+      if (drop) s += ' It thins through the final third.';
+    }
+    return s;
+  },
+  // Nonfiction: the same skeleton read for an argument. Illustration (example, story, scene:
+  // the classifier’s action, dialogue and description) against exposition; paragraph-level
+  // signposting; unit length; and whether the book’s key terms persist across units.
+  _keyTerms(text) {
+    const stop = new Set('about above after again against almost along already also although always among another anyone anything around because become becomes before began begin behind being below between beyond cannot could different during either enough every everything first further having himself herself however itself little might myself nothing often other others ought people perhaps rather really seemed several should since someone something sometimes still their there these things those though through toward under until upon where whether which while whole whose within without would yourself years young great small large right thing think thought known shall would could should might must will cannot'.split(' '));
+    const counts = {}, caps = {};
+    for (const m of text.matchAll(/\b([A-Za-z][a-z’']{4,})\b/g)) {
+      const w = m[1].toLowerCase().replace(/[’'].*$/, '');
+      if (w.length < 5 || stop.has(w)) continue;
+      counts[w] = (counts[w] || 0) + 1; if (/^[A-Z]/.test(m[1])) caps[w] = (caps[w] || 0) + 1;
+    }
+    return Object.entries(counts).filter(([w, c]) => c >= 5 && (caps[w] || 0) / c < 0.5).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([term, count]) => ({ term, count }));
+  },
+  _analyzeNonfictionStructure(text, mode, genre) {
+    const legacy = { hasRisingAction: null, hasClimax: null, hasResolution: null, hasCliffhanger: null, hasSceneGoal: null };
+    const totalWords = (text.match(/\b[\w’'-]+\b/g) || []).length;
+    if (totalWords < 1200) return { score: null, scored: false, applicable: false, arc: 'insufficient-data', details: 'Under 1,200 words: too short to measure structure.', units: [], unitCount: 0, findings: [], notAssessed: ['structure: under 1,200 words'], ...legacy };
+    const { units, source, classifier } = this._structureBase(text, mode);
+    const n = units.length, notAssessed = [];
+    const measured = units.filter(u => u.illustrationShare != null);
+    if (!classifier) notAssessed.push('illustration and exposition: passage classifier unavailable');
+    else if (measured.length < 4) notAssessed.push('illustration and exposition: fewer than four classified units');
+    if (mode !== 'book') notAssessed.push('where illustration peaks and whether the ending thins: ' + (mode === 'partial' ? 'not confirmed as a full manuscript (set "Full manuscript" in the header if it is complete)' : 'not a full manuscript'));
+    const noun = source === 'chapter' ? 'chapter' : source === 'scene-break' ? 'section' : 'segment';
+    const findings = this._structureFindings(units, 'illustrationShare', {
+      unitNoun: noun, what: 'example, story or scene', heavy: 'illustration-heavy', light: 'exposition',
+      heavyWhy: 'The argument pauses here for its longest stretch of showing. Make sure the point it illustrates is stated.',
+      lightWhy: 'A claim that runs this long without an example is the easiest place for a reader to stop believing you.',
+      dropTitle: 'Illustration falls away near the end',
+      dropWhy: 'Closing chapters often summarise; check that the final argument still gets an example.',
+      flatWhy: 'Every unit mixes claim and example in the same proportion.',
+      earlyWhy: 'Later chapters lean harder on assertion; check whether their claims are still illustrated.'
+    }, mode);
+    // Signposting: the unit with the fewest paragraph-level connectives against the manuscript’s median.
+    if (n >= 4 && (this._robust(units.map(u => u.signpostRate)).median || 0) >= 2) {
+      const { median, mad } = this._robust(units.map(u => u.signpostRate));
+      const thin = units.filter(u => u.paragraphs >= 6 && u.signpostRate <= Math.max(0, median - Math.max(2, 2.5 * (mad || 0))));
+      const Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
+      for (const u of thin.slice(0, 3)) findings.push({ id: 'signposting', unit: u.index, units: [u.index], title: (u.heading ? u.label : Noun + ' ' + u.index) + ' has the fewest signposts', text: u.signposts + ' of its ' + u.paragraphs + ' paragraphs open with a connective (' + u.signpostRate + ' per 1,000 words against a typical ' + median + '). Readers find their way through an argument by its connectives.' });
+    }
+    // Key terms persisting across units: the argument’s cast.
+    const terms = this._keyTerms(text);
+    let concepts = { terms: [], persistent: 0, lead: null, leadUnits: null };
+    if (terms.length >= 3 && n >= 2) {
+      concepts.terms = terms.map(t => { const re = new RegExp('\\b' + t.term, 'i'); return { term: t.term, count: t.count, units: units.filter(u => re.test(text.slice(u.start, u.end))).length }; });
+      concepts.persistent = concepts.terms.filter(t => t.units >= Math.ceil(n / 2)).length;
+      concepts.lead = concepts.terms[0].term; concepts.leadUnits = concepts.terms[0].units;
+      findings.push({ id: 'concepts', unit: null, units: [], title: concepts.persistent + ' of ' + concepts.terms.length + ' key terms run through most of the book', text: '“' + concepts.lead + '”, the most frequent, appears in ' + concepts.leadUnits + ' of ' + n + ' ' + noun + 's.' + (concepts.persistent / concepts.terms.length < 0.5 ? ' Most of the book’s central vocabulary is local to a few ' + noun + 's.' : ''), info: concepts.persistent / concepts.terms.length >= 0.5 });
+    } else notAssessed.push('key-term persistence: too few recurring terms');
+    const shares = measured.map(u => u.illustrationShare);
+    const curve = shares.length ? { peakIndex: measured[shares.indexOf(Math.max(...shares))].index, peakShare: Math.max(...shares), lowShare: Math.min(...shares), lastUnitShare: shares[shares.length - 1] } : null;
+    const overview = this._structureOverview(units, source, curve, 'illustrationShare', 'example, story or scene', findings);
+    return { score: null, scored: false, applicable: n >= 3, arc: 'nonfiction-structure', mode: mode || 'chapter',
+      methodology: 'Argument structure is described, not scored. Units come from headings, section breaks, or equal segments; each unit’s share of illustration (example, story, scene) against exposition comes from the passage classifier; signposting is the rate of paragraphs opening with a connective; key terms are the manuscript’s most frequent content words. A unit is called unusual when it sits 2.5 MADs and at least 12 points from the manuscript’s own median. Whether the argument is sound is not measured.',
+      overview, findings,
+      units: units.map(u => ({ index: u.index, label: u.label, heading: u.heading || null, opening: u.opening, words: u.words, illustrationShare: u.illustrationShare, expositionShare: u.expositionShare, reflectionShare: u.reflectionShare, descriptionShare: u.descriptionShare, actionShare: u.actionShare, dialogueShare: u.dialogueShare, classifiedShare: u.classifiedShare, meanSentence: u.meanSentence, signposts: u.signposts, signpostRate: u.signpostRate, paragraphs: u.paragraphs })),
+      unitCount: n, unitSource: source, curve, concepts, notAssessed, ...legacy };
   },
 
   // ========================
@@ -3600,7 +3732,7 @@ const Analyzer = {
   // ========================
   // FULL ANALYSIS
   // ========================
-  analyze(text, genreOverride) {
+  analyze(text, genreOverride, options) {
     if (!text || text.trim().length < 50) {
       return { error: 'Text too short for meaningful analysis. Please provide at least a few paragraphs.' };
     }
@@ -3613,7 +3745,7 @@ const Analyzer = {
     const aText = text.slice(segmentation.narrativeStart, segmentation.narrativeEnd);
     const aOffset = segmentation.narrativeStart;
 
-    const manuscriptMode = this.detectMode(aText);
+    const manuscriptMode = this.detectMode(aText, options && options.modeOverride);
     const mode = manuscriptMode.mode;
     const detected = this.detectGenre(aText);
     const genre = (genreOverride && typeof genreOverride === 'string')
