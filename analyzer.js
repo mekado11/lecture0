@@ -183,46 +183,47 @@ const Analyzer = {
   // ========================
   // MANUSCRIPT MODE DETECTION
   // ========================
-  detectMode(text) {
+  // What kind of text this is: an excerpt, a single chapter, several chapters of something
+  // longer, or a full manuscript. Whole-book judgments (where the climax sits, whether the
+  // ending thins, book-level DNF reading) are made only in 'book' mode, so a text is called a
+  // full manuscript only on evidence: a closing marker, novel length, or the author saying so.
+  // Three chapter headings used to be enough, which judged every eight-chapter sample as a
+  // whole book.
+  MODE_LABELS: { excerpt: 'Excerpt / Scene', chapter: 'Chapter', partial: 'Partial manuscript', book: 'Full Manuscript' },
+  detectMode(text, override) {
     const words = (text.match(/\b\w+\b/g) || []).length;
-    const lower = text.toLowerCase();
-
-    // Check for chapter headings
-    const chapterHeadings = (text.match(/^(chapter\s+\d+|chapter\s+[a-z]+|part\s+\d+|part\s+[a-z]+)/gim) || []).length;
-    // Scene breaks
-    const sceneBreaks = (text.match(/\n\s*(\*\s*\*\s*\*|---|\* \* \*|#)\s*\n/g) || []).length;
-    // Estimated pages (~250 words/page)
     const estPages = Math.round(words / 250);
-
-    let mode = 'chapter'; // default
-    let confidence = 'auto';
-
-    if (chapterHeadings >= 3) {
-      mode = 'book';
-    } else if (words > 25000) {
-      mode = 'book';
-    } else if (words > 8000 && (chapterHeadings >= 1 || sceneBreaks >= 3)) {
-      mode = 'book';
-    } else if (words < 1500) {
-      mode = 'excerpt';
-    } else {
-      mode = 'chapter';
+    const headingRe = /^[ \t]*(?:chapter|part|book)\s+(\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)\b/gim;
+    const numberWords = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50 };
+    const roman = s => { const v = { i: 1, v: 5, x: 10, l: 50, c: 100 }; let n = 0; s = s.toLowerCase(); for (let i = 0; i < s.length; i++) n += v[s[i]] < (v[s[i + 1]] || 0) ? -v[s[i]] : v[s[i]]; return n; };
+    const numbers = [];
+    let m;
+    while ((m = headingRe.exec(text)) !== null) { const t = m[1].toLowerCase(); numbers.push(/^\d+$/.test(t) ? Number(t) : numberWords[t] || roman(t)); }
+    const capsTitles = (text.match(/^[ \t]*[A-Z][A-Z0-9 ,'’:;&\-]{3,70}[ \t]*$/gm) || []).filter(t => t.trim().split(/\s+/).length <= 10 && /[A-Z]{2}/.test(t)).length;
+    const chapterHeadings = numbers.length || (capsTitles >= 3 ? capsTitles : 0);
+    const sceneBreaks = (text.match(/\n\s*(\*\s*\*\s*\*|---|\* \* \*|#)\s*\n/g) || []).length;
+    const tail = text.slice(Math.floor(text.length * 0.92));
+    const closingMarker = /^[ \t]*(?:the end|fin|epilogue|afterword|acknowledg(?:e)?ments|about the author|author’s note|author's note)\b/im.test(tail);
+    const first = numbers.length ? Math.min(...numbers) : null, last = numbers.length ? Math.max(...numbers) : null;
+    const reasons = [];
+    let mode;
+    if (override && this.MODE_LABELS[override]) { mode = override; reasons.push('set by the author'); }
+    else if (words < 1500) { mode = 'excerpt'; reasons.push(words.toLocaleString() + ' words'); }
+    else if (first != null && first > 1) { mode = 'partial'; reasons.push('chapter numbering starts at ' + first); }
+    else if (chapterHeadings >= 2 && closingMarker) { mode = 'book'; reasons.push(chapterHeadings + ' chapters with a closing marker'); }
+    else if (words >= 25000) { mode = 'book'; reasons.push(words.toLocaleString() + ' words'); }
+    else if (chapterHeadings >= 2 || (words > 8000 && (chapterHeadings >= 1 || sceneBreaks >= 3))) {
+      mode = 'partial';
+      reasons.push(chapterHeadings >= 2 ? chapterHeadings + ' chapters' + (first != null ? ' numbered ' + first + '–' + last : '') : sceneBreaks + ' scene breaks');
+      reasons.push(words.toLocaleString() + ' words, under the 25,000 that would establish a complete book, and no closing marker');
     }
-
-    const modeLabels = {
-      excerpt: 'Excerpt / Scene',
-      chapter: 'Chapter',
-      book: 'Full Manuscript'
-    };
-
+    else { mode = 'chapter'; reasons.push(words.toLocaleString() + ' words, ' + (chapterHeadings ? 'one heading' : 'no chapter headings')); }
+    const label = this.MODE_LABELS[mode] + (mode === 'partial' && first != null && !override ? ' (chapters ' + first + '–' + last + ')' : '');
     return {
-      mode,
-      label: modeLabels[mode],
-      confidence,
-      wordCount: words,
-      estPages,
-      chapterHeadings,
-      sceneBreaks
+      mode, label, confidence: override ? 'author' : 'auto', reasons, wordCount: words, estPages, chapterHeadings, sceneBreaks,
+      chapterRange: first != null ? { first, last } : null, closingMarker,
+      // Whole-book judgments are made only here; the header offers the author the override.
+      wholeBook: mode === 'book'
     };
   },
 
@@ -1309,7 +1310,7 @@ const Analyzer = {
     }
     // Neither headings nor breaks: equal segments cut at paragraph boundaries.
     const total = wordsIn(text);
-    const n = Math.max(3, Math.min(24, Math.round(total / (mode === 'book' ? 1500 : 400))));
+    const n = Math.max(3, Math.min(24, Math.round(total / (mode === 'book' || mode === 'partial' ? 1500 : 400))));
     const paras = [];
     const splitter = /\n\s*\n/g; let last = 0;
     while ((m = splitter.exec(text)) !== null) { paras.push({ start: last, end: m.index }); last = m.index + m[0].length; }
@@ -1382,7 +1383,7 @@ const Analyzer = {
       const cut = Math.floor(measured.length * 2 / 3);
       const before = measured.slice(0, cut), after = measured.slice(cut);
       const mean = a => a.reduce((x, u) => x + u[share], 0) / a.length;
-      if (after.length >= 2 && before.length >= 2) {
+      if (mode === 'book' && after.length >= 2 && before.length >= 2) {
         const mb = Math.round(mean(before)), ma = Math.round(mean(after));
         if (ma <= mb * 0.7 && mb - ma >= 8) findings.push({ id: 'ending-drop', unit: after[0].index, units: after.map(u => u.index), title: vocab.dropTitle, text: range(after) + ' average ' + ma + '% ' + vocab.what + ', against ' + mb + '% in the ' + noun + 's before them. ' + vocab.dropWhy });
       }
@@ -1414,7 +1415,7 @@ const Analyzer = {
     const measured = units.filter(u => u.sceneShare != null);
     if (!classifier) notAssessed.push('scene and summary: passage classifier unavailable');
     else if (measured.length < 4) notAssessed.push('scene and summary: fewer than four classified units');
-    if (mode !== 'book') notAssessed.push('placement of the most scene-heavy unit: not a full manuscript');
+    if (mode !== 'book') notAssessed.push('where the most scene-heavy unit sits and whether the ending thins: ' + (mode === 'partial' ? 'not confirmed as a full manuscript (set "Full manuscript" in the header if it is complete)' : 'not a full manuscript'));
     const findings = this._structureFindings(units, 'sceneShare', {
       unitNoun: source === 'chapter' ? 'chapter' : source === 'scene-break' ? 'scene' : 'segment',
       what: 'action or dialogue', heavy: 'scene-heavy', light: 'summary',
@@ -1441,7 +1442,7 @@ const Analyzer = {
     const shares = measured.map(u => u.sceneShare);
     const curve = shares.length ? { peakIndex: measured[shares.indexOf(Math.max(...shares))].index, peakShare: Math.max(...shares), lowShare: Math.min(...shares), lastUnitShare: shares[shares.length - 1] } : null;
     const overview = this._structureOverview(units, source, curve, 'sceneShare', 'action or dialogue', findings);
-    return { score: null, scored: false, applicable: n >= 3, arc: 'structure', mode: mode === 'book' ? 'book' : 'chapter',
+    return { score: null, scored: false, applicable: n >= 3, arc: 'structure', mode: mode || 'chapter',
       methodology: 'Structure is described, not scored. Units come from chapter headings, scene breaks, or equal segments; each unit’s share of scene (action and dialogue) against summary comes from the passage classifier; a unit is called unusual when it sits 2.5 MADs and at least 12 points from the manuscript’s own median; the ending is compared as the final third against the rest. Stakes, causality and what a character wants are not measured.',
       overview, findings,
       units: units.map(u => ({ index: u.index, label: u.label, heading: u.heading || null, opening: u.opening, words: u.words, sceneShare: u.sceneShare, actionShare: u.actionShare, dialogueShare: u.dialogueShare, reflectionShare: u.reflectionShare, descriptionShare: u.descriptionShare, expositionShare: u.expositionShare, classifiedShare: u.classifiedShare, meanSentence: u.meanSentence, cast: u.cast || [] })),
@@ -1482,6 +1483,7 @@ const Analyzer = {
     const measured = units.filter(u => u.illustrationShare != null);
     if (!classifier) notAssessed.push('illustration and exposition: passage classifier unavailable');
     else if (measured.length < 4) notAssessed.push('illustration and exposition: fewer than four classified units');
+    if (mode !== 'book') notAssessed.push('where illustration peaks and whether the ending thins: ' + (mode === 'partial' ? 'not confirmed as a full manuscript (set "Full manuscript" in the header if it is complete)' : 'not a full manuscript'));
     const noun = source === 'chapter' ? 'chapter' : source === 'scene-break' ? 'section' : 'segment';
     const findings = this._structureFindings(units, 'illustrationShare', {
       unitNoun: noun, what: 'example, story or scene', heavy: 'illustration-heavy', light: 'exposition',
@@ -1511,7 +1513,7 @@ const Analyzer = {
     const shares = measured.map(u => u.illustrationShare);
     const curve = shares.length ? { peakIndex: measured[shares.indexOf(Math.max(...shares))].index, peakShare: Math.max(...shares), lowShare: Math.min(...shares), lastUnitShare: shares[shares.length - 1] } : null;
     const overview = this._structureOverview(units, source, curve, 'illustrationShare', 'example, story or scene', findings);
-    return { score: null, scored: false, applicable: n >= 3, arc: 'nonfiction-structure', mode: mode === 'book' ? 'book' : 'chapter',
+    return { score: null, scored: false, applicable: n >= 3, arc: 'nonfiction-structure', mode: mode || 'chapter',
       methodology: 'Argument structure is described, not scored. Units come from headings, section breaks, or equal segments; each unit’s share of illustration (example, story, scene) against exposition comes from the passage classifier; signposting is the rate of paragraphs opening with a connective; key terms are the manuscript’s most frequent content words. A unit is called unusual when it sits 2.5 MADs and at least 12 points from the manuscript’s own median. Whether the argument is sound is not measured.',
       overview, findings,
       units: units.map(u => ({ index: u.index, label: u.label, heading: u.heading || null, opening: u.opening, words: u.words, illustrationShare: u.illustrationShare, expositionShare: u.expositionShare, reflectionShare: u.reflectionShare, descriptionShare: u.descriptionShare, actionShare: u.actionShare, dialogueShare: u.dialogueShare, classifiedShare: u.classifiedShare, meanSentence: u.meanSentence, signposts: u.signposts, signpostRate: u.signpostRate, paragraphs: u.paragraphs })),
@@ -3730,7 +3732,7 @@ const Analyzer = {
   // ========================
   // FULL ANALYSIS
   // ========================
-  analyze(text, genreOverride) {
+  analyze(text, genreOverride, options) {
     if (!text || text.trim().length < 50) {
       return { error: 'Text too short for meaningful analysis. Please provide at least a few paragraphs.' };
     }
@@ -3743,7 +3745,7 @@ const Analyzer = {
     const aText = text.slice(segmentation.narrativeStart, segmentation.narrativeEnd);
     const aOffset = segmentation.narrativeStart;
 
-    const manuscriptMode = this.detectMode(aText);
+    const manuscriptMode = this.detectMode(aText, options && options.modeOverride);
     const mode = manuscriptMode.mode;
     const detected = this.detectGenre(aText);
     const genre = (genreOverride && typeof genreOverride === 'string')

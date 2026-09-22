@@ -3,7 +3,7 @@
   'use strict';
   const header = document.querySelector('.topbar');
   if (!header) return;
-  const ids = ['top-filename','top-status','genre-override','top-score','top-delta','top-wc',
+  const ids = ['top-filename','top-status','genre-override','mode-override','top-score','top-delta','top-wc',
     'intel-open','save-btn','new-btn','export-btn','optional-checks-btn','signout-btn'];
   const controls = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
   header.classList.add('author-header');
@@ -14,7 +14,7 @@
   header.innerHTML = `
     <div class="author-brand"><a href="index.html" aria-label="AuthorScrolls home" title="AuthorScrolls"><img src="assets/mark.svg" alt="" width="30" height="30"></a><div data-slot="library"></div></div>
     <div class="author-document"><span class="document-eyebrow">YOUR MANUSCRIPT</span><div data-slot="title"></div>
-      <div class="document-meta"><div class="manuscript-context"><label for="genre-override">Reading as</label><div data-slot="genre"></div><span class="metadata-dot">·</span><div data-slot="status"></div></div><span class="metadata-dot">·</span><div class="manuscript-metrics"><span><b data-slot="words"></b> words</span><span class="metadata-dot">·</span><span class="health-indicator" title="Deterministic editing signals, not a verdict on your voice. AI advice does not change this score.">Editing signals <b data-slot="score"></b><span data-slot="delta"></span></span></div></div>
+      <div class="document-meta"><div class="manuscript-context"><label for="genre-override">Reading as</label><div data-slot="genre"></div><div data-slot="mode"></div><span class="metadata-dot">·</span><div data-slot="status"></div></div><span class="metadata-dot">·</span><div class="manuscript-metrics"><span><b data-slot="words"></b> words</span><span class="metadata-dot">·</span><span class="health-indicator" title="Deterministic editing signals, not a verdict on your voice. AI advice does not change this score.">Editing signals <b data-slot="score"></b><span data-slot="delta"></span></span></div></div>
     </div>
     <nav class="author-actions" aria-label="Manuscript actions">
       <span id="save-state" role="status" aria-live="polite">Cloud manuscript</span>
@@ -32,7 +32,7 @@
     header.querySelector(`[data-slot="${slot}"]`).append(el);
   };
   place('library','new-btn','Library');
-  place('title','top-filename');place('status','top-status');place('genre','genre-override');
+  place('title','top-filename');place('status','top-status');place('genre','genre-override');place('mode','mode-override');
   place('words','top-wc');place('score','top-score');place('delta','top-delta');
   place('save','save-btn','Save');place('intelligence','intel-open','✦ Intelligence');
   for (const [id,label] of [['export-btn','Export manuscript'],['optional-checks-btn','Optional AI & grammar checks']]) {
@@ -40,6 +40,7 @@
   }
   if(controls['signout-btn'])document.getElementById('account-actions').append(controls['signout-btn']);
   controls['genre-override']?.setAttribute('aria-label','Manuscript genre');
+  controls['mode-override']?.setAttribute('aria-label','Manuscript type');
   const menus=[...header.querySelectorAll('details')];
   function closeMenus(except=null){menus.forEach(menu=>{if(menu!==except)menu.open=false;});}
   menus.forEach(menu=>{

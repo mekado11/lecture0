@@ -5,6 +5,11 @@ const _GENRE_LABELS={scifi:'Science Fiction',fantasy:'Fantasy',romance:'Romance'
 function _genreLabelToKey(label){return Object.entries(_GENRE_LABELS).find(([,v])=>v===label)?.[0]||'';}
 // Read whichever genre dropdown is currently active. Used to pass the user's pick into Analyzer.analyze
 // so the SCORING (not just the label) reflects their override. Returns undefined when nothing is selected.
+// The author's manuscript-type override (Detected / Excerpt / Chapter / Partial / Full), kept per
+// manuscript so a confirmed "Full manuscript" survives reopening.
+function _modeStorageKey(){return 'ml_mode:'+((typeof Storage!=='undefined'&&Storage._currentManuscriptId)||'')}
+function _modeKey(){const el=document.getElementById('mode-override');return (el&&el.value)||undefined}
+function _analyzeOptions(){return {modeOverride:_modeKey()}}
 function _currentGenreKey(){
   const ov=document.getElementById('genre-override');
   if(ov&&ov.value)return ov.value;
@@ -33,7 +38,7 @@ function _authDiagnosticMessage(msg) {
 // to avoid double-processing the same result (global + per-request both firing).
 let _analyzeVersion=0;
 let _analysisSource='';
-const _analysisRunner=new AnalysisRunner(()=>new Worker('analyzer-worker.js'));
+const _analysisRunner=new AnalysisRunner(()=>new Worker('analyzer-worker.js?v=2'));
 
 // UPLOAD
 const dz=$('drop-zone'),fi=$('file-input');
@@ -113,11 +118,11 @@ $('analyze-btn').addEventListener('click',async()=>{
     _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;_readerSimDone=false;_readerSimHTML=null;
     $('loader-text').textContent='Analyzing...';
     ++_analyzeVersion;
-    analysisResult=await _analysisRunner.analyze(extractedText,selectedGenre);
+    analysisResult=await _analysisRunner.analyze(extractedText,selectedGenre,_modeKey());
     if(!analysisResult||analysisResult.error){alert(analysisResult?.error||'Analysis produced no result');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
     // Genre defense: if worker auto-detect disagrees with user's selection, re-analyze with correct genre.
     // This runs on the main thread so genre override is always honored before saving to Firestore.
-    {if(analysisResult.genre?.primary!==selectedGenre){try{analysisResult=Analyzer.analyze(extractedText,selectedGenre)}catch(e){console.warn('Genre re-analyze failed:',e.message)}}}
+    {if(analysisResult.genre?.primary!==selectedGenre){try{analysisResult=Analyzer.analyze(extractedText,selectedGenre,_analyzeOptions())}catch(e){console.warn('Genre re-analyze failed:',e.message)}}}
     // Save immediately to the authenticated cloud library.
     trackSession('analyzing');
     // Direct save (don't wait for debounced autoSave)
@@ -291,11 +296,27 @@ function renderAll(){
   if(!renderAll._genreOverrideInProgress&&activeGenre&&r.genre&&r.genre.primary&&r.genre.primary!==activeGenre){
     renderAll._genreOverrideInProgress=true;
     try{
-      analysisResult=Analyzer.analyze(extractedText,activeGenre);
+      analysisResult=Analyzer.analyze(extractedText,activeGenre,_analyzeOptions());
       renderAll();
     }catch(e){console.warn('Genre re-analyze failed:',e.message)}
     finally{renderAll._genreOverrideInProgress=false;}
     return;
+  }
+  // Manuscript type: the select follows what this manuscript remembers, and the analysis
+  // follows the select. A cached result made under a different mode is redone once.
+  {const modeSel=$('mode-override');
+    if(modeSel){
+      let saved='';try{saved=localStorage.getItem(_modeStorageKey())||''}catch(_){}
+      if(modeSel.value!==saved)modeSel.value=saved;
+      if(r.manuscriptMode)modeSel.title=(r.manuscriptMode.confidence==='author'?'Set by you. Detected: ':'Detected: ')+(r.manuscriptMode.reasons||[]).join('; ');
+      if(!renderAll._modeOverrideInProgress&&modeSel.value&&r.manuscriptMode&&r.manuscriptMode.mode!==modeSel.value&&typeof extractedText==='string'&&extractedText){
+        renderAll._modeOverrideInProgress=true;
+        try{analysisResult=Analyzer.analyze(extractedText,activeGenre||undefined,_analyzeOptions());renderAll();}
+        catch(e){console.warn('Mode re-analyze failed:',e.message)}
+        finally{renderAll._modeOverrideInProgress=false;}
+        return;
+      }
+    }
   }
   if(!r.genre)r.genre={primary:activeGenre||'fiction',label:genreLabels[activeGenre]||'Unknown',secondary:null};
   if(activeGenre&&r.genre){
@@ -772,7 +793,7 @@ function scheduleReanalyze(){
     extractedText=extractTextFromEditor();
     document.querySelectorAll('.rsc,.gauge-wrap').forEach(el=>el.classList.add('scores-pending'));
     const source=extractedText;
-    _analysisRunner.analyze(source,_currentGenreKey()).then(result=>{
+    _analysisRunner.analyze(source,_currentGenreKey(),_modeKey()).then(result=>{
       if(v===_analyzeVersion&&source===extractTextFromEditor())_onAnalysisComplete(result);
     }).catch(error=>{if(error.name!=='AbortError')_showSaveToast(error.message);})
       .finally(()=>{if(v===_analyzeVersion)document.querySelectorAll('.scores-pending').forEach(el=>el.classList.remove('scores-pending'));});
@@ -1860,7 +1881,7 @@ function showOpeningCoach(sectionIndex){
     const idx=extractedText.indexOf(oldFirst);
     if(idx>=0){extractedText=newOpening+extractedText.substring(idx+oldFirst.length)}
     else{extractedText=newOpening+'\n\n'+extractedText}
-    analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
+    analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions());
     if(!analysisResult.error)renderAll();
     coach.classList.remove('active');
     document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
@@ -2607,7 +2628,7 @@ c.innerHTML=h;c.querySelector('#clr-v')?.addEventListener('click',()=>{if(confir
 $('export-btn')?.addEventListener('click',()=>{
   extractedText=extractTextFromEditor();
   if(!analysisResult||!extractedText)return;
-  const r=Analyzer.analyze(extractedText,_currentGenreKey());
+  const r=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions());
   const issueColors={passive:'#FFD700','weak-verb':'#FFA500',adverb:'#87CEEB',cliche:'#FF6347',wordy:'#DDA0DD','show-tell':'#98FB98',repetition:'#F0E68C','sentence-length':'#FFC0CB',grammar:'#FF4444'};
   const issueLabels={passive:'Passive Voice','weak-verb':'Weak Verb',adverb:'Adverb',cliche:'Cliché',wordy:'Wordy','show-tell':'Show vs Tell',repetition:'Repetition','sentence-length':'Long Sentence'};
 
@@ -2861,7 +2882,7 @@ function _wireLibraryEvents(){
           extractedText=full.text;uploadedFile={name:full.fileName,size:0};
           const savedGenreKey=full.genrePrimary||(full.genre&&full.genre!=='Unknown'?_genreLabelToKey(full.genre):'');
           if(savedGenreKey){const go=$('genre-override');if(go)go.value=savedGenreKey;}
-          try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);alert('Analysis failed. Please try re-uploading.');return}
+          try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions())}catch(e){console.error('Analyze failed:',e);alert('Analysis failed. Please try re-uploading.');return}
           Storage._currentManuscriptId=full.id;
           $('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');
           document.body.classList.remove('lib-mode');renderAll();
@@ -2933,7 +2954,7 @@ async function _openManuscript(idx){
       loadEl.textContent='Analyzing manuscript...';
       await new Promise(r=>setTimeout(r,50));
       try{
-        analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
+        analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions());
       }catch(analyzeErr){
         console.error('Analyzer.analyze failed:',analyzeErr);
         loadEl.remove();
@@ -3121,7 +3142,7 @@ Storage.whenReady().then(async user=>{
         _savedText=full.text;
         $('genre-override').value=full.genrePrimary||_genreLabelToKey(full.genre)||'';
         uploadedFile={name:full.fileName,size:0};
-        try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
+        try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
         if(!analysisResult){renderLibrary();return}
         Storage._currentManuscriptId=full.id;
         $('upload-view').classList.add('hidden');
@@ -3148,7 +3169,7 @@ Storage.whenReady().then(async user=>{
         _savedText=full.text;
         $('genre-override').value=full.genrePrimary||_genreLabelToKey(full.genre)||'';
         uploadedFile={name:full.fileName,size:0};
-        try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
+        try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
         if(!analysisResult){renderLibrary();return}
         Storage._currentManuscriptId=m.id;
         localStorage.setItem('ml_last_open',JSON.stringify({fileName:m.fileName,manuscriptId:m.id}));
@@ -3179,7 +3200,20 @@ $('genre-override')?.addEventListener('change',()=>{
     const el=document.getElementById(id);if(el)el.innerHTML='';
   });
   // Pass dropdown value as the sacred override — Analyzer.analyze() bypasses detection AND fallback reclassification.
-  analysisResult=Analyzer.analyze(extractedText, $('genre-override').value || undefined);
+  analysisResult=Analyzer.analyze(extractedText, $('genre-override').value || undefined, _analyzeOptions());
+  renderAll();
+});
+
+// Manuscript type in the header — the author's word on whether this is a full manuscript.
+// Remembered per manuscript; whole-book judgments (climax placement, ending, book-level DNF)
+// are made only when the mode is "Full manuscript".
+$('mode-override')?.addEventListener('change',()=>{
+  const value=$('mode-override').value;
+  try{value?localStorage.setItem(_modeStorageKey(),value):localStorage.removeItem(_modeStorageKey());}catch(_){}
+  if(!extractedText||!analysisResult)return;
+  _analyzeVersion++;_analysisRunner.cancel();clearTimeout(_reanalyzeTimer);
+  extractedText=extractTextFromEditor();
+  analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions());
   renderAll();
 });
 
@@ -3650,7 +3684,7 @@ window.AuthorScrollsEditor={
     try{
       await pendingSave;
       extractedText=await Storage.restoreVersion(id,versionId,analysisResult,extractTextFromEditor());
-      analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
+      analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions());
       _undoStack.length=0;_redoStack.length=0;renderAll();
       if(!await persistDraft())throw new Error('Restored text is open, but its latest save could not be confirmed. Keep this tab open and export it.');
       _showSaveToast('Snapshot restored. Your previous text is in the safety snapshot.');
