@@ -381,6 +381,23 @@ function pdf(){
     await page.locator('#auth-dialog[open]').waitFor();
     await page.keyboard.press('Escape');
     console.log('PASS returning author: homepage keeps the session, sign-up link opens the workspace, sign out from the nav');
+    // AI analysis runs once per 24 hours: the server's refusal becomes a time the author can read,
+    // and the browser does not spend another request until then.
+    {
+      await page.goto(base+'/app.html');
+      await page.locator('#lib-loading.hidden').waitFor({state:'attached'});
+      const nextAt=Date.now()+2*3600000;let cooldownHits=0;
+      await context.route('**/api/claude',route=>{cooldownHits++;route.fulfill({status:429,json:{error:{code:'ANALYSIS_COOLDOWN',message:'AI analysis runs once every 24 hours.',nextAt}}});});
+      const first=await page.evaluate(()=>AIEngine._callClaude(null,'system','user','Some manuscript text for the cooldown check.','deepCritique').then(()=>'ok').catch(e=>e.message));
+      assert.match(first,/once every 24 hours\. The next run is available/);
+      assert.equal(cooldownHits,1);
+      const second=await page.evaluate(()=>AIEngine._callClaude(null,'system','user','Different manuscript text for the cooldown check.','deepCritique').then(()=>'ok').catch(e=>e.message));
+      assert.match(second,/once every 24 hours/);
+      assert.equal(cooldownHits,1,'the browser remembers the next run time instead of asking again');
+      await context.unroute('**/api/claude');
+      await page.evaluate(()=>localStorage.removeItem('ml_ai_next_run'));
+      console.log('PASS AI analysis cooldown: refusal carries the next run time, no repeat request');
+    }
     // Workspace demo: a visitor opens the real workspace on a public-domain sample with no
     // account, no cloud, no API call, and nothing left in browser storage.
     let apiCalls=0;page.on('request',req=>{if(req.url().includes('/api/'))apiCalls++;});

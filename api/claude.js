@@ -3,9 +3,12 @@
 // Rate limited per user per day
 const https = require('https');
 const { verifyToken, getAdmin } = require('./_auth');
-const { checkAndIncrement } = require('./_ratelimit');
+const { checkAndIncrement, analysisRun, openAnalysisRun } = require('./_ratelimit');
 
 const LIMITS = { dev: 9999, beta: 50, premium: 75, starter: 25, free: 0 };
+// Whole-manuscript AI analysis runs once per 24 hours (see _ratelimit.analysisRun). Ask Book,
+// rewrites and fixes are per-request features and stay on the daily count above.
+const ANALYSIS_FEATURES = new Set(['deepcritique','chapterbreakdown','openinganalysis','weaknessanalysis','comptitles','queryletter','betareaders','marketreadiness','editingroadmap','readersimulation','smartscan','calibrateissues']);
 
 async function getUserTier(userId) {
   const fb = getAdmin();
@@ -124,6 +127,23 @@ module.exports = async (req, res) => {
   // Count only authenticated, authorized, structurally valid requests.
   const needsClaude=requestedModel==='claude'||requestedModel==='claude-premium';
   if(!(needsClaude?process.env.CLAUDE_API_KEY:process.env.OPENAI_API_KEY))return res.status(503).json({error:{message:'Requested provider is unavailable'}});
+  // One AI analysis run per 24 hours. Checked before the daily count so a blocked run is
+  // not charged against it; the dev tier is exempt so the feature can be exercised.
+  const isAnalysis = ANALYSIS_FEATURES.has(requestedFeature) && userTier !== 'dev';
+  let run = null;
+  if (isAnalysis) {
+    try { run = await analysisRun(userId, Date.now()); }
+    catch (_) { return res.status(503).json({ error: { message: 'Usage verification unavailable. Please try again.' } }); }
+    if (!run.allowed) {
+      res.setHeader('Retry-After', String(Math.max(1, Math.ceil((run.nextAt - Date.now()) / 1000))));
+      res.status(429).json({
+        error: {
+          message: 'AI analysis runs once every 24 hours. The next run is available at ' + new Date(run.nextAt).toISOString() + '.',
+          code: 'ANALYSIS_COOLDOWN', startedAt: run.startedAt, nextAt: run.nextAt
+        }
+      }); return;
+    }
+  }
   let used;
   try{used=await checkAndIncrement(userId,today);}
   catch(_){return res.status(503).json({error:{message:'Usage verification unavailable. Please try again.'}});}
@@ -136,16 +156,18 @@ module.exports = async (req, res) => {
     }); return;
   }
 
-  if (requestedModel === 'claude' || requestedModel === 'claude-premium') {
-    return callClaude(sanitized, res);
-  } else {
-    return callOpenAI(sanitized, requestedModel, res);
+  const status = (requestedModel === 'claude' || requestedModel === 'claude-premium')
+    ? await callClaude(sanitized, res)
+    : await callOpenAI(sanitized, requestedModel, res);
+  // The run opens on the first successful analysis response, never on a failed one.
+  if (isAnalysis && run && run.startedAt == null && status >= 200 && status < 300) {
+    try { await openAnalysisRun(userId, Date.now()); } catch (_) { /* the response has been sent; nothing to add */ }
   }
 };
 
 function callClaude(body, res) {
   const apiKey = process.env.CLAUDE_API_KEY;
-  if (!apiKey) { res.status(500).json({ error: { message: 'Claude API key not configured' } }); return Promise.resolve(); }
+  if (!apiKey) { res.status(500).json({ error: { message: 'Claude API key not configured' } }); return Promise.resolve(500); }
 
   const payload = JSON.stringify({
     model: 'claude-sonnet-4-20250514',
@@ -168,12 +190,13 @@ function callClaude(body, res) {
       let data = '';
       proxyRes.on('data', chunk => data += chunk);
       proxyRes.on('end', () => {
+        let status = proxyRes.statusCode;
         try { res.status(proxyRes.statusCode).json(JSON.parse(data)); }
-        catch (e) { res.status(500).json({ error: { message: 'Invalid response from Claude' } }); }
-        resolve();
+        catch (e) { status = 500; res.status(500).json({ error: { message: 'Invalid response from Claude' } }); }
+        resolve(status);
       });
     });
-    proxyReq.on('error', err => { res.status(500).json({ error: { message: err.message } }); resolve(); });
+    proxyReq.on('error', err => { res.status(500).json({ error: { message: err.message } }); resolve(500); });
     proxyReq.setTimeout(30000,()=>proxyReq.destroy(new Error('Provider request timed out')));
     proxyReq.write(payload); proxyReq.end();
   });
@@ -183,7 +206,7 @@ function callOpenAI(body, model, res) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     res.status(503).json({error:{message:'Requested provider is unavailable'}});
-    return Promise.resolve();
+    return Promise.resolve(503);
   }
 
   // Map our model names to OpenAI models
@@ -225,6 +248,7 @@ function callOpenAI(body, model, res) {
       let data = '';
       proxyRes.on('data', chunk => data += chunk);
       proxyRes.on('end', () => {
+        let status = proxyRes.statusCode;
         try {
           const parsed = JSON.parse(data);
           if (parsed.error) {
@@ -241,11 +265,11 @@ function callOpenAI(body, model, res) {
               _provider: 'openai', _model: openaiModel
             });
           }
-        } catch (e) { res.status(500).json({ error: { message: 'Invalid response from OpenAI' } }); }
-        resolve();
+        } catch (e) { status = 500; res.status(500).json({ error: { message: 'Invalid response from OpenAI' } }); }
+        resolve(status);
       });
     });
-    proxyReq.on('error', err => { res.status(500).json({ error: { message: err.message } }); resolve(); });
+    proxyReq.on('error', err => { res.status(500).json({ error: { message: err.message } }); resolve(500); });
     proxyReq.setTimeout(30000,()=>proxyReq.destroy(new Error('Provider request timed out')));
     proxyReq.write(payload); proxyReq.end();
   });

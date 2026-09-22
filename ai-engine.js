@@ -42,6 +42,18 @@ const AIEngine = {
   // Local dev: /api/claude (Express server)
   // Both work with the same path
   API_ENDPOINT: '/api/claude',
+  // Whole-manuscript analysis features run once per 24 hours; the server enforces it and this
+  // browser remembers the next run time it was told, so the author sees the time, not a spent request.
+  ANALYSIS_FEATURES: new Set(['deepCritique','chapterBreakdown','openingAnalysis','weaknessAnalysis','compTitles','queryLetter','betaReaders','marketReadiness','editingRoadmap','readerSimulation','smartScan','calibrateIssues']),
+  nextAnalysisRun() {
+    try { const next = Number(localStorage.getItem('ml_ai_next_run')); if (next && next > Date.now()) return next; if (next) localStorage.removeItem('ml_ai_next_run'); } catch (_) {}
+    return null;
+  },
+  cooldownMessage(nextAt) {
+    const when = new Date(nextAt);
+    const sameDay = when.toDateString() === new Date().toDateString();
+    return 'AI analysis runs once every 24 hours. The next run is available ' + (sameDay ? 'today at ' + when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : when.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })) + '.';
+  },
 
   // Model routing: cheap OpenAI for most, Claude for premium
   _routeModel(feature) {
@@ -146,6 +158,13 @@ const AIEngine = {
       ]
     });
 
+    // AI analysis runs once per 24 hours (server-enforced). When the server has told this browser
+    // the next run time, say so without spending a request; cached results above still show.
+    if (AIEngine.ANALYSIS_FEATURES.has(headers['x-feature'])) {
+      const next = AIEngine.nextAnalysisRun();
+      if (next) throw new Error(AIEngine.cooldownMessage(next));
+    }
+
     let response = await fetch(endpoint, { method: 'POST', headers, body: bodyPayload });
 
     if (response.status === 401) {
@@ -161,6 +180,10 @@ const AIEngine = {
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       console.error('[AI API error]', response.status, err, 'User:', currentUser?.email || 'none', 'Had token:', !!headers['authorization']);
+      if (err.error?.code === 'ANALYSIS_COOLDOWN' && Number.isFinite(Number(err.error.nextAt))) {
+        try { localStorage.setItem('ml_ai_next_run', String(Number(err.error.nextAt))); } catch (_) {}
+        throw new Error(AIEngine.cooldownMessage(Number(err.error.nextAt)));
+      }
       if (err.error?.code === 'UNAUTHENTICATED') {
         const reason = err.error?.reason || 'unknown';
         const diag = err.error?.diagnostic || '';
