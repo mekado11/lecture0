@@ -426,6 +426,26 @@ function pdf(){
     await page.locator('[data-wsnav="characters"]').click();
     await page.locator('#workspace-nav-content').getByText('Mary',{exact:false}).first().waitFor();
     console.log('PASS workspace demo: real workspace on public-domain samples, no account, no API, nothing saved');
+    // Features page: no emoji, the product frame is real output, the copy names real features,
+    // and the surfaces move on hover.
+    await page.setViewportSize({width:1440,height:1000});
+    await page.goto(base+'/features.html');
+    await page.getByRole('heading',{name:/manuscript diagnostic/}).waitFor();
+    const fxText=await page.locator('main').innerText();
+    assert.ok(!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(fxText),'no emoji on the features page');
+    assert.match(fxText,/described, not scored/);
+    assert.match(fxText,/Narrative structure/i);
+    assert.ok(!/Midpoint|Climax|Escalation/.test(fxText),'no act labels the engine does not measure');
+    assert.equal(await page.locator('.fx-curve').count(),1);
+    assert.equal(await page.locator('.fx-chips li').count(),20,'the genre count matches the app');
+    const card=page.locator('.fx-card').first();
+    await card.scrollIntoViewIfNeeded();
+    await page.waitForFunction(()=>document.querySelector('.fx-card').classList.contains('is-in'));
+    const box=await card.boundingBox();await page.mouse.move(box.x+box.width/2,box.y+box.height/2);
+    await page.waitForFunction(()=>{const el=document.querySelector('.fx-card');return el.matches(':hover')&&getComputedStyle(el).transform!=='none';},null,{timeout:5000});
+    assert.ok(true,'a card lifts on hover');
+    await page.screenshot({path:path.join(root,'test-results/features-desktop.png'),fullPage:true});
+    console.log('PASS features page: no emoji, real product frame, real feature list, hover motion');
     await page.setViewportSize({width:375,height:812});
     for(const filename of ['features.html','pricing.html','faq.html','blog.html','legal.html','profile.html']){
       await page.goto(base+'/'+filename);
