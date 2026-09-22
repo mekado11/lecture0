@@ -445,7 +445,20 @@ function pdf(){
     await page.waitForFunction(()=>{const el=document.querySelector('.fx-card');return el.matches(':hover')&&getComputedStyle(el).transform!=='none';},null,{timeout:5000});
     assert.ok(true,'a card lifts on hover');
     await page.screenshot({path:path.join(root,'test-results/features-desktop.png'),fullPage:true});
-    console.log('PASS features page: no emoji, real product frame, real feature list, hover motion');
+    assert.ok(await page.locator('.fx-hero-art img').evaluate(img=>img.complete&&img.naturalWidth>0),'the photograph behind the hero loaded');
+    console.log('PASS features page: no emoji, real product frame, real feature list, hover motion, photograph');
+    // Pricing: three plans, two checkout buttons, honest allowance copy, FAQ that opens.
+    await page.goto(base+'/pricing.html');
+    await page.getByRole('heading',{name:/The diagnostic is free/}).waitFor();
+    const prText=await page.locator('main').innerText();
+    assert.ok(!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(prText),'no emoji on the pricing page');
+    assert.equal(await page.locator('.pr-plan').count(),3);
+    assert.deepEqual(await page.locator('.checkout-tier').evaluateAll(b=>b.map(x=>x.dataset.plan)),['starter','premium']);
+    assert.match(prText,/One full AI analysis run every 24 hours/);
+    assert.match(prText,/25 AI requests a day/);assert.match(prText,/75 AI requests a day/);
+    await page.locator('.faq-q').first().click();
+    assert.equal(await page.locator('.faq-item.open').count(),1,'the FAQ opens');
+    console.log('PASS pricing page: no emoji, three plans, checkout wiring, allowance copy, FAQ');
     await page.setViewportSize({width:375,height:812});
     for(const filename of ['features.html','pricing.html','faq.html','blog.html','legal.html','profile.html']){
       await page.goto(base+'/'+filename);

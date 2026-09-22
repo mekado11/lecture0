@@ -29,6 +29,14 @@
     frame.addEventListener('pointerleave', () => { if (raf) cancelAnimationFrame(raf); raf = 0; win.style.transform = ''; });
   }
 
+  // The photograph behind the hero drifts slower than the page.
+  const art = document.querySelector('.fx-hero-art img');
+  if (art) {
+    let ticking = false;
+    const drift = () => { ticking = false; const y = Math.min(window.scrollY, 900); art.style.transform = 'translateY(' + (y * 0.18).toFixed(1) + 'px)'; };
+    addEventListener('scroll', () => { if (!ticking) { ticking = true; requestAnimationFrame(drift); } }, { passive: true });
+  }
+
   // Each card's warm glow follows the pointer.
   document.querySelectorAll('.fx-card').forEach(card => {
     card.addEventListener('pointermove', e => {

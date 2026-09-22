@@ -1,166 +1,154 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#127807;</text></svg>">
-<title>AuthorScrolls - Pricing</title>
-<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter',sans-serif;background:#0a0705;color:#e8dfd4;min-height:100vh}
-nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,7,5,.88);backdrop-filter:blur(12px);border-bottom:1px solid rgba(200,149,108,.12);padding:.55rem 2rem;display:flex;justify-content:space-between;align-items:center}
-.nb{display:flex;align-items:center;gap:.4rem;font-family:'Lora',serif;font-size:1.1rem;font-weight:700;color:#dbb08a;text-decoration:none}
-.nav-links{display:flex;gap:.7rem;align-items:center}
-.nav-links a{color:#9c9085;font-size:.82rem;text-decoration:none;font-family:'Inter',sans-serif}
-.nav-links a:hover{color:#dbb08a}
-
-.container{max-width:900px;margin:80px auto 40px;padding:0 1.5rem;text-align:center}
-h1{font-family:'Lora',serif;font-size:2.2rem;color:#dbb08a;margin-bottom:.5rem}
-.sub{color:#9c9085;font-size:.95rem;margin-bottom:2.5rem}
-
-.plans{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;margin-bottom:3rem}
-.plan{background:linear-gradient(145deg,#1e1812,#151010);border:1px solid rgba(200,149,108,.15);border-radius:14px;padding:2rem 1.5rem;text-align:center;position:relative;transition:.3s}
-.plan:hover{border-color:rgba(200,149,108,.35);transform:translateY(-4px)}
-.plan.featured{border-color:rgba(200,149,108,.4);box-shadow:0 0 30px rgba(200,149,108,.1)}
-.plan.featured::before{content:'MOST POPULAR';position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff;font-size:.6rem;font-weight:700;padding:.2rem .8rem;border-radius:4px;letter-spacing:1px}
-.plan-name{font-family:'Lora',serif;font-size:1.3rem;font-weight:700;color:#dbb08a;margin-bottom:.3rem}
-.plan-price{font-size:2.5rem;font-weight:800;color:#e8dfd4;margin:.5rem 0}
-.plan-price span{font-size:.9rem;font-weight:400;color:#9c9085}
-.plan-desc{font-size:.8rem;color:#9c9085;margin-bottom:1.2rem;line-height:1.5}
-.plan-features{list-style:none;padding:0;text-align:left;margin-bottom:1.5rem}
-.plan-features li{font-size:.8rem;color:#9c9085;padding:.3rem 0;border-bottom:1px solid rgba(200,149,108,.06);display:flex;align-items:center;gap:.4rem}
-.plan-features li::before{content:'\2713';color:#5dba7d;font-weight:700;font-size:.7rem}
-.plan-features li.no::before{content:'\2717';color:#c45c4a}
-.plan-btn{width:100%;padding:.65rem;border-radius:8px;font-size:.9rem;font-weight:600;cursor:pointer;font-family:inherit;transition:.3s;border:none}
-.plan-btn.primary{background:linear-gradient(135deg,#c8956c,#8a6548);color:#fff}
-.plan-btn.primary:hover{box-shadow:0 0 20px rgba(255,200,120,.35)}
-.plan-btn.outline{background:transparent;border:2px solid #8a6548;color:#dbb08a}
-.plan-btn.outline:hover{background:rgba(138,101,72,.1)}
-
-.faq{max-width:680px;margin:0 auto 3rem;text-align:left}
-.faq h2{font-family:'Lora',serif;font-size:1.4rem;color:#dbb08a;margin-bottom:1rem;text-align:center}
-.faq-item{border-bottom:1px solid rgba(200,149,108,.1);padding:.8rem 0}
-.faq-q{font-size:.88rem;font-weight:600;color:#e8dfd4;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
-.faq-q::after{content:'+';color:#9c9085;font-size:1.1rem}
-.faq-a{font-size:.82rem;color:#9c9085;line-height:1.6;max-height:0;overflow:hidden;transition:.3s}
-.faq-item.open .faq-a{max-height:200px;padding-top:.4rem}
-.faq-item.open .faq-q::after{content:'\2212'}
-
-.footer{text-align:center;padding:2rem;color:#6b6158;font-size:.75rem;border-top:1px solid rgba(200,149,108,.08)}
-.footer a{color:#9c9085;text-decoration:none}
-
-@media(max-width:700px){.plans{grid-template-columns:1fr}}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AuthorScrolls pricing. The manuscript diagnostic is free. Starter and Premium add Book Intelligence: editorial AI reading with a daily allowance.">
+  <meta name="theme-color" content="#171a14">
+  <title>AuthorScrolls | Pricing</title>
+  <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="landing.css?v=2">
+  <link rel="stylesheet" href="features.css?v=2">
+  <link rel="stylesheet" href="pricing.css?v=1">
+  <script src="landing-init.js?v=3" defer></script>
+  <script src="features-init.js?v=2" defer></script>
 </head>
-<body>
-<nav>
-  <a class="nb" href="index.html"><span>&#127807;</span> AuthorScrolls</a>
-  <div class="nav-links"><a href="index.html">&larr; Home</a></div>
-</nav>
+<body class="fx-body">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="index.html" aria-label="AuthorScrolls home">
+      <svg viewBox="0 0 40 48" aria-hidden="true" fill="none"><path d="M8 43C12 30 22 17 32 5M14 32C1 30 3 19 3 19c12-1 15 5 11 13ZM21 22C9 19 12 8 12 8c11 1 14 6 9 14ZM27 13C22 4 30 1 36 1c1 7-2 11-9 12ZM18 30c1-11 10-14 17-11-3 9-9 13-17 11ZM10 42c1-11 10-14 17-11-3 9-9 13-17 11Z" stroke="currentColor" stroke-width="1.5"/></svg>
+      <span>Author<span class="brand-accent">Scrolls</span><small>BOOK INTELLIGENCE</small></span>
+    </a>
+    <nav class="desktop-nav" aria-label="Main navigation">
+      <a href="features.html">Features</a><a href="pricing.html" aria-current="page">Pricing</a><a href="blog.html">Journal</a><a href="faq.html">Help</a>
+    </nav>
+    <div class="header-actions">
+      <button class="theme-toggle" id="theme-toggle" aria-label="Switch to light theme" title="Change theme">◐</button>
+      <div id="nl"><button class="text-button" id="nav-signin">Sign in</button><button class="button compact" id="nav-signup">Get started</button></div>
+      <div id="nu" class="hidden"><a class="button compact" href="app.html">Open workspace</a><button class="text-button" id="nav-signout">Sign out</button></div>
+      <button class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="mobile-nav" aria-label="Open navigation"><span></span><span></span></button>
+    </div>
+  </header>
+  <nav id="mobile-nav" class="mobile-nav hidden" aria-label="Mobile navigation">
+    <a href="features.html">Features</a><a href="pricing.html">Pricing</a><a href="blog.html">Journal</a><a href="faq.html">Help</a>
+  </nav>
 
-<div class="container">
-  <h1>Simple, Transparent Pricing</h1>
-  <p class="sub">The diagnostic engine is free. Upgrade for deeper critique when you&rsquo;re close to querying.</p>
+  <main id="main" class="fx pr">
+    <section class="pr-hero section-width fx-reveal">
+      <span class="eyebrow">PRICING</span>
+      <h1>The diagnostic is free. <em>Pay for the reading.</em></h1>
+      <p class="fx-lede">Every measurement the engine makes is free, for as many manuscripts as you like. The paid plans add Book Intelligence: editorial AI that explains the why behind the numbers, with a daily allowance and one full analysis run a day.</p>
+    </section>
 
-  <div class="plans">
-    <div class="plan">
-      <div class="plan-name">Free</div>
-      <div class="plan-price">$0<span>/mo</span></div>
-      <div class="plan-desc">The full structural diagnostic. No time limit, no manuscript limit.</div>
-      <ul class="plan-features">
-        <li>Full manuscript analysis engine</li>
-        <li>Plot, pacing, clarity, dialogue scoring</li>
-        <li>Copy editing issue detection</li>
-        <li>Show vs Tell detection</li>
-        <li>DNF risk prediction</li>
-        <li>Opening diagnosis</li>
-        <li>Blurb generator (5 styles)</li>
-        <li>Book preview (Kindle/iPad/Paperback)</li>
-        <li>Word export with highlights</li>
-        <li class="no">AI deep critique</li>
-        <li class="no">AI query letter</li>
-        <li class="no">AI beta reader simulation</li>
-      </ul>
-      <a href="app.html"><button class="plan-btn outline">Get Started Free</button></a>
-    </div>
+    <section class="pr-plans section-width" aria-label="Plans">
+      <article class="fx-card pr-plan fx-reveal">
+        <span class="fx-kicker">Free</span>
+        <div class="pr-price"><span class="pr-amount">$0</span><span class="pr-per">forever</span></div>
+        <p class="pr-desc">The complete manuscript diagnostic, in your browser, with cloud saving in your account.</p>
+        <ul class="fx-list">
+          <li>Narrative structure, pacing heatmap, opening diagnosis, reader-momentum signals</li>
+          <li>Dialogue, show versus tell, line and copy editing, grammar</li>
+          <li>Every score shows what it was built from; nothing unmeasured is scored</li>
+          <li>Cloud library and version history</li>
+          <li>Optional LanguageTool grammar pass</li>
+          <li>Blurb material and Word export</li>
+          <li>Twenty genres, fiction and nonfiction</li>
+        </ul>
+        <button class="button outline pr-cta" id="hero-cta">Start free <span aria-hidden="true">→</span></button>
+        <p class="pr-fine">No credit card. Try the workspace first: <a class="underlined" href="app.html?demo=novel">open the demo</a>.</p>
+      </article>
 
-    <div class="plan featured">
-      <div class="plan-name">Starter</div>
-      <div class="plan-price">$5<span>/mo</span></div>
-      <div class="plan-desc">For writers actively revising and preparing to query or publish.</div>
-      <ul class="plan-features">
-        <li>Everything in Free</li>
-        <li>25 AI calls per day</li>
-        <li>Deep narrative critique</li>
-        <li>Comparable titles finder</li>
-        <li>Query letter generator</li>
-        <li>AI weakness diagnosis</li>
-        <li>Cloud save & sync</li>
-        <li>Version history</li>
-        <li class="no">Beta reader simulation</li>
-        <li class="no">Market readiness score</li>
-        <li class="no">Chapter breakdown</li>
-      </ul>
-      <button class="plan-btn primary checkout-tier" data-plan="starter">Get Starter</button>
-    </div>
+      <article class="fx-card pr-plan pr-featured fx-reveal">
+        <span class="pr-flag">Most chosen</span>
+        <span class="fx-kicker">Starter</span>
+        <div class="pr-price"><span class="pr-amount">$5</span><span class="pr-per">per month</span></div>
+        <p class="pr-desc">For a writer in revision who wants the editorial reading alongside the numbers.</p>
+        <ul class="fx-list">
+          <li>Everything in Free</li>
+          <li>Book Intelligence: deep critique, editing roadmap, opening analysis, chapter breakdown, comparable titles, query letter, beta-reader panel, market readiness</li>
+          <li>Ask your book, grounded in your chapters</li>
+          <li>Fix and rewrite suggestions on flagged passages</li>
+          <li>25 AI requests a day</li>
+          <li>One full AI analysis run every 24 hours</li>
+        </ul>
+        <button class="button pr-cta checkout-tier" data-plan="starter" data-label="Get Starter">Get Starter <span aria-hidden="true">→</span></button>
+        <p class="pr-fine">Fast models for every feature.</p>
+      </article>
 
-    <div class="plan">
-      <div class="plan-name">Premium</div>
-      <div class="plan-price">$15<span>/mo</span></div>
-      <div class="plan-desc">For writers on deadline &mdash; querying agents or preparing to self-publish.</div>
-      <ul class="plan-features">
-        <li>Everything in Starter</li>
-        <li>75 AI calls per day</li>
-        <li>Beta reader simulation (5 personas)</li>
-        <li>Market readiness score</li>
-        <li>Chapter-by-chapter breakdown</li>
-        <li>AI weakness diagnosis</li>
-        <li>Genre-specific guidance</li>
-        <li>Priority support</li>
-        <li>Unlimited cloud storage</li>
-      </ul>
-      <button class="plan-btn primary checkout-tier" data-plan="premium">Get Premium</button>
-    </div>
-  </div>
+      <article class="fx-card pr-plan fx-reveal">
+        <span class="fx-kicker">Premium</span>
+        <div class="pr-price"><span class="pr-amount">$15</span><span class="pr-per">per month</span></div>
+        <p class="pr-desc">For a writer on deadline: more room, and the deepest reading on the strongest model.</p>
+        <ul class="fx-list">
+          <li>Everything in Starter</li>
+          <li>Deep critique, opening analysis and chapter breakdown read by Claude</li>
+          <li>75 AI requests a day</li>
+          <li>One full AI analysis run every 24 hours</li>
+        </ul>
+        <button class="button pr-cta checkout-tier" data-plan="premium" data-label="Get Premium">Get Premium <span aria-hidden="true">→</span></button>
+        <p class="pr-fine">Cancel any time from your profile.</p>
+      </article>
+    </section>
 
-  <div class="faq">
-    <h2>Frequently Asked Questions</h2>
-    <div class="faq-item">
-      <div class="faq-q">Does this replace my editor?</div>
-      <div class="faq-a">No &mdash; and we won&rsquo;t pretend it does. AuthorScrolls is a structural diagnostic: it tells you where your manuscript has problems with pacing, hook strength, plot arc, dialogue, and clarity. A copy editor, line editor, and proofreader are still part of the path to publication. What we save you is the cost of hiring a developmental editor to find problems you could have caught yourself &mdash; and the embarrassment of submitting to agents before your opening chapter is working.</div>
-    </div>
-    <div class="faq-item">
-      <div class="faq-q">What AI models do you use?</div>
-      <div class="faq-a">We use Claude by Anthropic for deep narrative analysis and GPT-4.1-mini by OpenAI for faster tasks like comparable titles and query letters. All processing happens server-side — your manuscript never touches the browser.</div>
-    </div>
-    <div class="faq-item">
-      <div class="faq-q">Is my manuscript safe?</div>
-      <div class="faq-a">Yes. Your manuscripts are stored in encrypted Firebase storage. AI providers (Anthropic/OpenAI) do not store or train on your text. We never share your work with anyone.</div>
-    </div>
-    <div class="faq-item">
-      <div class="faq-q">Can I cancel anytime?</div>
-      <div class="faq-a">Absolutely. Cancel from your profile page at any time. No contracts, no hidden fees. Your data is preserved for 30 days after cancellation.</div>
-    </div>
-    <div class="faq-item">
-      <div class="faq-q">What's the difference between the rules engine and AI?</div>
-      <div class="faq-a">The rules engine (free) runs locally in your browser — it detects patterns like passive voice, weak verbs, pacing issues, and show-vs-tell. AI features (paid) send excerpts to language models for deeper analysis: narrative critique, comparable titles, beta reader simulation, and more.</div>
-    </div>
-    <div class="faq-item">
-      <div class="faq-q">What file formats are supported?</div>
-      <div class="faq-a">.docx (Word), .pdf, and .txt files up to 10MB.</div>
-    </div>
-  </div>
-</div>
+    <section class="pr-how section-width fx-reveal" aria-labelledby="how-title">
+      <div>
+        <span class="eyebrow">HOW THE ALLOWANCE WORKS</span>
+        <h2 id="how-title">Advice is advisory. <em>The numbers stay yours.</em></h2>
+      </div>
+      <dl class="pr-facts">
+        <div><dt>One analysis run a day</dt><dd>The whole-manuscript reading (critique, roadmap, opening, breakdown, comparables, query letter, readers, market) runs together, once every 24 hours. Results stay open until the next run.</dd></div>
+        <div><dt>Requests for the rest</dt><dd>Ask your book, fixes and rewrites are counted per request against the daily allowance, 25 on Starter and 75 on Premium.</dd></div>
+        <div><dt>Scores never move</dt><dd>AI reading is marked as interpretation. It can explain a score or disagree with it; it cannot change one.</dd></div>
+        <div><dt>What leaves your browser</dt><dd>The diagnostic runs locally. AI features send the relevant passages to the provider when you choose to run them, and only then.</dd></div>
+      </dl>
+    </section>
 
-<div class="footer">
-  <p>AuthorScrolls &middot; Author's Best Buddy &middot; &copy; 2026</p>
-  <p style="margin-top:.3rem"><a href="faq.html">Resources</a> &middot; <a href="legal.html#terms">Terms</a> &middot; <a href="legal.html#privacy">Privacy</a> &middot; <a href="legal.html#contact">Contact</a></p>
-</div>
+    <section class="pr-faq section-width fx-reveal" aria-labelledby="faq-title">
+      <span class="eyebrow">QUESTIONS</span>
+      <h2 id="faq-title">Before you decide.</h2>
+      <div class="faq-list">
+        <div class="faq-item"><button class="faq-q" type="button" aria-expanded="false">Does this replace my editor?</button><div class="faq-a"><p>No, and we won’t pretend it does. AuthorScrolls tells you where your manuscript is built unevenly, where the prose is getting in the way, and what a reader of your genre comes for. A line editor and a proofreader are still part of the path to publication. What it saves you is paying someone to find the problems you could have caught yourself.</p></div></div>
+        <div class="faq-item"><button class="faq-q" type="button" aria-expanded="false">What runs where?</button><div class="faq-a"><p>The diagnostic engine runs in your browser. Your manuscripts are saved to your account, encrypted at rest. AI features send the relevant passages to the model provider only when you run them; on Starter that is OpenAI’s fast models, and on Premium the deepest features are read by Claude.</p></div></div>
+        <div class="faq-item"><button class="faq-q" type="button" aria-expanded="false">Do the providers keep my text?</button><div class="faq-a"><p>Requests go through our server with your account, never with a key in the browser. We send only the passages a feature needs, and we do not share your work with anyone else. The providers’ own data terms apply to what is sent; see our privacy policy for the current list.</p></div></div>
+        <div class="faq-item"><button class="faq-q" type="button" aria-expanded="false">Why once a day?</button><div class="faq-a"><p>A full analysis reads across your whole manuscript in several requests. One run a day keeps the allowance honest and, in our experience, matches how revision works: read the findings, revise, come back tomorrow.</p></div></div>
+        <div class="faq-item"><button class="faq-q" type="button" aria-expanded="false">Can I cancel?</button><div class="faq-a"><p>Any time, from your profile. You drop to Free at the end of the billing period and keep your manuscripts, your versions and every measurement.</p></div></div>
+        <div class="faq-item"><button class="faq-q" type="button" aria-expanded="false">What files can I upload?</button><div class="faq-a"><p>Word (.docx), PDF and plain text, up to 10 MB each.</p></div></div>
+      </div>
+    </section>
 
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-<script src="firebase-config.js"></script>
-<script src="pricing-init.js?v=2"></script>
+    <section class="fx-close section-width fx-reveal">
+      <h2>Start with the numbers.<br><em>Add the reading when you need it.</em></h2>
+      <button class="button" id="bottom-cta">Analyze your manuscript free <span aria-hidden="true">→</span></button>
+      <p class="hero-note">No credit card. Your manuscript stays private.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer section-width"><div><a class="footer-brand" href="index.html">AuthorScrolls</a><p>Your book. Understood.</p></div><nav aria-label="Footer"><a href="features.html">Features</a><a href="pricing.html">Pricing</a><a href="faq.html">Help & FAQ</a><a href="blog.html">Journal</a><a href="legal.html#privacy">Privacy</a><a href="legal.html#terms">Terms</a></nav><small>© 2026 AuthorScrolls</small></footer>
+
+  <dialog id="auth-dialog" aria-labelledby="auth-title">
+    <button class="dialog-close" id="auth-close" aria-label="Close sign-in dialog">×</button>
+    <span class="eyebrow">YOUR WRITING DESK AWAITS</span><h2 id="auth-title">Welcome back.</h2><p id="auth-subtitle">Sign in to return to your manuscripts.</p>
+    <button class="google-button" id="google-signin">Continue with Google</button>
+    <div class="auth-divider"><span>or use your email</span></div>
+    <form id="auth-form">
+      <div id="name-field" class="hidden"><label for="auth-name">Your name</label><input id="auth-name" autocomplete="name" maxlength="100"></div>
+      <label for="auth-email">Email address</label><input id="auth-email" type="email" autocomplete="email" required>
+      <div id="password-field"><label for="auth-password">Password</label><input id="auth-password" type="password" autocomplete="current-password" minlength="6" required></div>
+      <p id="auth-message" role="status" aria-live="polite"></p>
+      <button class="button" id="auth-submit" type="submit">Sign in</button>
+    </form>
+    <button class="auth-link" id="forgot-password">Forgot your password?</button>
+    <p class="auth-switch"><span id="auth-switch-copy">New to AuthorScrolls?</span> <button class="auth-link" id="auth-toggle">Create an account</button></p>
+    <p class="auth-legal">By continuing, you agree to our <a href="legal.html#terms">Terms</a> and <a href="legal.html#privacy">Privacy Policy</a>.</p>
+  </dialog>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="pricing-init.js?v=3"></script>
 </body>
 </html>
