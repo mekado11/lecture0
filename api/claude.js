@@ -170,7 +170,7 @@ function callClaude(body, res) {
   if (!apiKey) { res.status(500).json({ error: { message: 'Claude API key not configured' } }); return Promise.resolve(500); }
 
   const payload = JSON.stringify({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-5-5',
     max_tokens: body.max_tokens,
     system: body.system,
     messages: body.messages
@@ -209,13 +209,14 @@ function callOpenAI(body, model, res) {
     return Promise.resolve(503);
   }
 
-  // Map our model names to OpenAI models
+  // Map our model names to OpenAI models (gpt-6-luna: OpenAI's named
+  // replacement for the retired 4.1 family; nano shuts down 2026-10-23)
   const modelMap = {
-    'openai-fast': 'gpt-4.1-mini',
-    'openai-nano': 'gpt-4.1-nano',
-    'openai-premium': 'gpt-4.1'
+    'openai-fast': 'gpt-6-luna',
+    'openai-nano': 'gpt-6-luna',
+    'openai-premium': 'gpt-6-luna'
   };
-  const openaiModel = modelMap[model] || 'gpt-4.1-mini';
+  const openaiModel = modelMap[model] || 'gpt-6-luna';
 
   // Convert from Claude format to OpenAI format
   const messages = [];
