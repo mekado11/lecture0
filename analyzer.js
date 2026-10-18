@@ -1565,25 +1565,27 @@ const Analyzer = {
     const ramp = (rate, full, max) => Math.min(max, Math.round(rate / full * max));
 
     // 1. Clarity & Readability (15%) — ease of reading, sentence and paragraph length
+    // Recalibrated for spread: halved base, wider top band, real bottom penalty.
+    // Practical range ~25-90 instead of ~45-75.
     const fk = this.fleschKincaid(text);
-    let clarityReadability = 25;
-    if (fk.ease >= 70) clarityReadability += 30;
-    else if (fk.ease >= 60) clarityReadability += 20;
+    let clarityReadability = 10;
+    if (fk.ease >= 70) clarityReadability += 40;
+    else if (fk.ease >= 60) clarityReadability += 25;
     else if (fk.ease >= 50) clarityReadability += 12;
-    else if (fk.ease >= 40) clarityReadability += 5;
-    else clarityReadability -= 5;
+    else if (fk.ease >= 40) clarityReadability += 0;
+    else clarityReadability -= 15;
     const sentLens = sentences.map(s => s.trim().split(/\s+/).length);
     const avgSentLen = sentLens.reduce((a, b) => a + b, 0) / Math.max(sentLens.length, 1);
-    if (avgSentLen >= 10 && avgSentLen <= 18) clarityReadability += 15;
-    else if (avgSentLen < 10) clarityReadability += 8;
-    else if (avgSentLen > 28) clarityReadability -= 10;
+    if (avgSentLen >= 10 && avgSentLen <= 18) clarityReadability += 20;
+    else if (avgSentLen < 10) clarityReadability += 10;
+    else if (avgSentLen > 28) clarityReadability -= 15;
     const shortParaRatio = paragraphs.filter(p => p.split(/\s+/).length < 80).length / Math.max(paragraphs.length, 1);
-    if (shortParaRatio > 0.65) clarityReadability += 15;
-    else if (shortParaRatio > 0.4) clarityReadability += 8;
+    if (shortParaRatio > 0.65) clarityReadability += 20;
+    else if (shortParaRatio > 0.4) clarityReadability += 10;
     const transCount = (lower.match(/\b(however|therefore|furthermore|because|although|first|second|third|finally|next|also|specifically|for example|in contrast|as a result)\b/g) || []).length;
     const transPerK = perK(transCount);
-    if (transPerK > 5) clarityReadability += 15;
-    else if (transPerK > 2) clarityReadability += 8;
+    if (transPerK > 5) clarityReadability += 20;
+    else if (transPerK > 2) clarityReadability += 10;
     clarityReadability = Math.max(0, Math.min(100, clarityReadability));
 
     // 2. Reader Identification (15%) — does the text speak directly to the reader's situation?
@@ -1593,16 +1595,16 @@ const Analyzer = {
     const wePerK = perK(weCount);
     const problemLang = (lower.match(/\b(struggle|stuck|difficult|challenge|frustrated|overwhelmed|confus|problem|obstacle|barrier|fail|afraid|fear|anxious|worry|stress|burnout|pain|suffer)\b/g) || []).length;
     const empathyMarkers = (lower.match(/\b(many\s+(of\s+us|people)|you'?ve?\s+probably|you\s+may|it'?s?\s+(okay|ok|normal)|you'?re?\s+not\s+alone|most\s+(people|of\s+us))\b/g) || []).length;
-    let readerIdentification = 15;
-    if (youPerK >= 20) readerIdentification += 35;
-    else if (youPerK >= 12) readerIdentification += 25;
-    else if (youPerK >= 6) readerIdentification += 15;
+    let readerIdentification = 7;
+    if (youPerK >= 20) readerIdentification += 45;
+    else if (youPerK >= 12) readerIdentification += 32;
+    else if (youPerK >= 6) readerIdentification += 18;
     else if (youPerK >= 2) readerIdentification += 8;
-    if (wePerK >= 5) readerIdentification += 15;
-    else if (wePerK >= 2) readerIdentification += 8;
+    if (wePerK >= 5) readerIdentification += 20;
+    else if (wePerK >= 2) readerIdentification += 10;
     const probPerK = perK(problemLang);
-    if (probPerK >= 8) readerIdentification += 20;
-    else if (probPerK >= 4) readerIdentification += 12;
+    if (probPerK >= 8) readerIdentification += 26;
+    else if (probPerK >= 4) readerIdentification += 15;
     else if (probPerK >= 2) readerIdentification += 6;
     readerIdentification += ramp(perK(empathyMarkers), 0.6, 15);
     readerIdentification = Math.max(0, Math.min(100, readerIdentification));
@@ -1631,7 +1633,7 @@ const Analyzer = {
     const researchClaims = (lower.match(/\b(research\s+(shows?|suggests?|finds?)|studies?\s+(shows?|suggests?|finds?)|data\s+(shows?|suggests?)|evidence\s+(shows?|suggests?)|science\s+(says?|shows?|confirms?)|experts?\s+(say|find|agree))\b/g) || []).length;
     const specificStats = (text.match(/\b\d+[\.,]?\d*\s*(percent|%|people|times|years|days|weeks|months|hours|studies|participants)\b/gi) || []).length;
     const novelFraming = (lower.match(/\b(think\s+of\s+it\s+(as|like)|reframe|instead\s+of|contrary\s+to|most\s+people\s+(think|believe|assume)|the\s+opposite|what\s+if\s+I\s+told\s+you)\b/g) || []).length;
-    let insightQuality = 20;
+    let insightQuality = 10;
     insightQuality += ramp(perK(insightMarkers), 1.0, 30);
     insightQuality += ramp(perK(researchClaims), 0.6, 20);
     insightQuality += ramp(perK(specificStats), 1.0, 15);
@@ -1643,10 +1645,10 @@ const Analyzer = {
     const hedgeWords = (lower.match(/\b(maybe|perhaps|possibly|might\s+be|could\s+be|seems?\s+like|sort\s+of|kind\s+of)\b/g) || []).length;
     const hedgePerK = perK(hedgeWords);
     const confidentAssertions = (lower.match(/\b(the\s+(key|secret|answer|solution|truth|fact|reality|point)\s+is|this\s+(is|will|does|works)|you\s+(will|can|should|must|need\s+to)|the\s+(most\s+important|biggest|main|core|fundamental))\b/g) || []).length;
-    let voiceAuthority = 45;
+    let voiceAuthority = 22;
     voiceAuthority += ramp(perK(authorityMarkers), 0.6, 30);
-    if (hedgePerK > 10) voiceAuthority -= 20;
-    else if (hedgePerK > 5) voiceAuthority -= 10;
+    if (hedgePerK > 10) voiceAuthority -= 25;
+    else if (hedgePerK > 5) voiceAuthority -= 12;
     else if (hedgePerK > 2) voiceAuthority -= 5;
     voiceAuthority += ramp(perK(confidentAssertions), 3.0, 25);
     voiceAuthority = Math.max(0, Math.min(100, voiceAuthority));
@@ -1655,10 +1657,10 @@ const Analyzer = {
     const transformWords = (lower.match(/\b(transform|achieve|succeed|thrive|flourish|grow|breakthrough|improve|progress|change|overcome|conquer|master|elevate|uplift|inspire|motivate|empower|unlock|discover|build|develop|strengthen|expand)\b/g) || []).length;
     const motivationalPhrases = (lower.match(/\b(you\s+can|you\s+will|it'?s?\s+possible|imagine\s+(if|when|yourself|being|having)|when\s+you\s+(finally|start|begin|decide|commit)|you\s+(already|deserve))\b/g) || []).length;
     const energyDensity = perK(transformWords);
-    let emotionalMomentum = 35;
-    if (energyDensity >= 15) emotionalMomentum += 40;
-    else if (energyDensity >= 8) emotionalMomentum += 28;
-    else if (energyDensity >= 4) emotionalMomentum += 18;
+    let emotionalMomentum = 17;
+    if (energyDensity >= 15) emotionalMomentum += 52;
+    else if (energyDensity >= 8) emotionalMomentum += 36;
+    else if (energyDensity >= 4) emotionalMomentum += 20;
     else if (energyDensity >= 2) emotionalMomentum += 10;
     emotionalMomentum += ramp(perK(motivationalPhrases), 1.5, 25);
     emotionalMomentum = Math.max(0, Math.min(100, emotionalMomentum));
@@ -1668,10 +1670,10 @@ const Analyzer = {
     const citationMarkers = (text.match(/\(\d{4}\)|\[\d+\]|\bpage\s+\d+/gi) || []).length;
     const storyMarkers = (lower.match(/\b(when\s+I|let\s+me\s+tell\s+you|here'?s?\s+a\s+(story|case|example)|I\s+remember|a\s+(client|student|friend|colleague|reader|person)\s+(once|told|asked|came))\b/g) || []).length;
     const evidencePerK = perK(evidenceMarkers);
-    let evidenceSupport = 25;
-    if (evidencePerK >= 8) evidenceSupport += 50;
-    else if (evidencePerK >= 4) evidenceSupport += 35;
-    else if (evidencePerK >= 2) evidenceSupport += 20;
+    let evidenceSupport = 12;
+    if (evidencePerK >= 8) evidenceSupport += 65;
+    else if (evidencePerK >= 4) evidenceSupport += 45;
+    else if (evidencePerK >= 2) evidenceSupport += 22;
     else if (evidencePerK >= 1) evidenceSupport += 10;
     evidenceSupport += ramp(perK(citationMarkers), 0.5, 15);
     evidenceSupport += ramp(perK(storyMarkers), 1.0, 10);
@@ -1796,7 +1798,7 @@ const Analyzer = {
     // Only objectively detectable anti-pattern densities affect this quality index.
     const candidateCount=adverbTags+expositionMarkers+longLines+smallTalk;
     const candidatesPer100=candidateCount/Math.max(matches.length,1)*100;
-    const score=Math.max(0,Math.min(100,Math.round(100/(1+candidatesPer100/35))));
+    const score=Math.max(0,Math.min(100,Math.round(100/(1+Math.pow(candidatesPer100/40,2)))));
     return {score,applicable:true,count:matches.length,ratio:+ratio.toFixed(1),methodology:'Observed dialogue anti-pattern density; naturalness/purpose are not inferred as facts.',tags,saidRatio:totalTags?Math.round(saidAsked/totalTags*100):null,avgLength:+mean.toFixed(1),lengthVariety:+sd.toFixed(1),tagDiscipline:null,conciseness:null,showNotTell:null,purposefulness:null,naturalness:null,adverbTags,longSpeeches:longLines,smallTalk,asYouKnow:expositionMarkers,candidateCount,candidatesPer100:+candidatesPer100.toFixed(1),findings};
   },
 
@@ -2006,33 +2008,38 @@ const Analyzer = {
     // Hook strength - analyze first paragraph + factor in issue density
     const firstPara = paragraphs[0] || '';
     // Base 25 (was 10): the old scale made even decent openings read 0–25/100.
-    let hookStrength = 25;
-    if (firstPara.includes('?')) hookStrength += 10;
-    if ((firstPara.match(/[""\u201C]/g) || []).length > 0) hookStrength += 10;
-    if (firstPara.split(/\s+/).length < 50) hookStrength += 5;
+    // Recalibrated for spread: halved base, larger bonuses for strong signals,
+    // real penalties for dead openers. Practical range ~25-90.
+    // Note: base kept at 15 (not 10) — the detector measures commercial hooks
+    // (questions, tension, punch), not literary merit, so literary openings that
+    // trigger few bonuses shouldn't start from the floor.
+    let hookStrength = 15;
+    if (firstPara.includes('?')) hookStrength += 14;
+    if ((firstPara.match(/[""\u201C]/g) || []).length > 0) hookStrength += 14;
+    if (firstPara.split(/\s+/).length < 50) hookStrength += 7;
     // Short, punchy first sentence is a hook in any genre
     const firstSentence_hook = (text.match(/[^.!?]*[.!?]/) || [''])[0].trim();
-    if (firstSentence_hook && firstSentence_hook.split(/\s+/).length <= 12) hookStrength += 8;
+    if (firstSentence_hook && firstSentence_hook.split(/\s+/).length <= 12) hookStrength += 11;
     const tensionInOpening = (firstPara.toLowerCase().match(/\b(danger|fear|mystery|secret|death|blood|shadow|dark|strange|suddenly|never|always)\b/g) || []).length;
-    if (tensionInOpening > 0) hookStrength += tensionInOpening * 5;
+    if (tensionInOpening > 0) hookStrength += tensionInOpening * 7;
     // Nonfiction: rhetorical hooks (direct address, questions, bold claims)
     if (isNF) {
       const nfHooks = (firstPara.match(/\b(you|your|we|our|must|need|imagine|consider|think|ask yourself)\b/gi) || []).length;
-      hookStrength += Math.min(20, nfHooks * 3);
+      hookStrength += Math.min(26, nfHooks * 4);
     }
-    // Mild penalty for high issue density. Kept small on purpose: issue density already
+    // Penalty for high issue density. Kept proportional: issue density already
     // drives the copy/grammar scores — hammering the hook too was double jeopardy that
     // pinned hookStrength at 0 for any verbose manuscript.
     const issuesPerK_hook = allIssues.length / Math.max(totalWords / 1000, 1);
-    if (issuesPerK_hook > 20) hookStrength -= 15;
-    else if (issuesPerK_hook > 12) hookStrength -= 10;
+    if (issuesPerK_hook > 20) hookStrength -= 20;
+    else if (issuesPerK_hook > 12) hookStrength -= 12;
     else if (issuesPerK_hook > 6) hookStrength -= 5;
     // Check first 3 paragraphs for passive voice and weak verbs (weakens hook)
     const openingText = paragraphs.slice(0, 3).join(' ').toLowerCase();
     const openingPassives = (openingText.match(/\b(was|were)\s+\w+ed\b/g) || []).length;
     const openingAdverbs = (openingText.match(/\w+ly\b/g) || []).length;
-    if (openingPassives > 2) hookStrength -= 10;
-    if (openingAdverbs > 3) hookStrength -= 5;
+    if (openingPassives > 2) hookStrength -= 12;
+    if (openingAdverbs > 3) hookStrength -= 6;
     hookStrength = Math.max(0, Math.min(100, hookStrength));
 
     // Emotional word density — expanded for nonfiction (empowerment, struggle, social justice)
@@ -2068,26 +2075,26 @@ const Analyzer = {
     else if (avgParaLen < 30) pacingFeel = 'Rushed - consider developing scenes more';
 
     // Clarity score — measures how easy the text is to follow
-    let clarityScore = 25;
+    let clarityScore = 12;
     // Sentence length: readable average = 10-20 words
     const _clSentLens = text.split(/[.!?]+/).filter(s => s.trim()).map(s => s.trim().split(/\s+/).length);
     const _clAvgSent = _clSentLens.reduce((a, b) => a + b, 0) / Math.max(_clSentLens.length, 1);
-    if (_clAvgSent >= 10 && _clAvgSent <= 20) clarityScore += 15;
-    else if (_clAvgSent < 10) clarityScore += 10;
-    else if (_clAvgSent > 30) clarityScore -= 10;
+    if (_clAvgSent >= 10 && _clAvgSent <= 20) clarityScore += 20;
+    else if (_clAvgSent < 10) clarityScore += 12;
+    else if (_clAvgSent > 30) clarityScore -= 15;
     // Transition words help readers follow the argument
     const _clTrans = (lower.match(/\b(however|therefore|furthermore|because|although|since|instead|also|first|second|finally|next|then|consequently|moreover|specifically|for example|in contrast|as a result|on the other hand)\b/g) || []).length;
     const _clTransPerK = _clTrans / Math.max(totalWords / 1000, 1);
-    if (_clTransPerK > 5) clarityScore += 20;
-    else if (_clTransPerK > 2) clarityScore += 12;
+    if (_clTransPerK > 5) clarityScore += 26;
+    else if (_clTransPerK > 2) clarityScore += 15;
     else if (_clTransPerK > 1) clarityScore += 5;
     // Short paragraphs (easier to digest)
     const _clShortParas = paragraphs.filter(p => p.split(/\s+/).length < 60).length;
-    if (_clShortParas / Math.max(paragraphs.length, 1) > 0.7) clarityScore += 15;
-    else if (_clShortParas / Math.max(paragraphs.length, 1) > 0.4) clarityScore += 8;
+    if (_clShortParas / Math.max(paragraphs.length, 1) > 0.7) clarityScore += 20;
+    else if (_clShortParas / Math.max(paragraphs.length, 1) > 0.4) clarityScore += 10;
     // Penalize only genuinely ambiguous pronoun density (not "this"/"that" which are connective)
     const _clAmbigPro = (lower.match(/\b(he|she|they|it)\b/g) || []).length;
-    if (_clAmbigPro / Math.max(totalWords, 1) > 0.06) clarityScore -= 10;
+    if (_clAmbigPro / Math.max(totalWords, 1) > 0.06) clarityScore -= 15;
     clarityScore = Math.max(0, Math.min(100, clarityScore));
 
     // Immersion breakers
@@ -2340,7 +2347,7 @@ const Analyzer = {
     const fillerWeight = isNF ? 0.4 : 1; // self-help uses "simply", "actually" rhetorically
 
     // === CLARITY (is the writing direct and easy to follow?) ===
-    let clarityScore = 20;
+    let clarityScore = 10;
     const modifierStacks = (text.match(/\b\w+ly\s+\w+ly\b/gi) || []).length;
     const modifierStackRate = modifierStacks / Math.max(totalWords, 1) * 1000;
     const pronouns = (lower.match(/\b(he|she|it|they|them|this|that)\b/g) || []).length;
@@ -2366,7 +2373,7 @@ const Analyzer = {
     if (overCommaRate < 0.05) clarityScore += 10; else clarityScore -= Math.min(15, (overCommaRate - 0.05) * 150);
     if (punchyRatio > 0.15) clarityScore += 15; else if (punchyRatio > 0.08) clarityScore += 8;
 
-    let disciplineScore = 15;
+    let disciplineScore = 7;
     const fillersRaw = (lower.match(/\b(very|really|quite|rather|somewhat|basically|actually|literally|just|simply|perhaps|maybe|slightly|a bit|sort of|kind of|a little|in fact|of course|to be honest|needless to say)\b/g) || []).length;
     const fillers = fillersRaw * fillerWeight; // soften for nonfiction
     const fillerRate = fillers / Math.max(totalWords, 1) * 1000;
@@ -2381,7 +2388,7 @@ const Analyzer = {
     if (hedgeRate < 1) disciplineScore += 15; else if (hedgeRate < 3) disciplineScore += 8; else disciplineScore -= Math.min(20, hedgeRate * 3);
     if (strongVerbRatio > 0.95) disciplineScore += 20; else if (strongVerbRatio > 0.9) disciplineScore += 12; else if (strongVerbRatio > 0.85) disciplineScore += 5;
 
-    let efficiencyScore = 20;
+    let efficiencyScore = 10;
     const wordyCount = issues.filter(i => i.type === 'wordy').length;
     const wordyRate = wordyCount / Math.max(totalWords, 1) * 1000;
     const overExplain = (lower.match(/\b(in other words|that is to say|what this means is|to put it simply|as mentioned before|as we have seen|it should be noted that|it is worth noting)\b/g) || []).length;
@@ -2394,7 +2401,7 @@ const Analyzer = {
     if (stageDir === 0) efficiencyScore += 10; else efficiencyScore -= Math.min(15, stageDirRate * 10);
     if (avgParaWords < 80) efficiencyScore += 15; else if (avgParaWords < 120) efficiencyScore += 8; else if (avgParaWords > 180) efficiencyScore -= 15;
 
-    let engagementScore = 15;
+    let engagementScore = 7;
     const questions = (text.match(/\?/g) || []).length;
     if (isNF) {
       // Nonfiction engagement is rhetorical, not dramatic: direct address, questions,
@@ -2429,7 +2436,7 @@ const Analyzer = {
     if (dialogue.count > 0 && dialogue.saidRatio < 30) dialogueQuality -= 10;
     dialogueQuality = Math.min(100, Math.max(0, dialogueQuality));
 
-    let momentumScore = 20;
+    let momentumScore = 10;
     let _wqDetailExtras = {};
     if (isNF) {
       // Nonfiction momentum is structural cadence, not car chases: section headings,
@@ -3724,9 +3731,10 @@ const Analyzer = {
     const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
     const copyIssues=issues.filter(i=>copyTypes.has(i.type));
     const perK=copyIssues.length/Math.max(totalWords,1)*1000;
-    // A transparent density index: 0 validated findings = 100. The curve is monotonic
-    // and length-normalized; no hidden floor or absolute-count penalty.
-    return Math.max(0,Math.min(100,Math.round(100/(1+perK/25))));
+    // A transparent density index: 0 validated findings = 100. Quadratic decay spreads
+    // scores wider than the old rational curve: clean text stays high, dense text drops
+    // hard. Monotonic and length-normalized; no hidden floor or absolute-count penalty.
+    return Math.max(0,Math.min(100,Math.round(100/(1+Math.pow(perK/30,2)))));
   },
 
   // ========================
@@ -3876,7 +3884,7 @@ const Analyzer = {
     const showTellPerK=(showTellIssues.length/Math.max(narrativeWords,1))*1000;
     // These are deterministic "telling-pattern candidates", not proof that a passage
     // violates a universal show-don't-tell rule. Keep the index transparent and monotonic.
-    const showTellScore=Math.max(0,Math.min(100,Math.round(100/(1+showTellPerK/12))));
+    const showTellScore=Math.max(0,Math.min(100,Math.round(100/(1+Math.pow(showTellPerK/15,2)))));
 
     // Grammar score: penalize based on grammar issue density within the narrative.
     // Boilerplate (copyright blocks, ISBN lines) trips grammar heuristics constantly and
