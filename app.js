@@ -5,6 +5,11 @@ const _GENRE_LABELS={scifi:'Science Fiction',fantasy:'Fantasy',romance:'Romance'
 function _genreLabelToKey(label){return Object.entries(_GENRE_LABELS).find(([,v])=>v===label)?.[0]||'';}
 // Read whichever genre dropdown is currently active. Used to pass the user's pick into Analyzer.analyze
 // so the SCORING (not just the label) reflects their override. Returns undefined when nothing is selected.
+// The author's manuscript-type override (Detected / Excerpt / Chapter / Partial / Full), kept per
+// manuscript so a confirmed "Full manuscript" survives reopening.
+function _modeStorageKey(){return 'ml_mode:'+((typeof Storage!=='undefined'&&Storage._currentManuscriptId)||'')}
+function _modeKey(){const el=document.getElementById('mode-override');return (el&&el.value)||undefined}
+function _analyzeOptions(){return {modeOverride:_modeKey()}}
 function _currentGenreKey(){
   const ov=document.getElementById('genre-override');
   if(ov&&ov.value)return ov.value;
@@ -17,7 +22,12 @@ document.body.classList.add('lib-mode'); // Library is first view — allow scro
 function _authDiagnosticMessage(msg) {
   const parts = msg.replace('SERVER_AUTH_ERROR:', '').split(':');
   const reason = parts[0];
-  if (reason === 'admin_not_configured') return 'The server is temporarily unable to verify sign-ins. Please try again in a few minutes.';
+  // Owner breadcrumb: the UI message is deliberately vague (no infra details for
+  // visitors), so log the raw server reason where the site owner can see it.
+  console.warn('[Auth] server rejected request — reason:', msg);
+  // admin_not_configured is a DEPLOYMENT problem (missing/malformed Firebase env vars),
+  // not a transient one — don't promise that waiting or reloading will fix it.
+  if (reason === 'admin_not_configured') return 'The server can\'t verify sign-ins right now. If you\'re the site owner, check the server configuration.';
   if (reason === 'no_token') return 'Your browser did not send an auth token. Try reloading the page.';
   if (reason === 'token_invalid') return 'Your login token was rejected by the server. Try signing out and back in.';
   return 'Authentication failed (' + reason + '). Try reloading the page.';
@@ -26,9 +36,9 @@ function _authDiagnosticMessage(msg) {
 // Web Worker for off-main-thread analysis
 // Note: no global onmessage handler here — each caller adds its own per-request handler
 // to avoid double-processing the same result (global + per-request both firing).
-let _analyzerWorker=null;
 let _analyzeVersion=0;
-try{_analyzerWorker=new Worker('analyzer-worker.js')}catch(e){console.warn('Worker init failed, using main thread:',e.message)}
+let _analysisSource='';
+const _analysisRunner=new AnalysisRunner(()=>new Worker('analyzer-worker.js?v=2'));
 
 // UPLOAD
 const dz=$('drop-zone'),fi=$('file-input');
@@ -38,7 +48,17 @@ dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files.length)hf(e.dataTransfer.files[0])});
 fi.addEventListener('change',e=>{if(e.target.files.length)hf(e.target.files[0])});
 $('clear-file').addEventListener('click',()=>{uploadedFile=null;$('file-info').classList.add('hidden');$('genre-select-wrap')?.classList.add('hidden');$('analyze-btn').classList.add('hidden');if($('genre-select'))$('genre-select').value='';fi.value=''});
-function hf(f){if(!['docx','pdf','txt'].includes(f.name.split('.').pop().toLowerCase())){alert('Upload .docx, .pdf, or .txt');return}if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}uploadedFile=f;$('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';$('file-info').classList.remove('hidden');const gw=$('genre-select-wrap');if(gw)gw.classList.remove('hidden');_updateAnalyzeBtnVisibility()}
+function hf(f){
+  if(!['docx','pdf','txt'].includes(f.name.split('.').pop().toLowerCase())){alert('Upload .docx, .pdf, or .txt');return}
+  if(f.size>10*1024*1024){alert('File too large (max 10MB)');return}
+  uploadedFile=f;
+  $('file-name').textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';
+  $('file-info').classList.remove('hidden');
+  $('genre-select-wrap')?.classList.remove('hidden');
+  const genre=$('genre-select'),preferred=safeLocalJSON('ml_prefs',{}).defaultGenre;
+  if(genre&&!genre.value&&preferred&&[...genre.options].some(option=>option.value===preferred))genre.value=preferred;
+  _updateAnalyzeBtnVisibility();
+}
 // Genre is required before analysis. Show the Analyze button only when both a file and a genre are selected.
 function _updateAnalyzeBtnVisibility(){
   const sel=$('genre-select');
@@ -47,7 +67,40 @@ function _updateAnalyzeBtnVisibility(){
   else $('analyze-btn').classList.add('hidden');
 }
 $('genre-select')?.addEventListener('change',_updateAnalyzeBtnVisibility);
-async function ext(f){const x=f.name.split('.').pop().toLowerCase();if(x==='txt')return await f.text();if(x==='docx'){$('loader-text').textContent='Extracting Word...';return(await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}if(x==='pdf'){$('loader-text').textContent='Extracting PDF...';pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const p=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let t='';for(let i=1;i<=p.numPages;i++){const content=await(await p.getPage(i)).getTextContent();const items=content.items;let pageLines=[];let curLine='';let prevY=null,prevX=null,prevW=0;for(const item of items){if(!item.str)continue;const ix=item.transform[4],iy=item.transform[5];if(prevY!==null&&Math.abs(iy-prevY)>3){if(curLine.trim())pageLines.push(curLine.trim());curLine='';prevX=null;prevW=0;}if(prevX!==null&&ix-(prevX+prevW)>1)curLine+=' ';curLine+=item.str;prevY=iy;prevX=ix;prevW=item.width||0;}if(curLine.trim())pageLines.push(curLine.trim());t+=pageLines.join('\n')+'\n\n';}return t}}
+async function ext(file){
+  const extension=file.name.split('.').pop().toLowerCase();
+  if(extension==='txt')return file.text();
+  if(extension==='docx'){
+    $('loader-text').textContent='Extracting Word...';
+    return (await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()})).value;
+  }
+  if(extension==='pdf'){
+    $('loader-text').textContent='Extracting PDF...';
+    const pdfjs=await import('./assets/pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc=new URL('./assets/pdf.worker.min.mjs',window.location.href).href;
+    const loadingTask=pdfjs.getDocument({data:await file.arrayBuffer(),isEvalSupported:false});
+    const document=await loadingTask.promise;
+    let text='';
+    try{
+      for(let number=1;number<=document.numPages;number++){
+        const content=await(await document.getPage(number)).getTextContent();
+        const lines=[];let line='',previousY=null,previousX=null,previousWidth=0;
+        for(const item of content.items){
+          if(!item.str)continue;
+          const x=item.transform[4],y=item.transform[5];
+          if(previousY!==null&&Math.abs(y-previousY)>3){if(line.trim())lines.push(line.trim());line='';previousX=null;previousWidth=0;}
+          if(previousX!==null&&x-(previousX+previousWidth)>1)line+=' ';
+          line+=item.str;previousY=y;previousX=x;previousWidth=item.width||0;
+        }
+        if(line.trim())lines.push(line.trim());
+        text+=lines.join('\n\n')+'\n\n';
+      }
+    }finally{await loadingTask.destroy();}
+    if(!text.trim())throw new Error('This PDF has no extractable text. Use a text-based PDF, DOCX, or TXT file; scanned pages need OCR first.');
+    return text;
+  }
+  throw new Error('Unsupported file type');
+}
 $('analyze-btn').addEventListener('click',async()=>{
   if(!uploadedFile)return;
   // Genre is required — defense in depth (the button shouldn't even be visible without one)
@@ -64,50 +117,23 @@ $('analyze-btn').addEventListener('click',async()=>{
     extractedText=await ext(uploadedFile);
     _smartScanDone=false;_batchFixDone=false;_ltEnhanceDone=false;_aiCalibrateDone=false;_readerSimDone=false;_readerSimHTML=null;
     $('loader-text').textContent='Analyzing...';
-    if(_analyzerWorker){
-      _analyzeVersion++;
-      const v=_analyzeVersion;
-      analysisResult=await new Promise((resolve,reject)=>{
-        let timer=setTimeout(()=>{_analyzerWorker.removeEventListener('message',handler);try{_analyzerWorker.terminate()}catch(_){};_analyzerWorker=null;reject(new Error('Analysis timed out — please try again'))},30000);
-        const handler=function(e){
-          if(e.data.version===v){
-            clearTimeout(timer);
-            _analyzerWorker.removeEventListener('message',handler);
-            if(e.data.type==='result')resolve(e.data.data);
-            else reject(new Error(e.data.message||'Analysis failed'));
-          }
-        };
-        _analyzerWorker.addEventListener('message',handler);
-        _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v,genreKey:selectedGenre});
-      });
-    }else{
-      await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,50)));
-      analysisResult=Analyzer.analyze(extractedText,selectedGenre);
-    }
+    ++_analyzeVersion;
+    analysisResult=await _analysisRunner.analyze(extractedText,selectedGenre,_modeKey());
     if(!analysisResult||analysisResult.error){alert(analysisResult?.error||'Analysis produced no result');$('upload-loading').classList.add('hidden');$('analyze-btn').classList.remove('hidden');return}
     // Genre defense: if worker auto-detect disagrees with user's selection, re-analyze with correct genre.
     // This runs on the main thread so genre override is always honored before saving to Firestore.
-    {if(analysisResult.genre?.primary!==selectedGenre){try{analysisResult=Analyzer.analyze(extractedText,selectedGenre)}catch(e){console.warn('Genre re-analyze failed:',e.message)}}}
-    // Save immediately to Firestore/localStorage so it appears in library
+    {if(analysisResult.genre?.primary!==selectedGenre){try{analysisResult=Analyzer.analyze(extractedText,selectedGenre,_analyzeOptions())}catch(e){console.warn('Genre re-analyze failed:',e.message)}}}
+    // Save immediately to the authenticated cloud library.
     trackSession('analyzing');
     // Direct save (don't wait for debounced autoSave)
     await Storage.whenReady();
+    Storage._currentManuscriptId=null;_savedText=null;
     if(Storage.userId){
       try{
-        const existing=await Storage.getManuscripts();
-        const match=existing.find(m=>(m.fileName||'').toLowerCase()===uploadedFile.name.toLowerCase());
-        if(match){
-          Storage._currentManuscriptId=match.id;
-          await Storage.updateManuscript(match.id,extractedText,analysisResult);
-        }else{
-          Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
-        }
-      }catch(e){_showSaveToast('Cloud save failed — changes remain open in this tab');console.warn('Save error:',e.message)}
+        Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
+        _savedText=extractedText;
+      }catch(e){_showSaveToast('Cloud save failed. Keep this tab open or export your draft.');console.warn('Save error:',e.message)}
     }
-    // Do not persist manuscript bodies or analysis in localStorage. It is synchronous,
-    // quota-limited, readable by any same-origin script, and duplicates the Firestore source
-    // of truth. Keep only non-sensitive reopen metadata.
-    try{localStorage.setItem('ml_last_open',JSON.stringify({fileName:uploadedFile.name,manuscriptId:Storage._currentManuscriptId||null,savedAt:new Date().toISOString()}));localStorage.removeItem('ml_autosave')}catch(e){console.warn('Local reopen metadata failed:',e.message)}
     // Close modal and go straight to the editor with the fresh analysis.
     // (Previously this reset state and dumped the user back in the library, forcing them to
     // find the card, click it, and sit through a second full analysis of the same text.)
@@ -124,17 +150,11 @@ $('analyze-btn').addEventListener('click',async()=>{
     $('editor-view').classList.remove('hidden');
     document.body.classList.remove('lib-mode');
     renderAll();
+    // The editor normalizes paragraph spacing; remember its exact saved view.
+    if(_savedText!==null)_savedText=extractTextFromEditor();
+    setSaveState(_savedText===null?'error':'saved',_savedText===null?'Not saved':'Saved to cloud');
   }catch(e){alert('Error: '+e.message);$('upload-loading').classList.add('hidden');_updateAnalyzeBtnVisibility()}
 });
-
-// Scoring must only count issues inside the narrative span (front/back matter — copyright
-// pages, disclaimers, ToC — stays highlighted but never damages manuscript scores).
-function _narrativeIssues(r){
-  const seg=r?.segmentation;
-  if(!seg||!Array.isArray(r.issues))return r?.issues||[];
-  return r.issues.filter(i=>i.index>=seg.narrativeStart&&i.index<seg.narrativeEnd);
-}
-function _narrativeWords(r){return r?.segmentation?.narrativeWords||r?.totalWords||1}
 
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function escA(s){return(s||'').replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -179,35 +199,36 @@ let _tipDismissWired=false;
 const _undoStack=[];
 const _redoStack=[];
 const MAX_UNDO=50;
-let _lastSnapshotText='';
-function _undoState(page){return {html:page.innerHTML,text:extractedText};}
+let _lastTypingAt=0;
+function _captureEditState(){return {html:$('ed-annotated').innerHTML,text:extractTextFromEditor()};}
+function _trimHistory(){
+  const bytes=()=>[..._undoStack,..._redoStack].reduce((n,s)=>n+2*(s.html.length+s.text.length),0);
+  while(_undoStack.length>MAX_UNDO||(_undoStack.length>1&&bytes()>8*1024*1024))_undoStack.shift();
+  while(_redoStack.length>1&&bytes()>8*1024*1024)_redoStack.shift();
+}
 function pushUndo(){
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push(_undoState(page));
-  if(_undoStack.length>MAX_UNDO)_undoStack.shift();
+  const state=_captureEditState();
+  if(_undoStack.at(-1)?.html===state.html)return;
+  _undoStack.push(state);
   _redoStack.length=0;
-  _lastSnapshotText=extractedText;
+  _trimHistory();
   _updateUndoBtn();
 }
 function _pushTypingSnapshot(){
-  if(extractedText===_lastSnapshotText)return;
-  const page=$('ed-annotated');
-  if(!page)return;
-  _undoStack.push(_undoState(page));
-  if(_undoStack.length>MAX_UNDO)_undoStack.shift();
-  _redoStack.length=0;
-  _lastSnapshotText=extractedText;
+  if(Date.now()-_lastTypingAt>800)pushUndo();
+  _lastTypingAt=Date.now();
 }
 function undoLastFix(){
   if(_undoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _redoStack.push(_undoState(page));
+  _redoStack.push(_captureEditState());
   const state=_undoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
-  _lastSnapshotText=extractedText;
+  _lastTypingAt=0;_trimHistory();
   scheduleReanalyze();
   _updateUndoBtn();
 }
@@ -215,11 +236,11 @@ function redoLastFix(){
   if(_redoStack.length===0)return;
   const page=$('ed-annotated');
   if(!page)return;
-  _undoStack.push(_undoState(page));
+  _undoStack.push(_captureEditState());
   const state=_redoStack.pop();
   page.innerHTML=state.html;
   extractedText=state.text;
-  _lastSnapshotText=extractedText;
+  _lastTypingAt=0;_trimHistory();
   scheduleReanalyze();
   _updateUndoBtn();
 }
@@ -229,6 +250,7 @@ function _updateUndoBtn(){
 }
 // Keyboard shortcuts — we own Ctrl+Z completely
 window.addEventListener('keydown',e=>{
+  if(e.target.closest('input,textarea,select'))return;
   const k=e.key.toLowerCase();
   if((e.ctrlKey||e.metaKey)&&k==='z'&&!e.shiftKey){
     e.preventDefault();e.stopPropagation();
@@ -245,6 +267,8 @@ window.addEventListener('keydown',e=>{
 function renderAll(){
   const r=analysisResult;
   if(!r||!uploadedFile){return}
+  _analyzeVersion++;_analysisRunner.cancel();clearTimeout(_reanalyzeTimer);
+  _analysisSource=extractedText;
   _ltEnhanceDone=false;_smartScanDone=false;_batchFixDone=false;_aiCalibrateDone=false;_readerSimDone=false;
   $('top-filename').textContent=uploadedFile.name.replace(/\.\w+$/,'');
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
@@ -272,11 +296,27 @@ function renderAll(){
   if(!renderAll._genreOverrideInProgress&&activeGenre&&r.genre&&r.genre.primary&&r.genre.primary!==activeGenre){
     renderAll._genreOverrideInProgress=true;
     try{
-      analysisResult=Analyzer.analyze(extractedText,activeGenre);
+      analysisResult=Analyzer.analyze(extractedText,activeGenre,_analyzeOptions());
       renderAll();
     }catch(e){console.warn('Genre re-analyze failed:',e.message)}
     finally{renderAll._genreOverrideInProgress=false;}
     return;
+  }
+  // Manuscript type: the select follows what this manuscript remembers, and the analysis
+  // follows the select. A cached result made under a different mode is redone once.
+  {const modeSel=$('mode-override');
+    if(modeSel){
+      let saved='';try{saved=localStorage.getItem(_modeStorageKey())||''}catch(_){}
+      if(modeSel.value!==saved)modeSel.value=saved;
+      if(r.manuscriptMode)modeSel.title=(r.manuscriptMode.confidence==='author'?'Set by you. Detected: ':'Detected: ')+(r.manuscriptMode.reasons||[]).join('; ');
+      if(!renderAll._modeOverrideInProgress&&modeSel.value&&r.manuscriptMode&&r.manuscriptMode.mode!==modeSel.value&&typeof extractedText==='string'&&extractedText){
+        renderAll._modeOverrideInProgress=true;
+        try{analysisResult=Analyzer.analyze(extractedText,activeGenre||undefined,_analyzeOptions());renderAll();}
+        catch(e){console.warn('Mode re-analyze failed:',e.message)}
+        finally{renderAll._modeOverrideInProgress=false;}
+        return;
+      }
+    }
   }
   if(!r.genre)r.genre={primary:activeGenre||'fiction',label:genreLabels[activeGenre]||'Unknown',secondary:null};
   if(activeGenre&&r.genre){
@@ -292,17 +332,21 @@ function renderAll(){
   {const gc=$('gauge-cats');if(gc){
     const gp=r.genre?.primary;
     gc.innerHTML=gp==='selfHelp'?'Insight &middot; Clarity &middot; Momentum &middot; Evidence'
-      :Analyzer.isNonfiction(r.genre)?'Structure &middot; Clarity &middot; Pacing &middot; Authority'
-      :'Plot &middot; Clarity &middot; Pacing &middot; Dialogue';
+      :Analyzer.isNonfiction(r.genre)?'Clarity &middot; Copy &middot; Grammar &middot; Line editing'
+      :'Clarity &middot; Dialogue &middot; Copy &middot; Show vs tell';
   }}
   _renderSubScores(r);
   // Topbar genre shows the user-overridden label (secondary cleared on override)
   if(activeGenre&&r.genre)r.genre.secondary=null;
-  $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
+  // The genre select beside this already shows the chosen genre; repeat it only when the
+  // genre was detected rather than chosen, since the select then reads "Auto-detect".
+  $('top-status').textContent=(activeGenre?'':(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 ')+(r.manuscriptMode?.label||'');
 
   renderSceneIntel(r);
   // Book preview now renders on-demand when the Preview tab is activated — not here
   renderLeft(r);renderRight(r);renderAnnotated(extractedText,r.issues);renderDetailed(r);renderReader(r);renderBlurbs(r);renderVersions();
+  _lastScoresSig=_scoresSig(r); // renderAll rendered directly — keep the skip-signature in sync
+  window.dispatchEvent(new Event('manuscript:changed'));
   // Auto-save
   autoSave();
   // Re-engagement tracking
@@ -312,123 +356,28 @@ function renderAll(){
     setTimeout(maybePromptPush,8000);
   },1000);
   // Smart Scan — one-time AI scan for paid/admin users
-  maybeRunSmartScan(r);
+  // Optional external checks run only after the author's explicit action.
   // Batch Fix — one call per manuscript, cached 24h
-  maybeBatchFix(r);
   // LanguageTool grammar enhancement — runs async after initial render
-  _enhanceGrammar(r);
-  // AI Calibration — reviews borderline regex findings, dismisses false positives,
-  // recalculates affected scores. Paid users only. Runs once per manuscript.
-  _aiCalibrate(r);
   // Reader Simulation — fills the reader view panel async. Paid users only.
-  _runReaderSimulation(r);
 }
 
-let _ltEnhanceDone=false;
+// External advice lives beside deterministic findings, never inside score inputs.
+let _ltEnhanceDone=false, _aiCalibrateDone=false;
+function _isCurrentResult(result,text){
+  return result===analysisResult&&text===extractTextFromEditor();
+}
 async function _enhanceGrammar(r){
   if(_ltEnhanceDone||!r||!extractedText)return;
-  if(typeof GrammarEnhance==='undefined')return;
-  _ltEnhanceDone=true;
+  const source=extractedText;
   try{
-    const ltIssues=await GrammarEnhance.check(extractedText);
-    if(!ltIssues.length)return;
-    const existingPositions=new Set();
-    r.issues.forEach(i=>{if(i.type==='grammar')existingPositions.add(i.index+':'+i.length)});
-    let added=0;
-    for(const lt of ltIssues){
-      const key=lt.index+':'+lt.length;
-      if(existingPositions.has(key))continue;
-      let overlaps=false;
-      for(const ex of r.issues){
-        if(ex.type==='grammar'&&Math.abs(ex.index-lt.index)<5){overlaps=true;break}
-      }
-      if(overlaps)continue;
-      r.issues.push(lt);
-      added++;
-    }
-    if(added>0){
-      r.issueCounts.grammar=(r.issueCounts.grammar||0)+added;
-      const grammarFiltered=_narrativeIssues(r).filter(i=>i.type==='grammar');
-      const grammarPerK=(grammarFiltered.length/Math.max(_narrativeWords(r),1))*1000;
-      r.scores.grammar=Math.min(100,Math.max(0,Math.round(
-        100-Math.min(35,grammarPerK*6)-
-        Math.min(20,grammarFiltered.filter(i=>i.severity==='high').length*3)-
-        Math.min(10,grammarFiltered.filter(i=>i.severity==='medium').length*1)
-      )));
-      r.scores.copy=Analyzer.scoreCopyEditing(_narrativeIssues(r),_narrativeWords(r));
-      r.overall=Analyzer.recalcOverall(r);
-      updateScoresOnly(r);
-      console.log('[GrammarEnhance] +'+added+' issues from LanguageTool (total grammar: '+grammarFiltered.length+')');
-    }
-  }catch(e){console.warn('[GrammarEnhance] skipped:',e.message)}
-}
-
-// AI Calibration — reviews borderline analyzer findings in context, dismisses false positives,
-// then recalculates affected dimension scores. Paid users only (counts against daily AI quota).
-// One openai-fast call per manuscript, cached for the session.
-let _aiCalibrateDone=false;
-async function _aiCalibrate(r){
-  if(_aiCalibrateDone||!r||!extractedText||!_isPaid())return;
-  if(typeof AIEngine==='undefined')return;
-  if(!Array.isArray(r.issues)||r.issues.length===0)return;
-  _aiCalibrateDone=true;
-  try{
-    const verdicts=await AIEngine.calibrateIssues(extractedText,r.issues,r.genre);
-    if(!verdicts||verdicts.length===0)return;
-
-    // Apply verdicts to r.issues. Track changes for telemetry.
-    const dismissedIds=new Set();
-    const downgradedIds=new Set();
-    const sevDown={high:'medium',medium:'low',low:'low'};
-    for(const v of verdicts){
-      if(v.verdict==='dismiss'){dismissedIds.add(v.id)}
-      else if(v.verdict==='downgrade'){downgradedIds.add(v.id)}
-    }
-
-    if(dismissedIds.size===0&&downgradedIds.size===0)return;
-
-    // Apply downgrades in place (preserves indices for the dismissal pass)
-    r.issues.forEach((iss,idx)=>{
-      if(downgradedIds.has(idx)){
-        iss.severity=sevDown[iss.severity]||'low';
-        iss.confidence=(iss.confidence==null?0.85:iss.confidence)*0.5;
-        iss._calibrated='downgrade';
-      }
-    });
-
-    // Drop dismissed issues
-    if(dismissedIds.size>0){
-      r.issues=r.issues.filter((iss,idx)=>!dismissedIds.has(idx));
-    }
-
-    // Recompute issue counts from the filtered list
-    const counts={};
-    r.issues.forEach(iss=>{counts[iss.type]=(counts[iss.type]||0)+1});
-    // Preserve original count fields; only update the types we actually counted
-    Object.keys(r.issueCounts||{}).forEach(k=>{
-      if(counts[k]!==undefined)r.issueCounts[k]=counts[k];
-      else if(['passive','adverb','weak-verb','show-tell','cliche'].includes(k))r.issueCounts[k]=counts[k]||0;
-    });
-
-    // Recompute affected dimension scores
-    r.scores.copy=Analyzer.scoreCopyEditing(_narrativeIssues(r),_narrativeWords(r));
-    // showTell only matters for fiction (nonfiction has it hidden)
-    if(!Analyzer.isNonfiction(r.genre)){
-      const showTellCount=_narrativeIssues(r).filter(i=>i.type==='show-tell').length;
-      const showTellPerK=(showTellCount/Math.max(_narrativeWords(r),1))*1000;
-      r.scores.showTell=Math.max(0,Math.round(100-showTellPerK*2.5));
-    }
-    r.overall=Analyzer.recalcOverall(r);
-
-    updateScoresOnly(r);
-    // Re-render annotated text so dismissed highlights disappear
-    if(typeof renderAnnotated==='function')renderAnnotated(extractedText,r.issues);
-
-    console.log('[AICalibrate] dismissed='+dismissedIds.size+' downgraded='+downgradedIds.size+' remaining='+r.issues.length);
-  }catch(e){
-    _aiCalibrateDone=false; // allow retry on next render
-    console.warn('[AICalibrate] skipped:',e.message);
-  }
+    const issues=await GrammarEnhance.check(source);
+    if(!_isCurrentResult(r,source))return;
+    _ltEnhanceDone=true;
+    r.advisory={...r.advisory,grammar:issues};
+    window.dispatchEvent(new Event('manuscript:changed'));
+    _showSaveToast('Grammar advice ready in Intelligence. Editing scores are unchanged.');
+  }catch(error){_showSaveToast('Grammar check failed: '+error.message);}
 }
 
 // Reader Simulation — generates a grounded, section-by-section reading experience report.
@@ -440,9 +389,11 @@ async function _runReaderSimulation(r){
   if(typeof AIEngine==='undefined')return;
   _readerSimDone=true;
   const el=document.getElementById('reader-sim-result');
-  if(!el)return;
+  if(!el){_readerSimDone=false;return;}
+  const source=extractedText;
   try{
-    const sim=await AIEngine.readerSimulation(null,extractedText,r);
+    const sim=await AIEngine.readerSimulation(null,source,r);
+    if(!_isCurrentResult(r,source))return;
     if(!sim||sim.parseError){el.textContent='Simulation unavailable.';return}
     const engColor=v=>v>=7?'var(--green)':v>=5?'var(--yellow)':'var(--red)';
     let h='';
@@ -482,6 +433,7 @@ async function _runReaderSimulation(r){
     _readerSimHTML=h||'<span style="color:var(--muted)">No simulation data.</span>';
     el.innerHTML=_readerSimHTML;
   }catch(e){
+    if(!_isCurrentResult(r,source))return;
     _readerSimDone=false;
     el.textContent='Simulation unavailable.';
     console.warn('[ReaderSim] skipped:',e.message);
@@ -498,8 +450,10 @@ async function maybeRunSmartScan(r){
   if(!isPaid)return;
   if(!r.issues||r.issues.length===0)return;
 
+  const source=extractedText;
   try{
-    const suggestions=await AIEngine.smartScan(null,extractedText,r.issues);
+    const suggestions=await AIEngine.smartScan(null,source,r.issues,r);
+    if(!_isCurrentResult(r,source))return;
     if(!suggestions||!suggestions.length)return;
     _smartScanDone=true;
 
@@ -518,14 +472,12 @@ async function maybeRunSmartScan(r){
     });
 
     // Re-render both panels so Document Health reflects AI-enhanced suggestions
-    r.scores.copy=Analyzer.scoreCopyEditing(_narrativeIssues(r),_narrativeWords(r));
-    r.overall=Analyzer.recalcOverall(r);
     updateScoresOnly(r);
 
     // Show a subtle toast
     const toast=document.createElement('div');
     toast.style.cssText='position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:#1e3320;border:1px solid #5dba7d;border-radius:8px;padding:.5rem 1rem;color:#5dba7d;font-size:.78rem;z-index:1001;font-family:Inter,sans-serif';
-    toast.textContent='AI scan complete — scores updated';
+    toast.textContent='AI suggestions ready. Your editing scores are unchanged.';
     document.body.appendChild(toast);
     setTimeout(()=>toast.remove(),4000);
   }catch(e){console.warn('SmartScan failed:',e.message)}
@@ -552,9 +504,11 @@ async function maybeBatchFix(r){
   // Cache miss — only call API for paid users
   if(!_isPaid())return;
 
+  const source=extractedText;
   try{
-    const fp=Analyzer.extractStyleFingerprint(extractedText);
-    const result=await AIEngine.batchFixSuggestions(extractedText,r.issues,fp);
+    const fp=Analyzer.extractStyleFingerprint(source);
+    const result=await AIEngine.batchFixSuggestions(source,r.issues,fp);
+    if(!_isCurrentResult(r,source))return;
     if(result&&Object.keys(result.suggestions).length>0){
       _hydrateFromBatchCache(r,result);
       _batchFixDone=true;
@@ -580,36 +534,59 @@ function _hydrateFromBatchCache(r,cached){
   }
 }
 
-// AUTO-SAVE (Firestore + localStorage fallback)
+// Cloud-only persistence. An unsaved draft remains in this tab, never localStorage.
+let pendingSave=Promise.resolve();
+let _savedText=null;
+let _restoreInProgress=false;
+function setSaveState(state,label,detail=''){
+  const status=$('save-state');
+  if(status){status.dataset.state=state;status.textContent=label;status.title=detail;status.setAttribute('aria-label',detail?label+'. '+detail:label);}
+}
+function persistDraft(snapshot=false){
+  if(!uploadedFile||!analysisResult)return Promise.resolve(true);
+  clearTimeout(autoSaveTimer);
+  const file=uploadedFile,text=extractTextFromEditor();
+  const result=text===_analysisSource?analysisResult:{genre:analysisResult.genre,analysisPending:true};
+  const userId=Storage.userId;
+  extractedText=text;
+  // Capture text before any asynchronous work. Queue cloud writes in edit order.
+  const task=async()=>{
+    let cloud=false,versionSaved=!snapshot,saveError='Sign in again before saving to cloud.';
+    setSaveState('saving','Saving…');
+    await Storage.whenReady();
+    if(Storage.userId&&Storage.userId===userId){
+      try{
+        if(!Storage._currentManuscriptId)Storage._currentManuscriptId=await Storage.saveManuscript(file.name,text,result);
+        else await Storage.updateManuscript(Storage._currentManuscriptId,text,result);
+        cloud=true;
+        _savedText=text;
+        try{localStorage.setItem('ml_last_open',JSON.stringify({manuscriptId:Storage._currentManuscriptId}));}catch(_){}
+        if(snapshot){await Storage.saveVersion(Storage._currentManuscriptId,result,text,'manual');versionSaved=true;}
+      }catch(error){
+        saveError=error.message||'The cloud service could not complete the save.';
+        console.warn('Cloud save failed:',saveError);
+        if(cloud)_showSaveToast('Draft saved, but snapshot failed: '+saveError,8000);
+      }
+    }
+    if(!cloud){
+      const detail=saveError+' Keep this tab open and export your draft before reloading.';
+      setSaveState('error','Not saved',detail);_showSaveToast(detail,10000);
+    }
+    else{
+      const clean=extractTextFromEditor()===text;
+      setSaveState(clean?'saved':'dirty',clean?'Saved to cloud':'Unsaved changes');
+      if(snapshot&&versionSaved)_showSaveToast('Draft and snapshot saved to cloud');
+    }
+    return cloud&&versionSaved;
+  };
+  pendingSave=pendingSave.catch(()=>false).then(task);
+  return pendingSave;
+}
 function autoSave(){
   if(!analysisResult||!uploadedFile)return;
+  if(safeLocalJSON('ml_prefs',{}).autosave===false)return;
   clearTimeout(autoSaveTimer);
-  autoSaveTimer=setTimeout(async()=>{
-    await Storage.whenReady();
-    if(Storage.userId){
-      try{
-        if(!Storage._currentManuscriptId){
-          const existing=await Storage.getManuscripts();
-          const match=existing.find(m=>(m.fileName||'').toLowerCase()===uploadedFile.name.toLowerCase());
-          if(match){
-            Storage._currentManuscriptId=match.id;
-            await Storage.updateManuscript(match.id,extractedText,analysisResult);
-          }else{
-            Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
-          }
-        }else{
-          await Storage.updateManuscript(Storage._currentManuscriptId,extractedText,analysisResult);
-        }
-      }catch(e){_showSaveToast('Cloud save failed — changes remain open in this tab');console.warn('Cloud save error:',e.message)}
-    }else if(!_cloudSaveWarned){
-      _cloudSaveWarned=true;
-      _showSaveToast('Not signed in — changes remain open in this tab');
-    }
-    // Do not persist manuscript bodies or analysis in localStorage. It is synchronous,
-    // quota-limited, readable by any same-origin script, and duplicates the Firestore source
-    // of truth. Keep only non-sensitive reopen metadata.
-    try{localStorage.setItem('ml_last_open',JSON.stringify({fileName:uploadedFile.name,manuscriptId:Storage._currentManuscriptId||null,savedAt:new Date().toISOString()}));localStorage.removeItem('ml_autosave')}catch(e){console.warn('Local reopen metadata failed:',e.message)}
-  },5000);
+  autoSaveTimer=setTimeout(()=>persistDraft(),1500);
 }
 
 // GOAL PILLS BAR
@@ -623,7 +600,7 @@ function renderGoalBar(r){
     // Dialogue goal hidden when score is null (nonfiction with low dialogue ratio)
     ...(scores.dialogue!=null?[{id:'dialogue',icon:'\uD83D\uDCAC',label:'Boost Dialogue',score:scores.dialogue,action:()=>{showDetail('dialogue')}}]:[]),
     {id:'hook',icon:'\u26A1',label:'Strengthen Hook',score:rp.hookStrength||0,action:()=>showOpeningCoach()},
-    {id:'pacing',icon:'\uD83C\uDFC3',label:'Fix Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),action:()=>{showDetail('pacing')}},
+    {id:'transitions',icon:'\uD83C\uDFC3',label:'Review Transitions',score:scores.transitions??100,action:()=>{showDetail('transitions')}},
     // Show vs Tell goal hidden for nonfiction
     ...(!isNF?[{id:'showTell',icon:'\uD83D\uDC41',label:'Show Don\'t Tell',score:scores.showTell||0,action:()=>{showDetail('showTell')}}]:[])
   ];
@@ -634,66 +611,41 @@ function renderGoalBar(r){
 }
 
 // SCENE INTELLIGENCE
+// Left-rail context: what a reader of THIS genre comes for (measured by genre-expectations.js),
+// and what kind of prose the book is made of. This replaces a fixed fiction checklist that
+// ticked "Fast pacing" on a self-help introduction and left "Strong dialogue" unchecked as if a
+// self-help book were failing at it, and a "scene type / energy / tension" trio that were
+// fiction instruments read off whatever text was open.
+const _MODE_LABEL={dialogue:'Dialogue',action:'Action',reflection:'Reflection',description:'Description',exposition:'Explanation'};
+const _EVIDENCE_SHORT={structural:'measured from your text',proxy:'word-choice signal only',ai:'needs the AI reader',author:'only you can answer'};
+let _sceneIntelToken=0;
 function renderSceneIntel(r){
   const el=$('scene-intel');if(!el||!r)return;
-  const rp=r.readerPerspective||{};
-  // Detect scene type
-  const dialogueRatio=r.dialogue?.ratio||0;
-  const segments=r.pacing?.segments||[];
-  const actionDensity=segments.filter(s=>s.type==='action').length/Math.max(segments.length,1)*100;
-  let sceneType='Exposition Heavy';
-  if(dialogueRatio>30)sceneType='Dialogue Heavy';
-  else if(actionDensity>40)sceneType='Action Sequence';
-  else if(dialogueRatio>15&&actionDensity>20)sceneType='Balanced';
-  else if(segments.filter(s=>s.type==='description').length>segments.length*0.5)sceneType='Descriptive';
-  // Energy level
-  const wq=r.writingQuality||{};
-  const energy=(wq.engagementScore||0)>70?'High':(wq.engagementScore||0)>40?'Medium':'Low';
-  // Tension
-  const tensionQuarters=r.plot?.quarters||[];
-  const lastTension=tensionQuarters.length>0?tensionQuarters[tensionQuarters.length-1].tension:0;
-  const prevTension=tensionQuarters.length>1?tensionQuarters[tensionQuarters.length-2].tension:0;
-  const tensionDir=lastTension>prevTension?'Rising \uD83D\uDD3A':lastTension<prevTension?'Falling \uD83D\uDD3B':'Steady \u27A1';
-  // Goals checklist
-  const plot=r.plot||{};const scores=r.scores||{};const dl=r.dialogue||{};
-  const goalChecks=[
-    {label:'Hook reader fast',done:(rp.hookStrength||0)>50},
-    {label:'Build tension',done:!!plot.hasRisingAction},
-    {label:'Emotional depth',done:(rp.emotionalConnection||0)>30},
-    {label:'Fast pacing',done:!(rp.pacingFeel||'').includes('Slow')},
-    {label:'Strong dialogue',done:(dl.count||0)>0&&(scores.dialogue||0)>50}
-  ];
+  const isNF=Analyzer.isNonfiction(r.genre);
   let h='';
-  // Goals
-  h+='<div class="si-section"><h4>\u2728 Goal</h4>';
-  goalChecks.forEach(g=>{h+='<div class="si-check '+(g.done?'done':'todo')+'">'+esc(g.label)+'</div>'});
+  const goalId='si-goal-'+(++_sceneIntelToken);
+  h+='<div class="si-section" id="'+goalId+'"><h4>\u2728 What readers come for</h4><div class="si-row"><span class="si-label">Reading your manuscript\u2026</span></div></div>';
+  const mix=(r.proseContext&&r.proseContext.distribution)||null;
+  h+='<div class="si-section"><h4>Prose mix</h4>';
+  if(mix){
+    const rows=Object.keys(mix).filter(m=>m!=='mixed'&&mix[m]>=1).sort((a,b)=>mix[b]-mix[a]).slice(0,4);
+    if(rows.length){
+      rows.forEach(m=>{h+='<div class="si-row"><span class="si-label">'+esc(_MODE_LABEL[m]||m)+'</span><span class="si-val">'+mix[m]+'%</span></div>'});
+      if(mix.mixed>=5)h+='<div class="si-row"><span class="si-label">Unclassified</span><span class="si-val">'+mix.mixed+'%</span></div>';
+    }else h+='<div class="si-row"><span class="si-label">Too little text to classify</span></div>';
+  }else h+='<div class="si-row"><span class="si-label">Not available</span></div>';
+  // Structure: the first thing an editor would point at, if there is one.
+  const sf=((r.plot&&r.plot.findings)||[]).find(f=>!f.info);
+  if(sf)h+='<div class="si-row" title="'+escA(sf.text)+'"><span class="si-label">Structure</span><span class="si-val">'+esc(sf.title)+'</span></div>';
   h+='</div>';
-  // Scene Intelligence
-  h+='<div class="si-section"><h4>Scene Intelligence</h4>';
-  h+='<div class="si-row"><span class="si-label">Scene Type:</span><span class="si-val">'+sceneType+'</span></div>';
-  h+='<div class="si-row"><span class="si-label">Energy:</span><span class="si-val">'+energy+'</span></div>';
-  h+='<div class="si-row"><span class="si-label">Tension:</span><span class="si-val">'+tensionDir+'</span></div>';
-  h+='</div>';
-  // Focus Mode + Simulate Reader
+  h+='<div id="lp-start" class="lp-cards"></div>'; // filled by renderLeft: the one "Start here" card
   h+='<div class="focus-toggle" id="focus-toggle">Focus Mode <span class="focus-badge off">OFF</span></div>';
   h+='<button class="sim-btn" id="sim-reader-btn">\uD83D\uDC41 Simulate Reader Experience</button>';
   el.innerHTML=h;
-  // Focus mode: hides sidebars
-  $('focus-toggle')?.addEventListener('click',()=>{
-    const lp=$('left-panel'),rp2=$('right-panel'),gb=$('goal-bar'),badge=document.querySelector('.focus-badge');
-    const isOn=badge.textContent==='ON';
-    if(isOn){
-      if(lp)lp.style.display='';if(rp2)rp2.style.display='';if(gb)gb.style.display='';
-      badge.textContent='OFF';badge.className='focus-badge off';
-      document.getElementById('focus-exit-pill')?.remove();
-    }else{
-      if(lp)lp.style.display='none';if(rp2)rp2.style.display='none';if(gb)gb.style.display='none';
-      badge.textContent='ON';badge.className='focus-badge';
-      // Show a floating "Exit Focus Mode" pill
-      let pill=document.getElementById('focus-exit-pill');
-      if(!pill){pill=document.createElement('button');pill.id='focus-exit-pill';pill.textContent='Exit Focus';pill.style.cssText='position:fixed;bottom:.7rem;right:1rem;z-index:500;padding:.25rem .6rem;background:rgba(30,24,18,.85);border:1px solid rgba(200,149,108,.25);color:var(--gold);border-radius:5px;font-size:.65rem;cursor:pointer;font-family:Inter,sans-serif;opacity:.5;transition:opacity .2s';pill.title='Click to restore all panels';pill.onmouseenter=()=>pill.style.opacity='1';pill.onmouseleave=()=>pill.style.opacity='.5';document.body.appendChild(pill);pill.addEventListener('click',()=>$('focus-toggle')?.click())}
-    }
-  });
+  _renderGenreGoals(r,goalId);
+  // Focus mode: hides sidebars (shared state with the fullscreen toggle so the
+  // ON/OFF badge can never desync from what's actually on screen)
+  $('focus-toggle')?.addEventListener('click',()=>{_setPanelsHidden(!_panelsHidden)});
   // Simulate reader: switch to reader view
   $('sim-reader-btn')?.addEventListener('click',()=>{
     document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
@@ -704,8 +656,54 @@ function renderSceneIntel(r){
   });
 }
 
+// The genre contract needs the book-level intelligence (chapters, cast, nonfiction evidence),
+// which the Intelligence window builds off-thread and memoises by content. A token guards
+// against a build finishing after a newer render has replaced the box.
+function _renderGenreGoals(r,goalId){
+  const primary=r.genre&&r.genre.primary;
+  const hide=()=>{const h=document.getElementById(goalId);if(h)h.remove()};
+  if(!primary||typeof GenreExpectations==='undefined'||typeof IntelligenceWindow==='undefined'||typeof IntelligenceWindow.data!=='function'){hide();return}
+  IntelligenceWindow.data(data=>{
+    const h=document.getElementById(goalId);if(!h)return;
+    // (text and analysis are passed explicitly below: this renders before the editor is filled)
+    let report=null;
+    try{report=data&&GenreExpectations.evaluate(primary,{parsed:data.parsed,intel:data.intel,analysis:r})}catch(_){report=null}
+    if(!report||!report.applicable){hide();return}
+    const mark={met:'\u2611',partial:'\u25E9',unmet:'\u2610',unknown:'\u25CC'};
+    h.innerHTML='<h4>\u2728 What a '+esc(report.label)+' reader comes for</h4>'+report.expectations.map(item=>
+      '<div class="si-check" data-status="'+esc(item.status)+'" title="'+escA((item.observation||item.why)+' \u2014 '+(_EVIDENCE_SHORT[item.evidence]||item.evidence))+'"><span class="si-mark">'+(mark[item.status]||mark.unknown)+'</span>'+esc(item.expectation)+'</div>').join('');
+  },extractedText,r);
+}
+
+// SINGLE panel-visibility state — Focus Mode (Scene Intelligence) and the fullscreen
+// button (#bi-fullscreen) used to each toggle display:none independently, so using one
+// after the other desynced the Focus badge from reality.
+let _panelsHidden=false;
+function _setPanelsHidden(hidden){
+  _panelsHidden=hidden;
+  const lp=$('left-panel'),rp2=$('right-panel'),gb=$('goal-bar');
+  const d=hidden?'none':'';
+  if(lp)lp.style.display=d;if(rp2)rp2.style.display=d;if(gb)gb.style.display=d;
+  const badge=document.querySelector('.focus-badge');
+  if(badge){badge.textContent=hidden?'ON':'OFF';badge.className='focus-badge'+(hidden?'':' off')}
+  if(hidden){
+    let pill=document.getElementById('focus-exit-pill');
+    if(!pill){pill=document.createElement('button');pill.id='focus-exit-pill';pill.textContent='Exit Focus';pill.style.cssText='position:fixed;bottom:.7rem;right:1rem;z-index:500;padding:.25rem .6rem;background:rgba(30,24,18,.85);border:1px solid rgba(200,149,108,.25);color:var(--gold);border-radius:5px;font-size:.65rem;cursor:pointer;font-family:Inter,sans-serif;opacity:.5;transition:opacity .2s';pill.title='Click to restore all panels';pill.onmouseenter=()=>pill.style.opacity='1';pill.onmouseleave=()=>pill.style.opacity='.5';document.body.appendChild(pill);pill.addEventListener('click',()=>_setPanelsHidden(false))}
+  }else{
+    document.getElementById('focus-exit-pill')?.remove();
+  }
+}
+
 // REPLACE & FIX: select the highlight text and use execCommand to replace
 // This works with native undo (Ctrl+Z) and properly updates the DOM
+// Findings the engine set aside for their passage (see prose-norms.js) stay on the record
+// with their reason, but they are not what the scores were built from and not what the
+// author is asked to act on.
+function liveIssues(r){return ((r&&r.issues)||[]).filter(i=>!i.contextSuppressed)}
+// Findings inside the narrative span: what the scores were built from. Front and back matter
+// stay highlighted in the editor, but a word in the epigraph is never the book's "top" issue.
+function narrativeIssues(r){const s=(r&&r.segmentation)||null;return liveIssues(r).filter(i=>!s||(i.index>=s.narrativeStart&&i.index<s.narrativeEnd))}
+
 function replaceAndFix(hlElement){
   const type=hlElement.dataset.t;
   const suggestion=hlElement.dataset.s||'';
@@ -754,22 +752,25 @@ let _issuesResolved=0;
 let _initialIssueCount=null;
 
 // Extract text from contenteditable preserving paragraph/heading structure as \n\n
+let _renderedSource='',_renderedPlain='';
 function extractTextFromEditor(){
   const page=$('ed-annotated');
   if(!page)return extractedText||'';
   const parts=[];
-  for(const child of page.children){
-    const tag=child.tagName;
+  for(const child of page.childNodes){
+    if(child.nodeType===1&&child.matches('.ms-page-footer,[data-editor-only]'))continue;
     const txt=(child.textContent||'').trim();
     if(!txt)continue;
     parts.push(txt);
   }
-  return parts.join('\n\n');
+  const plain=parts.join('\n\n');
+  return plain===_renderedPlain?_renderedSource:plain;
 }
 
 function _onAnalysisComplete(newResult, version=null){
     if(version!==null&&version!==_analyzeVersion)return;
     if(newResult.error)return;
+    _analysisSource=extractTextFromEditor();
     if(_initialIssueCount===null)_initialIssueCount=newResult.issues.length;
     const prevCount=analysisResult?analysisResult.issues.length:_initialIssueCount;
     const newCount=newResult.issues.length;
@@ -777,36 +778,27 @@ function _onAnalysisComplete(newResult, version=null){
     analysisResult=newResult;
     diffHighlights(newResult.issues);
     updateScoresOnly(newResult);
+    autoSave(); // Replace pending metadata only after analysis matches current text.
     document.querySelectorAll('.rsc,.rp-detail,.gauge-wrap').forEach(el=>el.classList.remove('scores-pending'));
 }
 
 function scheduleReanalyze(){
+  const v=++_analyzeVersion; // invalidate immediately, including the debounce gap
+  _analysisRunner.cancel();
   clearTimeout(_reanalyzeTimer);
+  setSaveState('dirty','Unsaved changes');
+  autoSave();
   _reanalyzeTimer=setTimeout(()=>{
     const page=$('ed-annotated');
     if(!page)return;
     const previousText=extractedText;
     extractedText=extractTextFromEditor();
-    if(extractedText!==previousText){
-      const page=$('ed-annotated');
-      if(page){_undoStack.push({html:page.innerHTML,text:previousText});if(_undoStack.length>MAX_UNDO)_undoStack.shift();_redoStack.length=0;_lastSnapshotText=extractedText;_updateUndoBtn();}
-    }
     document.querySelectorAll('.rsc,.gauge-wrap').forEach(el=>el.classList.add('scores-pending'));
-    if(_analyzerWorker){
-      _analyzeVersion++;
-      const v=_analyzeVersion;
-      const handler=function(e){
-        if(e.data.version===v){
-          _analyzerWorker.removeEventListener('message',handler);
-          if(e.data.type==='result')_onAnalysisComplete(e.data.data,v);
-          else console.warn('Reanalyze worker error:',e.data.message||'unknown error');
-        }
-      };
-      _analyzerWorker.addEventListener('message',handler);
-      _analyzerWorker.postMessage({type:'analyze',text:extractedText,version:v,genreKey:_currentGenreKey()});
-    }else{
-      _onAnalysisComplete(Analyzer.analyze(extractedText,_currentGenreKey()));
-    }
+    const source=extractedText;
+    _analysisRunner.analyze(source,_currentGenreKey(),_modeKey()).then(result=>{
+      if(v===_analyzeVersion&&source===extractTextFromEditor())_onAnalysisComplete(result);
+    }).catch(error=>{if(error.name!=='AbortError')_showSaveToast(error.message);})
+      .finally(()=>{if(v===_analyzeVersion)document.querySelectorAll('.scores-pending').forEach(el=>el.classList.remove('scores-pending'));});
   },2000);
 }
 
@@ -869,18 +861,35 @@ function _renderSubScores(r){
   }
   const ss=r.subScores||{};
   const part=(label,v)=>v==null?'':label+' <b style="color:'+scHex(v)+'">'+v+'</b>';
-  const bits=[part('Narrative',ss.narrativeHealth),part('Language',ss.languageQuality)].filter(Boolean);
+  // "Narrative" is the wrong word for nonfiction — call the content-side score "Message"
+  const _nhLabel=Analyzer.isNonfiction(r.genre)?'Message':'Narrative';
+  const bits=[part(_nhLabel,ss.narrativeHealth),part('Language',ss.languageQuality)].filter(Boolean);
+  // Readability sits with the verdict: a Flesch-Kincaid grade is a descriptor of the whole book.
+  const fk=r.readability;
+  if(fk&&Number.isFinite(fk.ease)){
+    const ease=Math.max(0,Math.min(100,Math.round(fk.ease)));
+    const label=ease>=80?'Easy Read':ease>=60?'Standard':ease>=40?'Demanding':'Dense';
+    bits.push('Grade '+Math.round(fk.grade||0)+' <span title="Flesch reading ease '+ease+'">'+label+'</span>');
+  }
   const fmWords=r.segmentation?.frontMatterWords||0;
   const fmNote=fmWords>50?'<span style="color:var(--dim)" title="Copyright pages, disclaimers, dedication, and contents are excluded from narrative scoring">'+fmWords.toLocaleString()+' words of front matter excluded</span>':'';
   el.innerHTML=bits.join(' &middot; ')+(bits.length&&fmNote?'<br>':'')+fmNote;
 }
 
+let _lastScoresSig='';
+function _scoresSig(r){
+  const rp=r.readerPerspective||{};
+  return JSON.stringify([r.overall,r.scores,r.issueCounts,r.subScores,rp.engagementScore,rp.hookStrength,rp.pacingFeel,r.genre?.primary,r.totalWords]);
+}
 function updateScoresOnly(r){
   if(!r)return;
   _renderSubScores(r);
   // Topbar
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
-  $('top-status').textContent=(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 '+(r.manuscriptMode?.label||'');
+  // Same rule as renderAll: the select already shows a chosen genre, so only a detected one is
+  // repeated here. (activeGenre is renderAll's local; it is not in scope in this function.)
+  const chosenGenre=($('genre-override')&&$('genre-override').value)||($('genre-select')&&$('genre-select').value)||'';
+  $('top-status').textContent=(chosenGenre?'':(r.genre?.label||'Unknown')+(r.genre?.secondary?' / '+r.genre.secondary:'')+' \u00B7 ')+(r.manuscriptMode?.label||'');
   drawGauge(r.overall||0);
   $('top-score').textContent=r.overall||0;
 
@@ -894,121 +903,134 @@ function updateScoresOnly(r){
   }
   previousScore=r.overall;
 
-  // Sidebar scores + issue panel
-  renderLeft(r);
-  renderRight(r);
-  // Chapter nav rebuild
+  // Sidebars are full innerHTML + canvas rebuilds \u2014 skip them when nothing they
+  // display has changed (the 2s reanalyze loop fires this constantly while typing).
+  const sig=_scoresSig(r);
+  if(sig!==_lastScoresSig){
+    _lastScoresSig=sig;
+    renderLeft(r);
+    renderRight(r);
+  }
+  // Chapter nav rebuild (has its own change detection)
   buildChapterNav();
-  // Auto-save
+  // Auto-save (skips internally when text+scores unchanged)
   autoSave();
 }
 
 // LEFT SIDEBAR
+// One list of dimensions for both rails. The right rail shows all of them as the workbench;
+// the left rail shows only the one whose fix would move the overall most ("Start here").
+// Every field here is an existing measurement; nothing is computed for display alone.
+function _dimensionCards(r){
+  const rp=r.readerPerspective||{};const scores=r.scores||{};
+  const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
+  const perPage=n=>{if(!n)return null;const d=n/Math.max(1,(r.totalWords||0)/250);return (d>=10?Math.round(d):Math.round(d*10)/10)+'/pg'};
+  const stIssues=r.showTell&&r.showTell.issues?r.showTell.issues.length:countType('show-tell');
+  const copyRaw=countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word')+countType('repetition');
+  const isNF=Analyzer.isNonfiction(r.genre);const isSH=r.genre?.primary==='selfHelp';const sh=r.selfHelpScores||{};
+  const hookScore=rp.hookStrength||0;const hookProblems=r.openingDiagnosis?.problems?.length||0;
+  if(isSH&&r.selfHelpScores){
+    const ev=sh.evidence||{};
+    return [
+      {k:'sh_clarity',  name:'Clarity & Polish',     score:Math.round(sh.clarityReadability||0),  density:perPage(copyRaw),issues:copyRaw,weight:'15%',evidence:ev.clarity},
+      {k:'sh_reader',   name:'Promise Strength',      score:Math.round(sh.readerIdentification||0),density:null,issues:hookScore<80?hookProblems:0,weight:'15%',evidence:ev.reader},
+      {k:'sh_practical',name:'Practical Application',score:Math.round(sh.practicalApplication||0),density:null,issues:0,weight:'15%',evidence:ev.practical},
+      {k:'sh_structure',name:'Argument Progression', score:Math.round(sh.structureProgression||0),density:null,issues:0,weight:'15%',evidence:ev.structure},
+      {k:'sh_insight',  name:'Insight Quality',       score:Math.round(sh.insightQuality||0),      density:null,issues:0,weight:'15%',evidence:ev.insight},
+      {k:'sh_voice',    name:'Authority & Voice',     score:Math.round(sh.voiceAuthority||0),      density:null,issues:0,weight:'10%',evidence:ev.voice},
+      {k:'sh_momentum', name:'Reader Momentum',       score:Math.round(sh.emotionalMomentum||0),   density:null,issues:0,weight:'10%',evidence:ev.momentum},
+      {k:'sh_evidence', name:'Evidence & Support',    score:Math.round(sh.evidenceSupport||0),     density:null,issues:0,weight:'5%', evidence:ev.evidence}
+    ];
+  }
+  const p=r.plot||{};
+  // Structure is described, not scored: the card carries the first thing an editor would point at.
+  const plotLead=(p.findings||[]).find(f=>!f.info)||(p.findings||[])[0];
+  const plotEv=plotLead?plotLead.title:(p.overview||p.details||'not measured');
+  const t=r.transitions||{};
+  const dl=r.dialogue||{};
+  const st=r.style||{};
+  return [
+    {k:'plot',name:isNF?'Argument Structure':'Narrative Structure',score:null,density:null,issues:(p.findings||[]).filter(f=>!f.info).length,weight:'not scored',evidence:plotEv},
+    {k:'transitions',name:'Transitions',score:scores.transitions??null,density:null,issues:(t.details||[]).filter(x=>!x.supported).length,weight:'7%',evidence:t.smoothRate!=null?t.smoothRate+'% of '+(t.measuredBoundaries??'')+' prose-to-prose boundaries supported'+((t.skipped?.dialogue||0)?' · '+t.skipped.dialogue+' dialogue boundaries not judged':''):'not measured: '+(t.reason||'too few prose paragraphs')},
+    {k:'hook',name:'Hook Strength',score:hookScore,density:null,issues:hookScore<80?hookProblems:0,weight:'9%',evidence:hookProblems?hookProblems+' opening problem'+(hookProblems===1?'':'s')+' diagnosed':'no opening problems diagnosed'},
+    // Style is described, not scored: its measurements never separated one manuscript from another.
+    {k:'style',name:'Style & Voice',score:null,density:null,issues:0,weight:'not scored',evidence:st.lexicalDiversity!=null?(st.pov||'')+' \u00B7 lexical diversity '+st.lexicalDiversity+'% \u00B7 sentence SD '+(st.sentenceLengthStdDev??'\u2014'):''},
+    ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,density:null,issues:countType('dialogue'),weight:'6%',evidence:dl.candidatesPer100!=null?dl.candidatesPer100+' candidates per 100 lines \u00B7 '+(dl.count||0)+' lines':''}]:[]),
+    ...(!isNF?[{k:'showTell',name:'Show vs Tell',score:scores.showTell||0,density:perPage(stIssues),issues:stIssues,weight:'7%',evidence:''}]:[]),
+    {k:'copy',name:'Copy Editing',score:scores.copy||0,density:perPage(copyRaw),issues:copyRaw,weight:'10%',evidence:''},
+    {k:'grammar',name:'Grammar',score:scores.grammar||0,density:perPage(countType('grammar')),issues:countType('grammar'),weight:'10%',evidence:''}
+  ];
+}
+// The line under a dimension: its issue density where one exists, otherwise the counts the
+// score was built from. Never a verdict word for a dimension nobody inspected.
+function _dimensionBasis(c){
+  if(c.density)return c.density+(c.issues?' \u00B7 '+c.issues+' finding'+(c.issues===1?'':'s'):'');
+  if(c.issues>0)return c.issues+' finding'+(c.issues===1?'':'s')+(c.evidence?' \u00B7 '+c.evidence:'');
+  return c.evidence||'';
+}
+// "Start here": the dimension whose repair would move the overall most, i.e. the largest
+// (100 - score) x weight. A weaker score with a small weight does not outrank a middling one
+// that carries three times the weight.
+function _startHere(cats){
+  let best=null;
+  for(const c of cats){
+    if(!Number.isFinite(c.score))continue;
+    const gain=(100-c.score)*(parseFloat(c.weight)||0)/100;
+    if(!best||gain>best.gain)best={...c,gain};
+  }
+  return best;
+}
+function _activateDimension(k){
+  const container=$('rp-scores');if(!container)return;
+  container.querySelectorAll('.rsc').forEach(e=>e.classList.toggle('active',e.dataset.cat===k));
+  _activeDetailCat=k;showDetail(k);
+  $('rp-detail')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// LEFT SIDEBAR: the verdict. The gauge (rendered elsewhere), the genre contract and prose
+// mix (renderSceneIntel), and one card: where to start. The five score cards that used to
+// sit here were the right rail's list shown a second time.
 function renderLeft(r){
   if(!r)return;
-  const rp=r.readerPerspective||{};
-  const ic=r.issueCounts||{};const scores=r.scores||{};
-  // Readability from Flesch-Kincaid — a real, peer-reviewed metric grounded in actual reading research
-  const fk=r.readability||{ease:0,grade:0};
-  const fkEase=Math.max(0,Math.min(100,Math.round(fk.ease||0)));
-  const fkGrade=fk.grade||0;
-  const fkLabel=fkEase>=80?'Easy Read':fkEase>=60?'Standard':fkEase>=40?'Demanding':'Dense';
-  const fkSub='Grade '+Math.round(fkGrade)+' · '+fkLabel;
-  const isSHLeft=r.genre?.primary==='selfHelp';
-  const shL=r.selfHelpScores||{};
-  const _hookIssueCount=(r.openingDiagnosis&&r.openingDiagnosis.problems?r.openingDiagnosis.problems.length:0);
-  const _pacingScore=isSHLeft?Math.round(shL.emotionalMomentum||0):Math.round(((scores.plot||0)+(scores.transitions||0))/2);
-  // Badge must agree with the number — never show "Good" next to a red/yellow score.
-  // pacingFeel (paragraph-rhythm heuristic) only supplies the Rushed/Slow qualifier.
-  const _pacingBadge=(rp.pacingFeel||'').includes('Rushed')?'Rushed'
-    :(rp.pacingFeel||'').includes('Slow')?'Slow'
-    :_pacingScore>=70?'Good':_pacingScore>=45?'Uneven':'Needs work';
-  const cards=[
-    {name:isSHLeft?'Reader Buy-In':'Engagement Score',score:isSHLeft?Math.round(((shL.readerIdentification||0)+(shL.emotionalMomentum||0))/2):rp.engagementScore||0,sub:isSHLeft?'Reader ID + Momentum':'How hooked will readers be?',action:'+ Improve Opening',bar:true},
-    {name:isSHLeft?'Promise Strength':'Hook Strength',score:isSHLeft?Math.round(shL.readerIdentification||0):rp.hookStrength||0,sub:_hookIssueCount+(_hookIssueCount===1?' Issue':' Issues'),action:'+ Improve Opening',bar:false},
-    {name:isSHLeft?'Clarity & Polish':'Clarity',score:isSHLeft?Math.round(shL.clarityReadability||0):rp.clarityScore||0,sub:isSHLeft?'Readability + flow':'Weak transitions',bar:true},
-    {name:isSHLeft?'Reader Momentum':'Pacing',score:_pacingScore,sub:(rp.pacingFeel||'').split(' - ')[0]||'N/A',badge:_pacingBadge},
-    {name:'Readability',score:fkEase,sub:fkSub,bar:true}
-  ];
-  $('lp-cards').innerHTML=cards.map(c=>{
-    const col=c.inv?scHex(100-c.score):scHex(c.score);
-    const id='lpc-'+Math.random().toString(36).substr(2,5);
-    return '<div class="lp-card"><div class="lp-card-head"><div class="lpc-ring"><canvas id="'+id+'" width="40" height="40"></canvas><span class="lpc-num" style="color:'+col+'">'+c.score+'</span></div><div class="lpc-info"><div class="lpc-name">'+c.name+'</div><div class="lpc-sub">'+esc(c.sub)+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="lpc-score" style="color:'+col+'">'+c.score+'</span>')+'</div>'+(c.bar?'<div class="lpc-bar"><div class="lpc-bar-fill" style="width:'+c.score+'%;background:'+col+'"></div></div>':'')+(c.action?'<span class="lpc-action">'+c.action+'</span>':'')+'</div>';
-  }).join('');
-  // Draw rings
-  cards.forEach((c,i)=>{const cvs=document.querySelectorAll('.lpc-ring canvas')[i];if(cvs)drawRing(cvs,c.inv?100-c.score:c.score,40)});
-  // Improve Opening buttons - open coaching panel
-  document.querySelectorAll('.lpc-action').forEach(btn=>{btn.addEventListener('click',()=>{
-    showOpeningCoach();
-  })});
+  const host=$('lp-start');if(!host)return;
+  const best=_startHere(_dimensionCards(r));
+  if(!best||best.gain<=0){host.innerHTML='';return}
+  const col=scHex(best.score);const basis=_dimensionBasis(best);
+  host.innerHTML='<div class="si-section lp-start"><h4>Start here</h4>'
+    +'<div class="lp-start-row"><span class="lp-start-score" style="color:'+col+'">'+best.score+'</span>'
+    +'<div class="lp-start-info"><div class="lp-start-name">'+esc(best.name)+'</div>'
+    +(basis?'<div class="lp-start-basis">'+esc(basis)+'</div>':'')
+    +'<div class="lp-start-why">'+esc(best.weight)+' of the overall \u00B7 the fix that moves it most</div></div></div>'
+    +'<button class="lpc-action" id="lp-start-open" data-cat="'+esc(best.k)+'">Open in workbench \u2192</button></div>';
+  $('lp-start-open')?.addEventListener('click',()=>_activateDimension(best.k));
 }
 
 // RIGHT SIDEBAR
+let _activeDetailCat=null;
 function renderRight(r){
   if(!r)return;
-  const stIssues=r.showTell&&r.showTell.issues?r.showTell.issues.length:(r.issueCounts?r.issueCounts['show-tell']:0)||0;
-  // Count high-severity issues per type for honest issue display
-  const countType=type=>r.issueCounts?r.issueCounts[type]||0:0;
-  const scores=r.scores||{};const rp=r.readerPerspective||{};
-  const totalWords=r.totalWords||1;
-  const estPages=Math.max(1,Math.round(totalWords/250));
-  // Per-page density helper: converts raw count to "X/page" — avoids frightening raw numbers like "2069 issues"
-  // Shows nothing when clean, a decimal for rare issues, integer for frequent ones
-  function _density(count){
-    if(!count||count===0)return null;
-    const perPage=count/estPages;
-    if(perPage<0.1)return null; // too sparse to display
-    if(perPage<1)return perPage.toFixed(1)+'/pg';
-    return Math.round(perPage)+'/pg';
-  }
-  const copyRaw=countType('passive')+countType('adverb')+countType('cliche')+countType('wordy')+countType('confused-word')+countType('repetition');
-  const isNF=Analyzer.isNonfiction(r.genre);
-  const isSH=r.genre?.primary==='selfHelp';
-  const sh=r.selfHelpScores||{};
-  // Hook Strength: only show issue count if it's actually penalizing the score (avoids confusing "100 / 2 issues")
-  const hookScore=rp.hookStrength||0;
-  const displayedHookIssues=(hookScore<80)?(r.openingDiagnosis?.problems?.length||0):0;
-  let cats;
-  if(isSH&&r.selfHelpScores){
-    // Self-help: 8-dimension framework — problem → insight → belief → action
-    cats=[
-      {k:'sh_clarity',   name:'Clarity & Polish',      score:Math.round(sh.clarityReadability||0),   density:_density(copyRaw),                    issues:copyRaw,              weight:'15%'},
-      {k:'sh_reader',    name:'Promise Strength',       score:Math.round(sh.readerIdentification||0), density:null,                                 issues:0,                   weight:'15%'},
-      {k:'sh_practical', name:'Practical Application', score:Math.round(sh.practicalApplication||0), density:null,                                 issues:0,                   weight:'15%'},
-      {k:'sh_structure', name:'Argument Progression',  score:Math.round(sh.structureProgression||0), density:null,                                 issues:countType('pov'),    weight:'15%'},
-      {k:'sh_insight',   name:'Insight Quality',        score:Math.round(sh.insightQuality||0),       density:null,                                 issues:0,                   weight:'15%'},
-      {k:'sh_voice',     name:'Authority & Voice',      score:Math.round(sh.voiceAuthority||0),       density:_density(countType('weak-verb')),      issues:countType('weak-verb'),weight:'10%'},
-      {k:'sh_momentum',  name:'Reader Momentum',        score:Math.round(sh.emotionalMomentum||0),    density:null,                                 issues:0,                   weight:'10%'},
-      {k:'sh_evidence',  name:'Evidence & Support',     score:Math.round(sh.evidenceSupport||0),      density:null,                                 issues:0,                   weight:'5%'},
-    ];
-  }else{
-    cats=[
-      {k:'plot',name:isNF?'Argument Structure':'Plot Structure',score:scores.plot||0,density:null,issues:countType('pov'),weight:'9%'},
-      {k:'pacing',name:'Pacing',score:Math.round(((scores.plot||0)+(scores.transitions||0))/2),density:_density(countType('sentence-length')),issues:countType('sentence-length'),badge:(rp.pacingFeel||'').includes('Rushed')?'Rushed':null,weight:'7%'},
-      {k:'hook',name:'Hook Strength',score:hookScore,density:null,issues:displayedHookIssues,weight:'9%'},
-      {k:'style',name:'Style & Voice',score:scores.style||0,density:_density(countType('weak-verb')),issues:countType('weak-verb'),weight:'7%'},
-      // Dialogue: only show if score is non-null (nonfiction with low dialogue ratio gets N/A and is hidden)
-      ...(scores.dialogue!=null?[{k:'dialogue',name:'Dialogue',score:scores.dialogue,density:null,issues:countType('dialogue'),weight:'6%'}]:[]),
-      // Show vs Tell: fiction-only concept; hide for nonfiction
-      ...(!isNF?[{k:'showTell',name:'Show vs Tell',score:scores.showTell||0,density:_density(stIssues),issues:stIssues,weight:'7%'}]:[]),
-      {k:'copy',name:'Copy Editing',score:scores.copy||0,density:_density(copyRaw),issues:copyRaw,weight:'10%'},
-      {k:'grammar',name:'Grammar',score:scores.grammar||0,density:_density(countType('grammar')),issues:countType('grammar'),weight:'10%'}
-    ];
-  }
+  const cats=_dimensionCards(r);
   const container=$('rp-scores');
+  // A row per dimension, a third of the height of the old ring cards, so the findings for the
+  // selected dimension sit above the fold.
   container.innerHTML=cats.map(c=>{
-    const col=scHex(c.score);const id='rsc-'+Math.random().toString(36).substr(2,5);
-    // Show density when available (replaces raw count); fall back to clean/— for zero-issue categories
-    const issueLabel=c.density?c.density:c.issues>0&&c.issues<=5?c.issues+' issue'+(c.issues===1?'':'s'):c.score>=80?'Clean':'—';
-    const issueColor=c.score<50?'var(--red)':c.score<70?'var(--yellow)':'var(--green)';
-    return '<div class="rsc" data-cat="'+c.k+'"><div class="rsc-ring"><canvas id="'+id+'" width="34" height="34"></canvas><span class="rsc-n" style="color:'+col+'">'+c.score+'</span></div><div class="rsc-info"><div class="rsc-name">'+c.name+'<span style="font-size:.55rem;color:var(--dim);margin-left:4px">'+c.weight+'</span></div><div class="rsc-sub" style="color:'+issueColor+'">'+issueLabel+'</div></div>'+(c.badge?'<span class="rsc-badge" style="background:var(--surface2);color:'+col+'">'+c.badge+'</span>':'<span class="rsc-val" style="color:'+col+'">'+c.score+'</span>')+'</div>';
+    const scored=Number.isFinite(c.score);
+    const col=scored?scHex(c.score):'var(--muted)';const basis=_dimensionBasis(c);
+    return '<div class="rsc rsc-row" data-cat="'+c.k+'" title="'+escA(c.name+' \u00B7 '+(scored?'weight '+c.weight:'not scored')+(basis?' \u00B7 '+basis:''))+'">'
+      +'<span class="rsc-name">'+esc(c.name)+'</span>'
+      +'<span class="rsc-basis">'+esc(basis)+'</span>'
+      +'<span class="rsc-score" style="color:'+col+'">'+(scored?c.score:'\u2014')+'</span></div>';
   }).join('');
-  // Draw rings
-  cats.forEach((c,i)=>{const cvs=container.querySelectorAll('.rsc-ring canvas')[i];if(cvs)drawRing(cvs,c.score,34)});
   // Click handlers
-  container.querySelectorAll('.rsc').forEach(el=>{el.addEventListener('click',()=>{container.querySelectorAll('.rsc').forEach(e=>e.classList.remove('active'));el.classList.add('active');showDetail(el.dataset.cat)})});
-  // Show first by default
-  if(cats.length)showDetail(cats[0].k);
+  container.querySelectorAll('.rsc').forEach(el=>{el.addEventListener('click',()=>{container.querySelectorAll('.rsc').forEach(e=>e.classList.remove('active'));el.classList.add('active');_activeDetailCat=el.dataset.cat;showDetail(el.dataset.cat)})});
+  // Preserve the user's selected category across re-renders — the 2s reanalyze loop
+  // used to reset the detail panel to the first category on every score update.
+  if(cats.length){
+    const want=cats.some(c=>c.k===_activeDetailCat)?_activeDetailCat:cats[0].k;
+    const activeEl=container.querySelector('.rsc[data-cat="'+want+'"]');
+    if(activeEl)activeEl.classList.add('active');
+    showDetail(want);
+  }
 }
 
 // WHY explanations per issue type — helps writers understand the impact, not just the rule
@@ -1152,6 +1174,24 @@ async function doRewrite(card) {
   }
 }
 
+// Per-chapter evidence for a dimension without locatable findings: the chapters where the
+// attributed claims (Evidence & Support) or explicit actions (Practical Application) are
+// fewest. Same extraction the Intelligence window shows; here it sits beside the score it explains.
+function _renderChapterEvidence(r,cat){
+  if(!$('rpd-chapters'))return;
+  if(typeof IntelligenceWindow==='undefined'||typeof IntelligenceWindow.data!=='function'){$('rpd-chapters')?.remove();return}
+  IntelligenceWindow.data(data=>{
+    const h=$('rpd-chapters');if(!h||_activeDetailCat!==cat)return;
+    const nf=data&&data.intel&&data.intel.nonfiction;const chapters=((data&&data.parsed&&data.parsed.chapters)||[]).filter(c=>c.kind!=='review');
+    if(!nf||!chapters.length){h.remove();return}
+    const key=cat==='sh_evidence'?'claims':'actions';const label=cat==='sh_evidence'?'attributed claim':'explicit action';
+    const counts=new Map(chapters.map(c=>[c.id,0]));
+    (nf[key]||[]).forEach(row=>{if(counts.has(row.chapterId))counts.set(row.chapterId,counts.get(row.chapterId)+1)});
+    const rows=chapters.map(c=>({c,n:counts.get(c.id)||0})).sort((a,b)=>a.n-b.n||a.c.index-b.c.index).slice(0,6);
+    h.outerHTML='<div class="rpd-sub">Chapters with the fewest '+esc(label)+'s</div>'+rows.map(x=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(x.c.title||x.c.id)+'</div><div class="rpd-desc">'+(x.n===0?'No '+esc(label)+' found in this chapter':x.n+' '+esc(label)+(x.n===1?'':'s'))+' · '+(x.c.wordCount||0).toLocaleString()+' words</div></div>').join('');
+  },extractedText,r);
+}
+
 function showDetail(cat){
   const r=analysisResult;const d=$('rp-detail');
   const isNF=Analyzer.isNonfiction(r&&r.genre);
@@ -1174,28 +1214,35 @@ function showDetail(cat){
     const shScores={sh_clarity:sh.clarityReadability,sh_reader:sh.readerIdentification,sh_practical:sh.practicalApplication,sh_structure:sh.structureProgression,sh_insight:sh.insightQuality,sh_voice:sh.voiceAuthority,sh_momentum:sh.emotionalMomentum,sh_evidence:sh.evidenceSupport};
     const score=Math.round(shScores[cat]||0);
     const col=score>=80?'var(--green)':score>=60?'var(--yellow)':'var(--red)';
+    const card=_dimensionCards(r).find(c=>c.k===cat);const basis=card?_dimensionBasis(card):'';
     // For copy/voice/structure categories, also surface relevant issues
     const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
     let issueRows='';
     if(cat==='sh_clarity'){
-      const ci=(r.issues||[]).filter(i=>copyTypes.has(i.type)).slice(0,5);
-      if(ci.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Top copy issues</div>'+ci.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(i.text.substring(0,50))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div></div>').join('');
-    }else if(cat==='sh_voice'){
-      const wi=(r.issues||[]).filter(i=>i.type==='weak-verb').slice(0,5);
-      if(wi.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Weak verbs weaken authority</div>'+wi.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(i.text.substring(0,50))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div></div>').join('');
-    }else if(cat==='sh_structure'){
-      const pi=(r.lineEditing?.findings||[]).filter(f=>f.type==='pov').slice(0,5);
-      if(pi.length>0)issueRows='<div style="margin-top:.5rem;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Structure signals</div>'+pi.map(f=>'<div class="rpd-issue"><div class="rpd-desc">'+esc(f.message)+'</div></div>').join('');
+      const ci=narrativeIssues(r).filter(i=>copyTypes.has(i.type)).slice(0,5);
+      if(ci.length>0)issueRows='<div class="rpd-sub">Top copy issues</div>'+ci.map(i=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(i.text.substring(0,50))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div></div>').join('');
     }
+    // The opening diagnosis is the one place "+ Improve Opening" now lives: as a finding.
+    if(cat==='sh_reader'){
+      const probs=r.openingDiagnosis?.problems||[];
+      if(probs.length)issueRows+='<div class="rpd-sub">Opening diagnosis</div>'+probs.slice(0,4).map(p=>'<div class="rpd-issue"><div class="rpd-issue-head">'+esc(p.title||'')+'</div><div class="rpd-desc">'+esc(p.fix||p.desc||'')+'</div></div>').join('')+'<button class="lpc-action" id="rpd-open-coach">Open the opening coach</button>';
+    }
+    // Dimensions with no locatable copy findings show where in the book the evidence is thin,
+    // from Document Intelligence's per-chapter extraction (filled once the build is ready).
+    if(cat==='sh_evidence'||cat==='sh_practical')issueRows+='<div id="rpd-chapters" class="rpd-desc">Reading chapters…</div>';
     d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+shTitles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">score: <b style="color:'+col+'">'+score+'/100</b></span></div>'+
+      (basis?'<div class="rpd-basis">Built from: '+esc(basis)+'</div>':'')+
       '<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+shWhy[cat]+'</div>'+
       issueRows;
+    $('rpd-open-coach')?.addEventListener('click',()=>showOpeningCoach());
+    if(cat==='sh_evidence'||cat==='sh_practical')_renderChapterEvidence(r,cat);
     return;
   }
 
-  const titles={plot:isNF?'Argument Structure':'Plot Structure',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
+  if(cat==='plot'){_renderStructureDetail(r,d);return;}
+  const titles={plot:isNF?'Argument Structure':'Narrative Structure',transitions:'Transitions',pacing:'Pacing',hook:'Hook Strength',style:'Style & Voice',dialogue:'Dialogue',showTell:'Show vs Tell',copy:'Copy Editing',grammar:'Grammar'};
   const typeLabels={passive:'Passive Voice',adverb:'Adverb Overuse',cliche:'Cliche','weak-verb':'Weak Verb','show-tell':'Show vs Tell',wordy:'Wordy Phrase',repetition:'Repetition','sentence-length':'Long Sentence','confused-word':'Confused Word',grammar:'Grammar',pov:'POV Issue',hook:'Opening Problem',tags:'Dialogue Tags',conciseness:'Conciseness',showing:'Show Don\'t Tell',purpose:'Dialogue Purpose',naturalness:'Naturalness'};
-  const catWhy={pacing:'Long sentences tax working memory. Varying length creates rhythm and controls pacing.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Generic verbs ("made", "went", "got") miss an opportunity to create vivid, specific imagery.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing catches the mechanical issues — passive voice, adverbs, clichés, wordy phrasing, and word confusion.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:isNF?'Strong nonfiction needs a clear thesis, evidence to support it, logical transitions, and a conclusion that synthesizes.':'Readers need forward momentum — clear stakes, rising tension, and consistent point of view.'};
+  const catWhy={transitions:'This section measures whether adjacent paragraphs have explicit connective, lexical, or referential support. Unsupported boundaries are review candidates, not automatic errors.',pacing:'Pacing is described from observed manuscript segments rather than a borrowed quality score.',hook:'A strong opening hooks readers in the first page. Agents and editors often decide within 5 paragraphs.',style:'Style & Voice is described, not scored: POV, lexical diversity (MSTTR-100) and sentence and paragraph rhythm are measured for you to read, because none of them separates a strong manuscript from a weak one on its own.',showTell:'Telling emotions ("she felt sad") keeps readers at arm\'s length. Showing through action and sensory detail creates empathy.',copy:'Copy editing is the density of validated passive-voice, adverb, cliché, wordy-phrase, confused-word and repetition findings per 1,000 narrative words. Grammar is scored on its own.',grammar:'Grammar errors undermine credibility. Agents and editors stop reading when basics are wrong.',dialogue:'Dialogue reveals character, advances plot, and controls pacing. Every line should earn its place.',plot:isNF?'Argument structure is described, not scored: how much of each chapter illustrates (example, story, scene) rather than asserts, where the signposting thins, chapter length, and whether the book’s key terms run through it. Whether the argument is sound is not measured.':'Narrative structure is described, not scored: how much of each chapter is scene (action and dialogue) rather than summary, where that thins or spikes, chapter length, and whether the cast persists. Stakes, causality and what a character wants are not measured.'};
 
   // Canonical issue source per category — both card and detail derive from the same data
   const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
@@ -1204,14 +1251,16 @@ function showDetail(cat){
     issues=(r.openingDiagnosis?.problems||[]).map(p=>({type:'hook',text:p.desc||p.title||'',suggestion:p.fix||p.desc||'',severity:p.severity||'medium',index:0,length:0}));
   }else if(cat==='dialogue'){
     issues=(r.dialogue?.findings||[]).map(f=>({type:f.type||'dialogue',text:f.message||'',suggestion:f.message||'',severity:f.severity||'medium',index:0,length:0}));
-  }else if(cat==='plot'){
-    issues=(r.lineEditing?.findings||[]).filter(f=>f.type==='pov').map(f=>({type:'pov',text:f.message||'',suggestion:f.message||'',severity:f.severity||'medium',index:0,length:0}));
+  }else if(cat==='transitions'){
+    issues=(r.transitions?.details||[]).filter(x=>!x.supported).map(x=>({type:'transition',text:'Paragraphs '+x.fromParagraph+' → '+x.toParagraph,suggestion:'No explicit connective and insufficient lexical/referential carryover was measured at this boundary. Review it in context.',severity:'low',index:0,length:0}));
+  }else if(cat==='plot'||cat==='style'){
+    issues=[];
   }else if(cat==='copy'){
-    issues=r.issues.filter(i=>copyTypes.has(i.type));
+    issues=narrativeIssues(r).filter(i=>copyTypes.has(i.type));
   }else{
-    const directMap={pacing:'sentence-length',style:'weak-verb',showTell:'show-tell',grammar:'grammar'};
+    const directMap={pacing:'sentence-length',showTell:'show-tell',grammar:'grammar'};
     const t=directMap[cat];
-    issues=t?r.issues.filter(i=>i.type===t):[];
+    issues=t?narrativeIssues(r).filter(i=>i.type===t):[];
   }
 
   // Sort by severity: high first, then medium, then low
@@ -1222,16 +1271,21 @@ function showDetail(cat){
 
   // Determine if suggestion has a concrete replacement
   function hasConcreteFix(iss){
-    return !!iss.suggestion.match(/Replace with:\s*".+?"/)||!!iss.suggestion.match(/Try:\s*.+/i)||iss.type==='adverb'||iss.type==='wordy'||iss.type==='cliche';
+    // Mechanical fixes and AI-grounded replacements only; a synonym from a fixed list is
+    // offered for the author to weigh, never applied for them.
+    if(iss.autoFix===false)return false;
+    return !!iss.suggestion.match(/Replace with:\s*".+?"/)||iss.type==='adverb'||iss.type==='wordy'||iss.type==='cliche';
   }
 
   // Progress indicator
   const progressHtml=_issuesResolved>0?'<div style="padding:.3rem .7rem;font-size:.7rem;color:var(--green);background:rgba(93,186,125,.08);border-radius:4px;margin-bottom:.5rem">'+_issuesResolved+' issue'+ (_issuesResolved===1?'':'s')+' resolved this session</div>':'';
 
+  const fCard=_dimensionCards(r).find(c=>c.k===cat);const fBasis=fCard?_dimensionBasis(fCard):'';
   d.innerHTML=progressHtml+
     '<div class="rpd-title"><span style="font-size:1.1rem">'+titles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">'+totalForCat+' issue'+(totalForCat===1?'':'s')+'</span></div>'+
+    (fBasis?'<div class="rpd-basis">Built from: '+esc(fBasis)+'</div>':'')+
     (catWhy[cat]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+catWhy[cat]+'</div>':'')+
-    (shown.length===0?(cat==='plot'&&r.scores.plot<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the plot structure score is <strong style="color:var(--yellow)">'+r.scores.plot+'/100</strong>.</p><p style="margin-top:.3rem">The engine evaluates arc progression, conflict setup, and tension distribution. Consider whether your opening establishes clear stakes and whether tension builds through the middle.</p></div>':cat==='dialogue'&&r.scores.dialogue<80?'<div style="padding:.5rem;font-size:.78rem;color:var(--muted);line-height:1.6"><p>No individual issues flagged, but the dialogue score is <strong style="color:var(--yellow)">'+r.scores.dialogue+'/100</strong>.</p><p style="margin-top:.3rem">Review dialogue for natural rhythm, distinct character voices, and balance between dialogue and narration.</p></div>':'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No issues in this category. Nice work!</p>'):
+    (shown.length===0?'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No locatable findings are mapped to this category. Use the measured evidence in Detailed rather than treating absence of findings as a quality verdict.</p>':
     shown.map((iss,idx)=>{
       const canAIFix=_REWRITE_TYPES.has(iss.type)&&_isPaid();
       const fixBtn=hasConcreteFix(iss)?'<button class="tip-fix rpd-fix-btn">Apply Fix</button>':canAIFix?'<button class="rpd-fix-btn rpd-ai-fix-btn">Fix</button>':'<button class="tip-fix rpd-fix-btn" style="background:var(--surface2);color:var(--text)">Go to Text</button>';
@@ -1244,6 +1298,11 @@ function showDetail(cat){
         '<div class="rpd-btns">'+fixBtn+'<button class="tip-ign rpd-ign-btn">Dismiss</button>'+rwBtn+'</div></div>';
     }).join(''))+
     (totalForCat>8?'<div style="padding:.4rem .7rem;font-size:.7rem;color:var(--muted);text-align:center">Showing top 8 of '+totalForCat+' — fix these first for the biggest impact</div>':'');
+  // The opening coach is reached from its finding, not from a second button on the left rail.
+  if(cat==='hook'&&totalForCat>0){
+    d.insertAdjacentHTML('beforeend','<button class="lpc-action" id="rpd-open-coach">Open the opening coach</button>');
+    $('rpd-open-coach')?.addEventListener('click',()=>showOpeningCoach());
+  }
 
   // Wire events
   d.querySelectorAll('.rpd-navigate').forEach(q=>{q.addEventListener('click',()=>{
@@ -1304,6 +1363,92 @@ function renderAnnotated(text,issues){
   }
 }
 
+// NARRATIVE / ARGUMENT STRUCTURE — described, not scored. One curve drawn from the units the
+// engine measured, then findings phrased the way an editor would say them, each with a way
+// into the manuscript. No act labels: nothing measures "midpoint" or "climax", so nothing
+// here claims one.
+function _structureVocab(r){
+  const nf=Analyzer.isNonfiction(r&&r.genre);const p=(r&&r.plot)||{};
+  const noun=p.unitSource==='chapter'?'chapter':p.unitSource==='scene-break'?(nf?'section':'scene'):'segment';
+  return {nf,noun,Noun:noun.charAt(0).toUpperCase()+noun.slice(1),share:nf?'illustrationShare':'sceneShare',
+    title:nf?'Argument Structure':'Narrative Structure',
+    curveLabel:nf?'Share of each '+noun+' that is example, story or scene, rather than exposition':'Share of each '+noun+' that is action or dialogue, rather than summary',
+    note:nf?'Measures how the argument is built: illustration against exposition, signposting, '+noun+' length, and whether the book’s key terms persist. It does not judge whether the argument is sound.':'Measures structure, pacing and the presence of the cast. It does not evaluate stakes, causality or theme.'};
+}
+function _unitName(u,v){return u.heading?u.label:v.Noun+' '+u.index}
+function _structureCurve(p,v){
+  const units=(p.units||[]).filter(u=>Number.isFinite(u[v.share]));
+  if(units.length<3)return '';
+  const W=640,H=190,L=34,R=12,T=14,B=34,iw=W-L-R,ih=H-T-B,n=units.length;
+  const x=i=>L+(n===1?iw/2:i/(n-1)*iw),y=val=>T+ih-val/100*ih;
+  const raw=units.map(u=>u[v.share]);
+  const smooth=raw.map((_,i)=>{const a=raw.slice(Math.max(0,i-1),Math.min(n,i+2));return a.reduce((s,q)=>s+q,0)/a.length});
+  const path=smooth.map((val,i)=>(i?'L':'M')+x(i).toFixed(1)+' '+y(val).toFixed(1)).join(' ');
+  const area=path+' L'+x(n-1).toFixed(1)+' '+y(0)+' L'+x(0).toFixed(1)+' '+y(0)+' Z';
+  const flagged=new Map();(p.findings||[]).forEach(f=>(f.units||[]).forEach(i=>{if(!flagged.has(i))flagged.set(i,f)}));
+  const drop=(p.findings||[]).find(f=>f.id==='ending-drop');
+  let h='<svg class="ns-curve" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+escA(v.curveLabel)+'">';
+  [0,50,100].forEach(g=>{h+='<line class="ns-grid" x1="'+L+'" x2="'+(W-R)+'" y1="'+y(g)+'" y2="'+y(g)+'"/><text class="ns-tick" x="'+(L-6)+'" y="'+(y(g)+4)+'" text-anchor="end">'+g+'%</text>'});
+  if(drop&&drop.units.length){const i0=units.findIndex(u=>u.index===drop.units[0]);if(i0>=0)h+='<rect class="ns-drop" x="'+(x(i0)-iw/(n-1)/2).toFixed(1)+'" y="'+T+'" width="'+(x(n-1)-x(i0)+iw/(n-1)/2).toFixed(1)+'" height="'+ih+'"/>'}
+  h+='<path class="ns-area" d="'+area+'"/><path class="ns-line" d="'+path+'"/>';
+  units.forEach((u,i)=>{const f=flagged.get(u.index);h+='<circle class="ns-dot'+(f?' flagged':'')+'" cx="'+x(i).toFixed(1)+'" cy="'+y(raw[i]).toFixed(1)+'" r="'+(f?4:2.5)+'"><title>'+escA(_unitName(u,v)+': '+raw[i]+'% · '+u.words.toLocaleString()+' words'+(f?' · '+f.title:''))+'</title></circle>'});
+  const step=Math.max(1,Math.ceil(n/10));
+  units.forEach((u,i)=>{if(i%step===0||i===n-1)h+='<text class="ns-tick" x="'+x(i).toFixed(1)+'" y="'+(H-B+16)+'" text-anchor="middle">'+u.index+'</text>'});
+  h+='<text class="ns-axis" x="'+(L+iw/2)+'" y="'+(H-4)+'" text-anchor="middle">'+esc(v.Noun)+'</text></svg>';
+  return h;
+}
+function _structureFindingsHtml(p,v){
+  const fs=(p.findings||[]).slice().sort((a,b)=>(a.info?1:0)-(b.info?1:0));
+  if(!fs.length)return '<p class="ns-empty">Nothing in the '+esc(v.noun)+' structure stands out from the rest of the manuscript.</p>';
+  return '<div class="ns-findings">'+fs.map(f=>{
+    const u=f.unit?(p.units||[]).find(x=>x.index===f.unit):null;
+    const btn=u?'<button class="ns-inspect" data-unit="'+u.index+'">Inspect '+esc(_unitName(u,v))+' →</button>':'';
+    return '<div class="ns-finding'+(f.info?' info':'')+'"><h4>'+esc(f.title)+'</h4><p>'+esc(f.text)+'</p>'+btn+'</div>';
+  }).join('')+'</div>';
+}
+function renderStructureSection(r){
+  const p=(r&&r.plot)||{};const v=_structureVocab(r);
+  let h='<div class="a-sec ns-sec"><h3>'+v.title+' <span class="ns-unscored">described, not scored</span></h3>';
+  if(!p.units||!p.units.length){return h+'<p>'+esc(p.details||'Not measured.')+'</p></div>'}
+  h+='<p class="ns-lede">'+esc(p.overview||'')+'</p>';
+  h+=_structureCurve(p,v);
+  h+='<div class="ns-curve-label">'+esc(v.curveLabel)+'</div>';
+  h+=_structureFindingsHtml(p,v);
+  const flagged=new Map();(p.findings||[]).forEach(f=>(f.units||[]).forEach(i=>{if(!flagged.has(i))flagged.set(i,f.title)}));
+  h+='<details class="ns-table"><summary>All '+p.units.length+' '+esc(v.noun)+'s</summary><table><thead><tr><th>'+esc(v.Noun)+'</th><th>Words</th><th>'+(v.nf?'Illustration':'Scene')+'</th><th></th></tr></thead><tbody>'
+    +p.units.map(u=>{const val=u[v.share];return '<tr><td>'+esc(_unitName(u,v))+'</td><td>'+u.words.toLocaleString()+'</td><td><span class="ns-bar"><span style="width:'+(val==null?0:val)+'%"></span></span> '+(val==null?'—':val+'%')+'</td><td class="ns-note">'+esc(flagged.get(u.index)||'')+' <button class="ns-inspect ns-inspect-sm" data-unit="'+u.index+'">Inspect →</button></td></tr>'}).join('')
+    +'</tbody></table></details>';
+  if(p.notAssessed&&p.notAssessed.length)h+='<p class="ns-not">Not assessed: '+esc(p.notAssessed.join('; '))+'.</p>';
+  h+='<p class="ns-note">'+esc(v.note)+'</p></div>';
+  return h;
+}
+function _renderStructureDetail(r,d){
+  const p=(r&&r.plot)||{};const v=_structureVocab(r);
+  d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+v.title+'</span><span style="font-size:.7rem;color:var(--muted)">described, not scored</span></div>'
+    +(p.overview?'<div class="rpd-basis">'+esc(p.overview)+'</div>':p.details?'<div class="rpd-basis">'+esc(p.details)+'</div>':'')
+    +(p.units&&p.units.length?_structureFindingsHtml(p,v):'')
+    +'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-top:.4rem;border-left:2px solid var(--gold-d)">'+esc(v.note)+'</div>';
+  _wireInspect(d);
+}
+function _wireInspect(root){
+  root.querySelectorAll('.ns-inspect').forEach(b=>b.addEventListener('click',()=>_inspectUnit(Number(b.dataset.unit))));
+}
+// Scroll the manuscript to a unit: by its heading line when it has one, else by its first words.
+function _inspectUnit(index){
+  const p=(analysisResult&&analysisResult.plot)||{};const u=(p.units||[]).find(x=>x.index===index);if(!u)return;
+  document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.ms-page').forEach(pg=>pg.classList.remove('active'));
+  document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
+  const page=$('ed-annotated');if(!page)return;page.classList.add('active');
+  const norm=t=>(t||'').replace(/\s+/g,' ').trim();
+  const els=[...page.querySelectorAll('h1,h2,h3,h4,p,div')];
+  let target=null;
+  if(u.heading){const want=norm(u.heading).slice(0,40).toLowerCase();target=els.find(el=>norm(el.textContent).toLowerCase().startsWith(want))}
+  if(!target&&u.opening){const want=norm(u.opening).slice(0,40).toLowerCase();target=els.find(el=>norm(el.textContent).toLowerCase().startsWith(want))}
+  if(!target){_showSaveToast('Could not locate this '+_structureVocab(analysisResult).noun+' in the manuscript view');return}
+  target.scrollIntoView({behavior:'smooth',block:'start'});
+  target.style.outline='3px solid var(--gold)';target.style.outlineOffset='4px';setTimeout(()=>{target.style.outline=''},3000);
+}
 // DETAILED
 function renderDetailed(r){
   const d=$('ed-detailed');if(!d)return;d.className='ms-page dark-page';
@@ -1322,24 +1467,21 @@ function renderDetailed(r){
   const plot=r.plot||{};
   const trans=r.transitions||{};
   const ic=r.issueCounts||{};
-  const plotLabel=isChapter?'Scene Structure':'Plot Structure';
-  const plotRows=[pl[plot.arc]||'',sr('Rising Action',plot.hasRisingAction?'Yes':'Weak')];
-  if(isChapter){plotRows.push(sr('Scene Goal',plot.hasSceneGoal?'Detected':'Missing'));plotRows.push(sr('Cliffhanger',plot.hasCliffhanger?'Yes — strong chapter ending':'No — consider a hook'))}
-  else{plotRows.push(sr('Climax',plot.hasClimax?'Yes':'Weak'));plotRows.push(sr('Resolution',plot.hasResolution?'Yes':'Weak'))}
-  plotRows.push(sr('Mode',(r.manuscriptMode?.label||'Unknown')+' (~'+(r.manuscriptMode?.estPages||0)+' pages)'));
-  plotRows.push(sr('Issues/1K words',r.issuesPerK||0));
-  h+=secWithTip(plotLabel,scores.plot||0,plotRows,'plot');
-  h+=secWithTip('Transitions',scores.transitions||0,[(trans.smoothRate||0)+'% smooth',sr('Transition Words',trans.transitionsUsed||0),sr('Smooth',(trans.smoothTransitions||0)+'/'+((trans.totalParagraphs||1)-1))],'transitions');
-  h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0)+(ic.repetition||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Wordy',ic.wordy||0),sr('Repetition',ic.repetition||0),sr('Confused Words',ic['confused-word']||0)],'copy');
+  const isNFDetail=Analyzer.isNonfiction(r.genre);
+  h+=renderStructureSection(r);
+  h+=secWithTip('Transitions',scores.transitions??null,[trans.smoothRate!=null?trans.smoothRate+'% of prose-to-prose paragraph boundaries supported by a connective, shared terms or a referential bridge':(trans.reason||'Not measured.'),sr('Boundaries measured',trans.measuredBoundaries??0),sr('Supported',(trans.smoothTransitions||0)+'/'+(trans.measuredBoundaries??0)),sr('Opening connectives',trans.transitionsUsed||0),sr('Dialogue boundaries not judged',trans.skipped?.dialogue??0),sr('Heading boundaries not judged',trans.skipped?.heading??0)],'transitions',r);
+  h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0)+(ic.repetition||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Wordy',ic.wordy||0),sr('Repetition',ic.repetition||0),sr('Confused Words',ic['confused-word']||0)],'copy',r);
   // Line Editing (true stylistic editing, not just readability)
   const le=r.lineEditing||{};
-  const lineRows=['Stylistic editing: tone, flow, precision, pacing, POV, extraneous language'];
-  lineRows.push(sr('Tone Consistency',(le.tone?.score??0)+'/100'));
-  lineRows.push(sr('Sentence Flow',(le.flow?.score??0)+'/100'));
-  lineRows.push(sr('Word Precision',(le.precision?.score??0)+'/100'));
-  lineRows.push(sr('Pacing Rhythm',(le.pacing?.score??0)+'/100'));
-  lineRows.push(sr('POV Discipline',(le.pov?.score??0)+'/100'));
-  lineRows.push(sr('Extraneous Language',(le.extraneous?.score??0)+'/100'));
+  const lineRows=['Scored: tone, word precision, sentence rhythm, extraneous language. Described only: sentence continuity and POV.'];
+  lineRows.push(sr('Tone / Register Evidence',(le.tone?.score??'N/A')+(le.tone?.score==null?'':'/100')));
+  lineRows.push(sr('Word Precision',(le.precision?.score??'N/A')+(le.precision?.score==null?'':'/100')));
+  lineRows.push(sr('Sentence Rhythm',(le.pacing?.score??'N/A')+(le.pacing?.score==null?'':'/100')));
+  lineRows.push(sr('Extraneous Language',(le.extraneous?.score??'N/A')+(le.extraneous?.score==null?'':'/100')));
+  if(le.pov?.shares)lineRows.push(sr('Narration pronouns (not scored)','first '+le.pov.shares.first+'% · second '+le.pov.shares.second+'% · third '+le.pov.shares.third+'%'));
+  if(le.flow?.unsupportedBoundaries!=null)lineRows.push(sr('Sentence boundaries without a shared term (not scored)',le.flow.unsupportedBoundaries+' ('+le.flow.unsupportedRate+'%)'));
+  if(le.precision?.vagueRatePerK!=null)lineRows.push(sr('Precision Candidates / 1K',le.precision.vagueRatePerK));
+  if(le.extraneous?.filterRatePerK!=null)lineRows.push(sr('Filter Phrases / 1K',le.extraneous.filterRatePerK));
   // Show findings
   if(le.findings&&le.findings.length>0){
     lineRows.push('<div style="margin-top:.4rem;border-top:1px solid var(--border);padding-top:.4rem">');
@@ -1351,20 +1493,17 @@ function renderDetailed(r){
   }
   lineRows.push(sr('Readability Grade',r.readability?.grade||'N/A'));
   lineRows.push(sr('Flesch Ease',(r.readability?.ease||0)+'/100'));
-  h+=secWithTip('Line Editing',r.scores?.line||0,lineRows,'line');
-  h+=sec('Style & Voice',r.scores?.style||0,[sr('POV',r.style?.pov||'N/A'),sr('Lexical Diversity',(r.style?.lexicalDiversity||0)+'/100'),sr('Unique Words',(r.style?.uniqueWords||0).toLocaleString())]);
+  h+=secWithTip('Line Editing',r.scores?.line||0,lineRows,'line',r);
+  h+=secWithTip('Style & Voice',null,['Described, not scored: these measurements do not separate one manuscript from another.',sr('POV',r.style?.pov||'N/A'),sr('Lexical Diversity (MSTTR-100)',(r.style?.lexicalDiversity||0)+'%'),sr('Sentence Length SD',r.style?.sentenceLengthStdDev??'N/A'),sr('Paragraph Length SD',r.style?.paragraphLengthStdDev??'N/A'),sr('Unique Words',(r.style?.uniqueWords||0).toLocaleString())],'style',r);
   // Dialogue (deep analysis)
   const dl=r.dialogue||{count:0,ratio:0};
   const dlRows=[dl.count===0?'No dialogue detected.':''];
   dlRows.push(sr('Lines',dl.count||0));dlRows.push(sr('Ratio',(dl.ratio||0)+'% of text'));
   if(dl.count>0){
-    dlRows.push(sr('Tag Discipline',dl.tagDiscipline+'/100'));
-    dlRows.push(sr('Conciseness',dl.conciseness+'/100'));
-    dlRows.push(sr('Show Not Tell',dl.showNotTell+'/100'));
-    dlRows.push(sr('Purposefulness',dl.purposefulness+'/100'));
-    dlRows.push(sr('Naturalness',dl.naturalness+'/100'));
-    dlRows.push(sr('Avg Line Length',dl.avgLength+' words'));
-    dlRows.push(sr('Length Variety',dl.lengthVariety||0));
+    dlRows.push(sr('Observed candidates',dl.candidateCount??0));
+    dlRows.push(sr('Candidates / 100 lines',dl.candidatesPer100??0));
+    dlRows.push(sr('Avg Line Length',(dl.avgLength??0)+' words'));
+    dlRows.push(sr('Length Variation (SD)',dl.lengthVariety??0));
     dlRows.push(sr('"Said/Asked" Rate',dl.saidRatio+'%'));
     if(dl.exoticTags>0)dlRows.push(sr('Exotic Tags',dl.exoticTags));
     if(dl.adverbTags>0)dlRows.push(sr('Adverb Tags',dl.adverbTags));
@@ -1379,12 +1518,15 @@ function renderDetailed(r){
       dlRows.push('</div>');
     }
   }
-  h+=sec('Dialogue',r.scores?.dialogue||0,dlRows);
+  if(r.scores?.dialogue!=null)h+=sec('Dialogue',r.scores.dialogue,dlRows);
   // Pacing heatmap
-  if(r.pacing){const cols={action:'#c0392b',dialogue:'#2980b9',description:'#27ae60',exposition:'#f39c12',reflection:'#8e44ad'};
-  h+='<div class="a-sec"><h3>Pacing Heatmap</h3><div class="hm-wrap">'+r.pacing.segments.map((s,i)=>'<div class="hm-blk" style="background:'+cols[s.type]+'" title="Seg '+(i+1)+': '+s.type+'"></div>').join('')+'</div><div class="hm-leg"><span><span class="hm-dot" style="background:#c0392b"></span>Action</span><span><span class="hm-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="hm-dot" style="background:#27ae60"></span>Description</span><span><span class="hm-dot" style="background:#f39c12"></span>Exposition</span><span><span class="hm-dot" style="background:#8e44ad"></span>Reflection</span></div></div>'}
-  // Characters
-  if(r.characters?.list?.length>0){const mx=Math.max(...r.characters.list.map(c=>c.mentions));h+='<div class="a-sec"><h3>Characters</h3><div class="ch-grid">'+r.characters.list.map(c=>'<div class="ch-card"><div class="ch-name">'+esc(c.name)+'</div><div class="ch-cnt">'+c.mentions+' mentions</div><div class="ch-bar"><div class="ch-fill" style="width:'+Math.round(c.mentions/mx*100)+'%"></div></div></div>').join('')+'</div></div>'}
+  if(r.pacing){const cols={action:'#c0392b',dialogue:'#2980b9',description:'#27ae60',exposition:'#f39c12',reflection:'#8e44ad',mixed:'#7f8c8d'};
+  const segs=r.pacing.segments||[];
+  const hmNote=r.pacing.source==='passage-classifier'?'Each block is coloured by the kind of prose that covers most of it; grey is a stretch the classifier would not force into one mode.':'Keyword estimate (passage classifier unavailable).';
+  h+='<div class="a-sec"><h3>Pacing Heatmap</h3><div style="font-size:.65rem;color:var(--dim);margin-bottom:.35rem">'+segs.length+' observed manuscript segments · '+(r.pacing.segmentSize||200)+' words per segment</div><div class="hm-wrap">'+segs.map((s,i)=>'<div class="hm-blk" style="background:'+(cols[s.type]||cols.mixed)+'" title="Words '+(s.startWord||'?')+'–'+(s.endWord||'?')+': '+s.type+(s.share?' ('+s.share+'% of the block)':'')+'"></div>').join('')+'</div><div class="hm-leg"><span><span class="hm-dot" style="background:#c0392b"></span>Action</span><span><span class="hm-dot" style="background:#2980b9"></span>Dialogue</span><span><span class="hm-dot" style="background:#27ae60"></span>Description</span><span><span class="hm-dot" style="background:#f39c12"></span>Exposition</span><span><span class="hm-dot" style="background:#8e44ad"></span>Reflection</span><span><span class="hm-dot" style="background:#7f8c8d"></span>Mixed</span></div><p style="font-size:.7rem;color:var(--muted);margin-top:.3rem">'+hmNote+'</p></div>'}
+  // Names: only words capitalised where grammar did not force it (see Analyzer.analyzeCharacters).
+  // Expository nonfiction reports the dimension as not applicable and shows nothing.
+  if(r.characters?.applicable!==false&&r.characters?.list?.length>0){const mx=Math.max(...r.characters.list.map(c=>c.mentions));const chTitle=Analyzer.isNonfiction(r.genre)?'Names in the text':'Characters';h+='<div class="a-sec"><h3>'+chTitle+'</h3><div style="font-size:.65rem;color:var(--dim);margin-bottom:.35rem">Recurring names with evidence beyond a sentence-opening capital</div><div class="ch-grid">'+r.characters.list.map(c=>'<div class="ch-card" title="'+c.midSentence+' mid-sentence, '+c.dialogueCount+' speech attributions"><div class="ch-name">'+esc(c.name)+'</div><div class="ch-cnt">'+c.mentions+' mentions · '+(c.evidenceCount||0)+' signals</div><div class="ch-bar"><div class="ch-fill" style="width:'+Math.round(c.mentions/mx*100)+'%"></div></div></div>').join('')+'</div></div>'}
   // Genre-Specific Elements Scanner
   if(r.genreElements&&r.genreElements.applicable){
     const ge=r.genreElements;
@@ -1432,46 +1574,71 @@ function renderDetailed(r){
     h+='</div>';
   }
   d.innerHTML=h;
+  _wireInspect(d);
 }
-function sec(t,s,items){return '<div class="a-sec"><h3>'+t+' <span style="color:'+sc(s)+'">'+s+'/100</span></h3>'+items.filter(Boolean).map(i=>typeof i==='string'?(i?'<p>'+i+'</p>':''):i).join('')+'</div>'}
+// A null score renders as "not scored", never as 0.
+function scoreBadge(s){return Number.isFinite(s)?'<span style="color:'+sc(s)+'">'+s+'/100</span>':'<span style="color:var(--muted);font-size:.7rem;font-weight:400">not scored</span>'}
+function sec(t,s,items){return '<div class="a-sec"><h3>'+t+' '+scoreBadge(s)+'</h3>'+items.filter(Boolean).map(i=>typeof i==='string'?(i?'<p>'+i+'</p>':''):i).join('')+'</div>'}
 function sr(l,v){return '<div class="sr"><span class="sr-l">'+l+'</span><span class="sr-v">'+v+'</span></div>'}
 
 // Improvement suggestions for low-scoring areas
-const improveTips={
-  plot:{
-    low:'Your plot feels flat. Add a clear inciting incident early, raise the stakes in the middle, and build to a decisive climax. Every scene should either advance the plot or reveal character — cut anything that does neither.',
-    mid:'Your plot has structure but needs sharpening. Ensure each act has a clear turning point. Check if your climax delivers on the promises made in the setup.'
-  },
-  transitions:{
-    low:'Transitions between paragraphs feel abrupt. Use bridging phrases ("Meanwhile", "Later that day"), echo the last image of one paragraph in the first line of the next, or connect scenes through a character\'s emotional state.',
-    mid:'Some transitions work, but others jar the reader. Read each paragraph break aloud — if the shift feels sudden, add a beat or re-order the paragraphs.'
-  },
-  copy:{
-    low:'Heavy copy editing issues. Focus on: (1) Convert passive voice to active ("was opened" → "opened"), (2) Cut adverbs after strong verbs ("ran quickly" → "sprinted"), (3) Replace cliches with original imagery, (4) Split sentences over 30 words.',
-    mid:'Good foundation, but tighten further. Search for "was/were" + past participle and rewrite. Audit every -ly adverb — keep only those that change meaning.'
-  },
-  line:{
-    low:'Line editing needs work. Focus on: varying sentence length (mix 5-word punches with 20-word flowing sentences), cutting filter words ("she felt", "he noticed"), and ensuring each paragraph has a clear energy direction.',
-    mid:'Prose is functional but could be more musical. Try reading difficult sections aloud. Where you stumble, rewrite. Where you rush, slow down with sensory detail.'
-  },
-  style:{
-    low:'Style feels generic. Develop a distinctive voice by: (1) choosing unusual but precise words, (2) developing a consistent rhythm, (3) finding metaphors unique to your world/character. Read authors with strong voice (Chandler, Morrison, Pratchett) and notice HOW they sound different.',
-    mid:'Voice is emerging but inconsistent. Identify your 5 strongest paragraphs and analyze what makes them work — then apply those patterns to the weaker sections.'
-  },
-  dialogue:{
-    low:'Dialogue needs significant work. Rules: (1) Every line should either advance plot or reveal character, (2) Cut small talk, (3) Each character should sound different, (4) "Said" is invisible — don\'t replace it with fancy tags, (5) Show subtext — what characters DON\'T say matters more.',
-    mid:'Dialogue is serviceable but could be sharper. Read each exchange and ask: "Would a real person actually say this?" Cut any line that\'s just delivering information the reader already knows.'
-  },
-  showTell:{
-    low:'Heavy telling instead of showing. Replace "She felt angry" with physical cues: "Her jaw clenched. She set down the glass too hard." Let readers INFER emotions from behavior, body language, and dialogue — don\'t name the emotion directly.',
-    mid:'Some telling remains. Search for "felt", "was [emotion]", "seemed", "obviously" — each one is an opportunity to show through action instead.'
+function evidenceTip(r,key,score){
+  // Recommendations must be generated from findings actually observed in this manuscript.
+  const issues=r.issues||[], le=r.lineEditing||{}, trans=r.transitions||{}, style=r.style||{}, plot=r.plot||{};
+  const top=arr=>arr.filter(Boolean).slice(0,3).join(' ');
+  if(key==='copy'){
+    const counts=r.issueCounts||{}; const ranked=[
+      ['passive',counts.passive,'Revise the validated passive-voice findings shown in the editor.'],
+      ['adverb',counts.adverb,'Review the validated adverbs and keep only those that materially change meaning.'],
+      ['repetition',counts.repetition,'Review repeated words flagged in close proximity.'],
+      ['wordy',counts.wordy,'Tighten the wordy phrases already flagged in the manuscript.'],
+      ['cliche',counts.cliche,'Replace the clichés already identified with manuscript-specific language.']
+    ].filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]);
+    return ranked.length?top(ranked.map(x=>x[1]+' '+x[0]+' finding'+(x[1]===1?'':'s')+'. '+x[2])):'No validated copy-editing issue currently drives this section.';
   }
-};
-function secWithTip(t,s,items,key){
+  if(key==='transitions'){
+    const weak=(trans.details||[]).filter(d=>!d.supported);
+    if(!weak.length) return 'No unsupported paragraph boundary was detected by the transition model.';
+    return 'Review '+weak.length+' unsupported paragraph boundar'+(weak.length===1?'y':'ies')+'. Start with paragraphs '+weak.slice(0,3).map(d=>d.fromParagraph+'→'+d.toParagraph).join(', ')+'. These boundaries had no explicit connective and insufficient lexical/referential carryover.';
+  }
+  if(key==='line'){
+    const fs=(le.findings||[]).slice().sort((a,b)=>({high:0,medium:1,low:2}[a.severity]??2)-({high:0,medium:1,low:2}[b.severity]??2));
+    return fs.length?top(fs.map(f=>f.message)):'No specific line-editing finding currently supports a recommendation.';
+  }
+  if(key==='style'){
+    const rec=[];
+    if((style.sentenceLengthStdDev??99)<3) rec.push('Sentence lengths are unusually uniform (SD '+style.sentenceLengthStdDev+').');
+    if((style.paragraphLengthStdDev??99)<8) rec.push('Paragraph lengths are unusually uniform (SD '+style.paragraphLengthStdDev+').');
+    if((style.lexicalDiversity??100)<45) rec.push('MSTTR-100 lexical diversity is '+style.lexicalDiversity+'%.');
+    return rec.length?top(rec):'No measured style-control weakness currently supports a recommendation.';
+  }
+  if(key==='plot'){
+    const rec=[];const comp=plot.components||{};const cv=plot.curve;
+    if(comp.rhythm&&comp.rhythm.value<0.7) rec.push('Scene share barely changes from unit to unit ('+(cv?cv.amplitude:0)+'-point range): every unit is built the same way.');
+    if(comp.shape&&cv&&cv.peakPosition<0.5) rec.push('The most scene-heavy unit is '+cv.peakUnit+', in the first half of the manuscript.');
+    if(comp.shape&&cv&&!cv.release) rec.push('The final unit is as scene-heavy as the peak; the manuscript does not come down from its climax.');
+    if(comp.lengthControl&&comp.lengthControl.outliers.length) rec.push('Unit length outliers: '+comp.lengthControl.outliers.slice(0,3).join(', ')+'.');
+    if(comp.cast&&comp.cast.value<0.7) rec.push(comp.cast.basis+'.');
+    if(plot.thesisSignals===0) rec.push('No explicit claim phrasing was found in the opening paragraphs.');
+    return rec.length?top(rec):'No measured structural weakness currently supports a recommendation.';
+  }
+  if(key==='dialogue'){
+    const fs=(r.dialogue?.findings||[]);
+    return fs.length?top(fs.map(f=>f.message)):'No dialogue-specific finding currently supports a recommendation.';
+  }
+  if(key==='showTell'){
+    const n=(r.showTell?.issues||[]).length;
+    return n?n+' validated show-vs-tell finding'+(n===1?' is':'s are')+' available in the editor. Work from those exact passages rather than a generic rule.':'No validated show-vs-tell finding currently supports a recommendation.';
+  }
+  return '';
+}
+function secWithTip(t,s,items,key,r){
   let tip='';
-  if(s<50&&improveTips[key]){tip='<div style="background:var(--surface2);border-left:3px solid var(--gold);border-radius:0 var(--rs) var(--rs) 0;padding:.5rem .65rem;margin-top:.4rem"><div style="font-size:.68rem;font-weight:600;color:var(--gold-l);margin-bottom:.2rem">How to Improve</div><div style="font-size:.72rem;color:var(--text);line-height:1.5">'+improveTips[key].low+'</div></div>'}
-  else if(s<70&&improveTips[key]){tip='<div style="background:var(--surface2);border-left:3px solid var(--gold);border-radius:0 var(--rs) var(--rs) 0;padding:.5rem .65rem;margin-top:.4rem"><div style="font-size:.68rem;font-weight:600;color:var(--gold-l);margin-bottom:.2rem">How to Improve</div><div style="font-size:.72rem;color:var(--text);line-height:1.5">'+improveTips[key].mid+'</div></div>'}
-  return '<div class="a-sec"><h3>'+t+' <span style="color:'+sc(s)+'">'+s+'/100</span></h3>'+items.filter(Boolean).map(i=>typeof i==='string'?(i?'<p>'+i+'</p>':''):i).join('')+tip+'</div>';
+  if(Number.isFinite(s)&&s<70&&key&&r){
+    const msg=evidenceTip(r,key,s);
+    if(msg)tip='<div style="background:var(--surface2);border-left:3px solid var(--gold);border-radius:0 var(--rs) var(--rs) 0;padding:.5rem .65rem;margin-top:.4rem"><div style="font-size:.68rem;font-weight:600;color:var(--gold-l);margin-bottom:.2rem">Evidence-Based Next Step</div><div style="font-size:.72rem;color:var(--text);line-height:1.5">'+esc(msg)+'</div></div>';
+  }
+  return '<div class="a-sec"><h3>'+t+' '+scoreBadge(s)+'</h3>'+items.filter(Boolean).map(i=>typeof i==='string'?(i?'<p>'+i+'</p>':''):i).join('')+tip+'</div>';
 }
 
 // READER VIEW
@@ -1479,11 +1646,31 @@ function renderReader(r){
   const d=$('ed-reader');if(!d||!r)return;d.className='ms-page dark-page';const rp=r.readerPerspective||{};
   const mc=(s,inv)=>{const v=inv?100-s:s;return v>=70?'var(--green)':v>=40?'var(--yellow)':'var(--red)'};
   let h='<div class="rdr-grid">';
-  h+=rc('Engagement',rp.engagementScore||0,mc(rp.engagementScore||0),'How hooked?');
-  h+=rc('Hook Strength',rp.hookStrength||0,mc(rp.hookStrength||0),'Opening grab?');
-  h+=rc('Clarity',rp.clarityScore||0,mc(rp.clarityScore||0),'Follow the story?');
-  h+='<div class="rdr-card"><h4>Pacing</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.pacingFeel||'N/A')+'</p></div>';
-  h+='<div class="rdr-card"><h4>Verdict</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.overallVerdict||'N/A')+'</p></div>';
+  // Self-help: these cards must show the SAME numbers as the Manuscript Health cards
+  // (both derive from the 8-dimension self-help model). Showing the fiction
+  // readerPerspective values here put "Engagement 38" on the same screen as
+  // "Reader Buy-In 65" for the same concept.
+  const shR=r.genre?.primary==='selfHelp'?(r.selfHelpScores||null):null;
+  if(shR){
+    const buyIn=Math.round(((shR.readerIdentification||0)+(shR.emotionalMomentum||0))/2);
+    const promise=Math.round(shR.readerIdentification||0);
+    const clarity=Math.round(shR.clarityReadability||0);
+    h+=rc('Reader Buy-In',buyIn,mc(buyIn),'Will readers commit?');
+    h+=rc('Promise Strength',promise,mc(promise),'Does the opening promise land?');
+    h+=rc('Clarity',clarity,mc(clarity),'Easy to follow?');
+    h+='<div class="rdr-card"><h4>Reader Momentum</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc((rp.pacingFeel||'').split(' - ')[0]||'N/A')+'</p></div>';
+    const shVerdict=buyIn>=80?'Strong reader buy-in. The promise and momentum carry the book.'
+      :buyIn>=60?'Good buy-in overall. Sharpen the opening promise and keep chapters actionable.'
+      :buyIn>=40?'Moderate buy-in. Strengthen reader identification — more "you", more concrete stories, clearer payoffs per chapter.'
+      :'Needs work on reader buy-in. Open with the reader\'s problem, promise a specific transformation, and ground each chapter in lived examples.';
+    h+='<div class="rdr-card"><h4>Verdict</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(shVerdict)+'</p></div>';
+  }else{
+    h+=rc('Engagement',rp.engagementScore||0,mc(rp.engagementScore||0),'How hooked?');
+    h+=rc('Hook Strength',rp.hookStrength||0,mc(rp.hookStrength||0),'Opening grab?');
+    h+=rc('Clarity',rp.clarityScore||0,mc(rp.clarityScore||0),'Follow the story?');
+    h+='<div class="rdr-card"><h4>Pacing</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.pacingFeel||'N/A')+'</p></div>';
+    h+='<div class="rdr-card"><h4>Verdict</h4><p style="font-size:.82rem;margin-top:.3rem">'+esc(rp.overallVerdict||'N/A')+'</p></div>';
+  }
   h+='</div>';
   // Readability panel — Flesch-Kincaid, a real peer-reviewed metric
   if(r.readability){
@@ -1696,7 +1883,7 @@ function showOpeningCoach(sectionIndex){
     const idx=extractedText.indexOf(oldFirst);
     if(idx>=0){extractedText=newOpening+extractedText.substring(idx+oldFirst.length)}
     else{extractedText=newOpening+'\n\n'+extractedText}
-    analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
+    analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions());
     if(!analysisResult.error)renderAll();
     coach.classList.remove('active');
     document.querySelector('.btab[data-p="annotated"]')?.classList.add('active');
@@ -1715,55 +1902,76 @@ function renderBlurbs(r){
   const d=$('ed-blurbs');if(!d||!r)return;d.className='ms-page dark-page';
   const b=r.blurbs;
   if(!b||!b.available){
-    d.innerHTML='<div class="a-sec"><h3>Blurb Generator</h3><p style="color:var(--muted);font-size:.85rem">'+(b?.reason||'Upload a full manuscript to generate blurb suggestions.')+'</p><p style="color:var(--dim);font-size:.75rem;margin-top:.5rem">Blurbs are generated for books and manuscripts over 5,000 words. The engine extracts your story\'s core elements — protagonist, conflict, stakes — and assembles 5 variations in different styles.</p></div>';
+    d.innerHTML='<div class="a-sec"><h3>Blurb Generator</h3><p style="color:var(--muted);font-size:.85rem">'+(b?.reason||'Upload a full manuscript to generate blurb suggestions.')+'</p><p style="color:var(--dim);font-size:.75rem;margin-top:.5rem">Blurbs are generated for books and manuscripts over 5,000 words.</p></div>';
     return;
   }
-  let h='<div class="a-sec"><h3>Blurb Generator</h3>';
-  h+='<div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:.75rem;font-size:.72rem;color:var(--muted)">';
-  h+='<span>Protagonist: <strong style="color:var(--gold-l)">'+esc(b.protagonist)+'</strong></span>';
-  if(b.antagonist)h+='<span>Antagonist: <strong style="color:var(--red)">'+esc(b.antagonist)+'</strong></span>';
-  h+='<span>Tone: <strong style="color:var(--text)">'+esc(b.toneDetected)+'</strong></span>';
-  h+='<span>Words: <strong>'+b.wordCount.toLocaleString()+'</strong></span>';
-  h+='</div></div>';
-
-  // 6-question framework breakdown
+  const tone=b.toneRates?Object.entries(b.toneRates).map(([k,v])=>k+' '+v+'/1K').join(' \u00B7 ')+(b.toneDetected?' \u2192 '+b.toneDetected:''):'';
+  let h='';
+  if(b.kind==='material'){
+    // Nonfiction: material by role, from the author's own sentences. No protagonist, no crisis.
+    h+='<div class="a-sec"><h3>Blurb material</h3><div class="bm-meta"><span>Words: <strong>'+b.wordCount.toLocaleString()+'</strong></span>'+(tone?'<span title="Tone vocabulary per 1,000 words">Tone vocabulary: '+esc(tone)+'</span>':'')+'</div><p class="bm-note">'+esc(b.note||'')+'</p></div>';
+    const section=(title,rows,empty)=>'<div class="a-sec"><h3>'+esc(title)+'</h3>'+(rows.length?rows.map(row=>'<div class="bm-row"><div class="bm-text">\u201C'+esc(row.text)+'\u201D</div><div class="bm-src">'+esc(row.section||'')+'</div></div>').join(''):'<p class="bm-empty">'+esc(empty)+'</p>')+'</div>';
+    for(const key of ['promise','problem','audience','authorStake']){
+      const m=b.material[key];if(!m)continue;
+      h+=section(m.label,m.rows,'No sentence in the manuscript matched this role. If the book does this, it does it in words the engine does not recognise \u2014 or it is worth writing.');
+    }
+    h+='<div class="a-sec"><h3>The method</h3><div id="bm-method" class="bm-empty">Reading chapters\u2026</div></div>';
+    h+='<div class="a-sec"><h3>The proof</h3><div id="bm-proof" class="bm-empty">Reading chapters\u2026</div></div>';
+    d.innerHTML=h;
+    _renderBlurbMaterialFromIntel(r);
+    return;
+  }
+  h+='<div class="a-sec"><h3>Blurb Generator</h3><div class="bm-meta">';
+  if(b.protagonist)h+='<span>Protagonist: <strong style="color:var(--gold-l)">'+esc(b.protagonist)+'</strong></span>';
+  else h+='<span>Protagonist: <em style="color:var(--dim)">no recurring name found</em></span>';
+  if(b.antagonist)h+='<span>Second lead: <strong style="color:var(--red)">'+esc(b.antagonist)+'</strong></span>';
+  if(tone)h+='<span title="Tone vocabulary per 1,000 words">Tone vocabulary: <strong style="color:var(--text)">'+esc(tone)+'</strong></span>';
+  h+='<span>Words: <strong>'+b.wordCount.toLocaleString()+'</strong></span></div></div>';
   const fw=b.framework;
-  h+='<div class="a-sec"><h3>Story Framework <span style="font-size:.7rem;color:var(--muted);font-weight:400">(extracted from manuscript)</span></h3>';
+  h+='<div class="a-sec"><h3>Story Framework <span style="font-size:.7rem;color:var(--muted);font-weight:400">each answer says how it was chosen</span></h3>';
   const questions=[
-    {q:'What does the character want?',a:fw.statusQuo},
-    {q:'How does it change?',a:fw.incitingIncident},
-    {q:'How does it get worse?',a:fw.conflict},
-    {q:'How do they try to fix it?',a:fw.attempt},
-    {q:'How does that make it worse?',a:fw.crisis},
-    {q:'What is at stake?',a:fw.stakes}
+    {q:'What does the character want?',a:fw.statusQuo},{q:'How does it change?',a:fw.incitingIncident},{q:'How does it get worse?',a:fw.conflict},
+    {q:'How do they try to fix it?',a:fw.attempt},{q:'How does that make it worse?',a:fw.crisis},{q:'What is at stake?',a:fw.stakes}
   ];
   questions.forEach((q,i)=>{
-    h+='<div style="margin-bottom:.5rem"><div style="font-size:.72rem;color:var(--gold);font-weight:600;margin-bottom:.15rem">Q'+(i+1)+': '+q.q+'</div><div style="font-size:.8rem;color:'+(q.a?'var(--text)':'var(--dim)')+';padding-left:.6rem;border-left:2px solid var(--border)">'+(q.a?esc(q.a):'<em>Could not extract — try adding clearer story beats</em>')+'</div></div>';
+    const ans=q.a||{};
+    h+='<div style="margin-bottom:.55rem"><div style="font-size:.72rem;color:var(--gold);font-weight:600;margin-bottom:.15rem">Q'+(i+1)+': '+q.q+'</div>'
+      +'<div style="font-size:.8rem;color:'+(ans.text?'var(--text)':'var(--dim)')+';padding-left:.6rem;border-left:2px solid var(--border)">'+(ans.text?esc(ans.text):'<em>No sentence found</em>')+'</div>'
+      +'<div class="bm-basis">'+esc(ans.basis||'')+'</div></div>';
   });
   h+='</div>';
-
-  // 5 Blurb variations
   b.blurbs.forEach((bl,i)=>{
-    h+='<div class="a-sec blurb-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem"><h3 style="margin:0">'+esc(bl.style)+'</h3><span style="font-size:.65rem;color:var(--muted)">'+bl.wordCount+' words</span></div>';
+    h+='<div class="a-sec blurb-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem"><h3 style="margin:0">'+esc(bl.style)+'</h3><span style="font-size:.65rem;color:var(--muted)">'+bl.wordCount+' words'+(bl.gaps?' \u00B7 '+bl.gaps+' gap'+(bl.gaps===1?'':'s')+' to write':'')+'</span></div>';
     h+='<div style="font-size:.7rem;color:var(--dim);margin-bottom:.5rem;font-style:italic">'+esc(bl.description)+'</div>';
-    h+='<div class="blurb-text" id="blurb-'+i+'">'+esc(bl.text).replace(/\n/g,'<br>')+'</div>';
+    // Gaps are the beats the manuscript did not supply a sentence for; they are yours to write.
+    const body=esc(bl.text).replace(/\[([^\]]+)\]/g,'<span class="blurb-gap">$1</span>').replace(/\n/g,'<br>');
+    h+='<div class="blurb-text" id="blurb-'+i+'">'+body+'</div>';
     h+='<div style="display:flex;gap:.3rem;margin-top:.5rem"><button class="btn-dark blurb-copy" data-idx="'+i+'" style="font-size:.7rem;padding:.25rem .6rem">Copy</button><button class="btn-dark blurb-edit" data-idx="'+i+'" style="font-size:.7rem;padding:.25rem .6rem">Edit</button></div>';
     h+='</div>';
   });
-
   d.innerHTML=h;
-
-  // Copy buttons
   d.querySelectorAll('.blurb-copy').forEach(btn=>{btn.addEventListener('click',()=>{
     const idx=btn.dataset.idx;const el=$('blurb-'+idx);
     navigator.clipboard.writeText(el.textContent);btn.textContent='Copied!';setTimeout(()=>{btn.textContent='Copy'},1500);
   })});
-  // Edit buttons - make blurb editable
   d.querySelectorAll('.blurb-edit').forEach(btn=>{btn.addEventListener('click',()=>{
     const idx=btn.dataset.idx;const el=$('blurb-'+idx);
     if(el.contentEditable==='true'){el.contentEditable='false';el.style.outline='';btn.textContent='Edit'}
     else{el.contentEditable='true';el.style.outline='1px solid var(--gold-d)';el.style.outlineOffset='4px';el.focus();btn.textContent='Done'}
   })});
+}
+// The method and the proof come from Document Intelligence's per-chapter extraction (explicit
+// actions; attributed claims and personal evidence), the same rows the Intelligence window shows.
+function _renderBlurbMaterialFromIntel(r){
+  if(typeof IntelligenceWindow==='undefined'||typeof IntelligenceWindow.data!=='function'){$('bm-method')?.remove();$('bm-proof')?.remove();return}
+  IntelligenceWindow.data(data=>{
+    const method=$('bm-method'),proof=$('bm-proof');if(!method&&!proof)return;
+    const nf=data&&data.intel&&data.intel.nonfiction;const chapters=(data&&data.parsed&&data.parsed.chapters)||[];
+    const title=id=>{const c=chapters.find(x=>x.id===id);return c?(c.title||c.id):''};
+    const rows=(list,n)=>(list||[]).slice(0,n).map(row=>'<div class="bm-row"><div class="bm-text">\u201C'+esc(row.text||row.evidence||'')+'\u201D</div><div class="bm-src">'+esc(title(row.chapterId))+'</div></div>').join('');
+    if(method)method.outerHTML=nf&&(nf.actions||[]).length?rows(nf.actions,5):'<p class="bm-empty">No explicit action was found. If the book gives the reader something to do, it is worth saying so in a sentence the cover can quote.</p>';
+    if(proof)proof.outerHTML=nf&&((nf.claims||[]).length||(nf.personalEvidence||[]).length)?rows(nf.claims,4)+rows(nf.personalEvidence,3):'<p class="bm-empty">No attributed claim or personal evidence was found.</p>';
+  },extractedText,r);
 }
 
 // TABS (bottom)
@@ -1786,12 +1994,7 @@ document.querySelectorAll('.btab').forEach(t=>{t.addEventListener('click',()=>{
   function activateTab(t){tabs.forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));t.classList.add('active');const target=$('ed-'+t.dataset.p);if(target){target.classList.add('active');if(t.dataset.p!=='annotated'&&!target.classList.contains('dark-page'))target.classList.add('dark-page')}const chNav=$('chapter-nav');if(chNav)chNav.style.display=t.dataset.p==='annotated'?'':'none';}
   $('bi-prev-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur>0)activateTab(tabs[cur-1])});
   $('bi-next-tab')?.addEventListener('click',()=>{const cur=tabs.findIndex(t=>t.classList.contains('active'));if(cur<tabs.length-1)activateTab(tabs[cur+1])});
-  $('bi-fullscreen')?.addEventListener('click',()=>{
-    const lp=$('left-panel'),rp2=$('right-panel');
-    const hidden=lp?.style.display==='none';
-    if(hidden){if(lp)lp.style.display='';if(rp2)rp2.style.display=''}
-    else{if(lp)lp.style.display='none';if(rp2)rp2.style.display='none'}
-  });
+  $('bi-fullscreen')?.addEventListener('click',()=>{_setPanelsHidden(!_panelsHidden)});
   let _fontSize=16;
   $('bi-zoom-in')?.addEventListener('click',()=>{_fontSize=Math.min(22,_fontSize+1);document.querySelectorAll('.ms-page').forEach(p=>p.style.fontSize=_fontSize+'px')});
   $('bi-zoom-out')?.addEventListener('click',()=>{_fontSize=Math.max(12,_fontSize-1);document.querySelectorAll('.ms-page').forEach(p=>p.style.fontSize=_fontSize+'px')});
@@ -1843,11 +2046,23 @@ $('fmt-spacing')?.addEventListener('change',e=>{
 // ============================================================
 // CHAPTER NAVIGATION — detect chapters, render sidebar, click-to-scroll
 // ============================================================
+let _lastChapterNavSig='';
 function buildChapterNav(){
   const list=$('chn-list');if(!list)return;
   const page=$('ed-annotated');
   const text=extractedText||'';
   if(!text){list.innerHTML='<div style="padding:.5rem .7rem;font-size:.7rem;color:var(--dim)">No manuscript loaded</div>';return}
+  // Cheap change detection: headings rarely change while typing prose, but this is
+  // called on every reanalyze completion. Skip the rebuild when the outline is identical.
+  let navSig='';
+  if(page){
+    for(const child of page.children){
+      const tag=child.tagName;
+      if(tag==='H1'||tag==='H2')navSig+=tag+':'+(child.textContent||'').trim()+'|';
+    }
+  }else{navSig='txt:'+text.length}
+  if(navSig===_lastChapterNavSig&&list.children.length>0)return;
+  _lastChapterNavSig=navSig;
 
   // CANONICAL OUTLINE — one normalized, source-ordered chapter list.
   // Rules: (1) suppress table-of-contents clusters (runs of headings with no body text
@@ -2011,6 +2226,11 @@ function renderAnnotatedAsPages(text,issues){
   p.setAttribute('contenteditable','true');
   p.setAttribute('spellcheck','false');
   if(!p._hasInputListener){
+    p.addEventListener('beforeinput',event=>{
+      if(event.inputType==='historyUndo'){event.preventDefault();undoLastFix();return;}
+      if(event.inputType==='historyRedo'){event.preventDefault();redoLastFix();return;}
+      _pushTypingSnapshot();
+    });
     p.addEventListener('input',()=>{scheduleReanalyze();});
     p._hasInputListener=true;
   }
@@ -2020,7 +2240,17 @@ function renderAnnotatedAsPages(text,issues){
 
   // sentence-length issues span full sentences (100-300 chars) and block all per-word highlights
   // inside them — show them in the scores panel only, not as inline annotation spans
-  const inlineIssues=issues.filter(i=>i.type!=='sentence-length'&&i.index>=0&&i.length>0);
+  let inlineIssues=issues.filter(i=>i.type!=='sentence-length'&&i.index>=0&&i.length>0);
+  // Long-manuscript cap: thousands of highlight spans make the contenteditable DOM sluggish
+  // (every keystroke re-layouts them). Render the highest-severity 800 inline; the rest stay
+  // available in the Smart Feedback panel.
+  const MAX_INLINE_HL=800;
+  if(inlineIssues.length>MAX_INLINE_HL){
+    const sevRank={high:0,medium:1,low:2};
+    inlineIssues=[...inlineIssues]
+      .sort((a,b)=>((a.contextSuppressed?1:0)-(b.contextSuppressed?1:0))||((sevRank[a.severity]??3)-(sevRank[b.severity]??3))||((b.confidence||0)-(a.confidence||0)))
+      .slice(0,MAX_INLINE_HL);
+  }
   // Build non-overlapping issues sorted by position
   const sorted=[...inlineIssues].sort((a,b)=>a.index-b.index);
   const noOverlap=[];let lastEnd=-1;
@@ -2049,14 +2279,33 @@ function renderAnnotatedAsPages(text,issues){
       paraBounds.push({start:lastIdx+leadingWS,end:lastIdx+leadingWS+trimmed.length,text:trimmed});
     }
   }
+  // A real chapter heading may have only one newline before its body. Split it
+  // without turning the entire paragraph into an H1 or changing source offsets.
+  for(let i=0;i<paraBounds.length;i++){
+    const pb=paraBounds[i],lines=pb.text.split('\n');
+    if(lines.length===1)continue;
+    const blocks=[];let offset=pb.start,start=pb.start;
+    for(const line of lines){
+      if(ManuscriptParser.isHeading(line.trim())){
+        if(offset>start&&text.slice(start,offset).trim())blocks.push({start,end:offset-1,text:text.slice(start,offset-1)});
+        blocks.push({start:offset,end:offset+line.length,text:line});
+        start=offset+line.length+1;
+      }
+      offset+=line.length+1;
+    }
+    if(blocks.length){
+      if(start<pb.end)blocks.push({start,end:pb.end,text:text.slice(start,pb.end)});
+      paraBounds.splice(i,1,...blocks);i+=blocks.length-1;
+    }
+  }
 
   // Build structured HTML with correct positions
   let structured='';
   for(const pb of paraBounds){
-    if(chapterRe.test(pb.text)){
+    if(ManuscriptParser.isHeading(pb.text)&&pb.text.length<=120){
       structured+='<h1>'+getAnnotatedSlice(text,pb.start,pb.end,noOverlap)+'</h1>';
     }else if(sceneBreakRe.test(pb.text)){
-      structured+='<div class="scene-break">* * *</div>';
+      structured+='<div class="scene-break">'+esc(pb.text)+'</div>';
     }else{
       structured+='<p>'+getAnnotatedSlice(text,pb.start,pb.end,noOverlap)+'</p>';
     }
@@ -2065,9 +2314,11 @@ function renderAnnotatedAsPages(text,issues){
   // Add page number footer
   const wordCount=(text.match(/\S+/g)||[]).length;
   const estPages=Math.max(1,Math.ceil(wordCount/250));
-  structured+='<div class="ms-page-footer">Page 1 of ~'+estPages+'</div>';
+  p.dataset.pagination='Approximately '+estPages+' manuscript pages';
 
   p.innerHTML=structured;
+  _renderedSource=text;
+  _renderedPlain=[...p.childNodes].map(node=>(node.textContent||'').trim()).filter(Boolean).join('\n\n');
 
   // Wire tooltip on highlights
   const tip=$('tip');
@@ -2081,18 +2332,28 @@ function renderAnnotatedAsPages(text,issues){
       const labels={passive:'Passive voice detected',adverb:'Adverb detected',cliche:'Cliche detected','weak-verb':'Weak verb detected',wordy:'Wordy phrase','show-tell':'Show vs Tell',repetition:'Word repetition','sentence-length':'Long sentence','confused-word':'Wrong word',grammar:'Grammar issue'};
       const t=hl.dataset.t;
       const sug=hl.dataset.s||'';
-      // Determine if this issue has an auto-replacement available
+      const msg=hl.dataset.m||'';
+      // A finding the engine set aside for this passage is shown quietly, with its reason,
+      // and never offered as something to fix.
+      const setAside=hl.classList.contains('hl-ctx')?(hl.dataset.r||'Set aside for this passage.'):'';
+      // Auto-fix only where the replacement is mechanical (remove an adverb, swap a wordy
+      // phrase, the mapped clich\u00E9) or came from the AI reader with the sentence in view.
+      // A verb or synonym from a fixed list is never applied for the author: it is shown
+      // for them to weigh, and the button takes them to the word instead.
       const hasAI=!!sug.match(/Replace with:\s*".+?"/);
-      const hasTry=!!sug.match(/Try:\s*.+/i);
-      // Types with reliable auto-fix: wordy (has "Replace with"), weak-verb/repetition (has "Try:"), adverb (remove), passive (restructure), cliche (has map)
-      const canAutoFix=hasAI||hasTry||t==='adverb'||t==='wordy'||t==='cliche';
-      const fixLabel=canAutoFix?'Replace &amp; Fix':'Edit Here';
-      tip.innerHTML='<div class="tip-cat">'+esc(labels[t]||t)+'</div><div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+esc(sug)+'\u201D</div><div class="tip-btns"><button class="tip-fix" id="tip-fix-btn">'+esc(fixLabel)+'</button><button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
+      // data-nofix: the detector judged deletion unsafe here (an adverb in a list or stack).
+      const canAutoFix=!setAside&&hl.dataset.nofix!=='1'&&(hasAI||t==='adverb'||t==='wordy'||t==='cliche');
+      const fixLabel=canAutoFix?'Replace & Fix':'Edit Here';
+      const body=setAside
+        ?'<div class="tip-sug">Set aside for this passage:</div><div class="tip-quote">'+esc(setAside)+'</div>'
+        :(msg&&t==='weak-verb'?'<div class="tip-sug">'+esc(msg)+'</div>':'')+'<div class="tip-sug">\u2192 Suggestion:</div><div class="tip-quote">\u201C'+esc(sug)+'\u201D</div>';
+      tip.innerHTML='<div class="tip-cat">'+esc(labels[t]||t)+'</div>'+body+'<div class="tip-btns">'+(setAside?'':'<button class="tip-fix" id="tip-fix-btn">'+esc(fixLabel)+'</button>')+'<button class="tip-ign" id="tip-ign-btn">Ignore</button></div>';
       tip.classList.add('on');
       const rect=hl.getBoundingClientRect();
       tip.style.top=(rect.bottom+8)+'px';
       tip.style.left=Math.min(rect.left,window.innerWidth-360)+'px';
-      $('tip-fix-btn').onclick=()=>{
+      const fixBtn=$('tip-fix-btn');
+      if(fixBtn)fixBtn.onclick=()=>{
         if(canAutoFix){replaceAndFix(activeHL)}
         else{
           // Focus the highlight text for manual editing
@@ -2123,7 +2384,8 @@ function getAnnotatedSlice(fullText,start,end,issues){
     const iStart=Math.max(i.index,start);
     const iEnd=Math.min(i.index+i.length,end);
     if(iStart>pos)h+=esc(fullText.substring(pos,iStart));
-    h+='<span class="hl" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'">'+esc(fullText.substring(iStart,iEnd))+'</span>';
+    const setAside=(i.contextSuppressed&&i._context?' data-r="'+escA(i._context.reason||'')+'"':'')+(i.autoFix===false?' data-nofix="1"':'');
+    h+='<span class="hl'+(i.contextSuppressed?' hl-ctx':'')+'" data-t="'+i.type+'" data-m="'+escA(i.message)+'" data-s="'+escA(i.suggestion)+'" data-q="'+escA(i.text.substring(0,60))+'"'+setAside+'>'+esc(fullText.substring(iStart,iEnd))+'</span>';
     pos=iEnd;
   }
   if(pos<end)h+=esc(fullText.substring(pos,end));
@@ -2167,7 +2429,7 @@ document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{
   const d=$('rp-detail');const r=analysisResult;
   if(mode==='suggestions'){renderRight(r);return}
   if(mode==='rewrite'){
-    const samples=r.issues.filter(i=>_REWRITE_TYPES.has(i.type)).slice(0,8);
+    const samples=liveIssues(r).filter(i=>_REWRITE_TYPES.has(i.type)).slice(0,8);
     d.innerHTML='<div class="rpd-title">Rewrite Suggestions <span class="rpd-exp-badge" style="margin-left:.4rem">Experimental</span></div>'+(samples.length===0?'<p style="color:var(--muted);font-size:.78rem">No rewrite targets found.</p>':samples.map(i=>'<div class="rpd-issue" data-issue-text="'+escA(i.text)+'" data-issue-sug="'+escA(i.suggestion)+'" data-has-fix="'+(i.type==='adverb'||i.type==='passive'||i.type==='wordy'||i.type==='cliche'?'1':'0')+'" data-issue-type="'+escA(i.type)+'" data-issue-index="'+(i.index||0)+'"><div class="rpd-issue-head">'+esc(i.text.substring(0,40))+'</div><div class="rpd-desc">'+esc(i.suggestion)+'</div><div class="rpd-quote rpd-navigate" style="cursor:pointer" title="Click to jump to this text">\u2018'+esc(i.text.substring(0,60))+'\u2019</div><div class="rpd-btns"><button class="rpd-rewrite-btn">\u2736 Rewrite</button><button class="tip-ign rpd-ign-btn">Dismiss</button></div></div>').join(''));
     d.querySelectorAll('.rpd-navigate').forEach(q=>{q.addEventListener('click',()=>{const card=q.closest('.rpd-issue');const issueText=card.dataset.issueText;document.querySelectorAll('.btab').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.ms-page').forEach(p=>p.classList.remove('active'));const ab=document.querySelector('.btab[data-p="annotated"]');if(ab)ab.classList.add('active');$('ed-annotated')?.classList.add('active');const page=$('ed-annotated');const q2=issueText.substring(0,60).replace(/"/g,'&quot;');const hl=page?.querySelector('.hl[data-q="'+q2+'"]');if(hl){hl.scrollIntoView({behavior:'smooth',block:'center'});hl.style.outline='3px solid var(--gold)';hl.style.outlineOffset='3px';setTimeout(()=>{hl.style.outline=''},3000)}})});
     d.querySelectorAll('.rpd-rewrite-btn').forEach(btn=>{btn.addEventListener('click',()=>{doRewrite(btn.closest('.rpd-issue'))})});
@@ -2177,7 +2439,7 @@ document.querySelectorAll('.rtab').forEach(t=>{t.addEventListener('click',()=>{
     const isNFtone=Analyzer.isNonfiction(r&&r.genre);
     const toneFindings=(r.lineEditing?.findings||[]).filter(f=>f.type==='tone'||f.type==='flow');
     const flowLabel=isNFtone?'Sentence Rhythm':'Flow';
-    const scoreLine=(r.lineEditing?.tone?.score!==undefined)?'<div class="rpd-desc" style="font-size:.72rem;color:var(--muted)">Tone score: <b style="color:'+(r.lineEditing.tone.score<50?'var(--red)':r.lineEditing.tone.score<75?'var(--yellow)':'var(--green)')+'">'+r.lineEditing.tone.score+'/100</b> &middot; '+flowLabel+': <b>'+r.lineEditing.flow.score+'/100</b></div>':'';
+    const scoreLine=(r.lineEditing?.tone?.score!==undefined)?'<div class="rpd-desc" style="font-size:.72rem;color:var(--muted)">Tone score: <b style="color:'+(r.lineEditing.tone.score<50?'var(--red)':r.lineEditing.tone.score<75?'var(--yellow)':'var(--green)')+'">'+r.lineEditing.tone.score+'/100</b> &middot; '+flowLabel+': <b>'+(Number.isFinite(r.lineEditing.flow?.score)?r.lineEditing.flow.score+'/100':'described, not scored')+'</b></div>':'';
     let html='<div class="rpd-title">Tone & Flow</div>'+scoreLine;
     if(toneFindings.length===0){
       html+='<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No tonal inconsistencies detected. Register and mood stay consistent.</p>';
@@ -2231,21 +2493,22 @@ async function runAI(key){
     }
     analysisResult._aiResults=ai;
     renderAI(ai);
-    // AI results are advisory evidence, not score mutations. Keeping Document Health
-    // deterministic prevents the same manuscript from changing score after an AI run
-    // or because a model response/cache changed. Semantic assessments stay in Review.
-    analysisResult._aiScoreEvidence = { advisoryOnly:true, generatedAt:new Date().toISOString() };
+    // AI output remains advisory; only Analyzer.analyze can compute scores.
     st.classList.add('hidden');
     $('ai-results').classList.remove('hidden');
     document.querySelector('.ai-intro')?.classList.add('hidden');
   }catch(e){
     st.classList.add('hidden');
     const msg=e.message||'Unknown error';
-    const isRateLimit=msg.includes('limit reached')||msg.includes('RATE_LIMITED');
+    const isCooldown=msg.includes('once every 24 hours');
+    const isRateLimit=!isCooldown&&(msg.includes('limit reached')||msg.includes('RATE_LIMITED'));
     const isAuthErr=msg.startsWith('SERVER_AUTH_ERROR:');
     const intro=document.querySelector('.ai-intro');
     if(intro){
-      if(isRateLimit){
+      if(isCooldown){
+        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#9203;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">AI analysis runs once every 24 hours</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:.4rem">'+esc(msg.replace(/^AI analysis runs once every 24 hours\.\s*/,''))+'</p><p style="color:var(--dim);font-size:.72rem">Your last results stay open. Ask Book, rewrites and fixes are not affected.</p></div>';
+        intro.classList.remove('hidden');
+      }else if(isRateLimit){
         intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Daily Limit Reached</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Free accounts get 3 AI analyses per day.</p><p style="color:var(--muted);font-size:.78rem">Resets at midnight UTC.</p><button class="btn-gold ai-upgrade-btn" style="width:auto;padding:.5rem 1.5rem;margin-top:1rem">&#9733; Upgrade to Premium — $5/mo</button><p style="color:var(--dim);font-size:.7rem;margin-top:.5rem">50 AI analyses/day + Claude deep critique</p></div>';
         intro.querySelector('.ai-upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
       }else if(isAuthErr){
@@ -2369,13 +2632,14 @@ c.innerHTML=h;c.querySelector('#clr-v')?.addEventListener('click',()=>{if(confir
 
 // EXPORT to Word (.doc) with colored issue highlights
 $('export-btn')?.addEventListener('click',()=>{
+  extractedText=extractTextFromEditor();
   if(!analysisResult||!extractedText)return;
-  const r=analysisResult;
+  const r=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions());
   const issueColors={passive:'#FFD700','weak-verb':'#FFA500',adverb:'#87CEEB',cliche:'#FF6347',wordy:'#DDA0DD','show-tell':'#98FB98',repetition:'#F0E68C','sentence-length':'#FFC0CB',grammar:'#FF4444'};
   const issueLabels={passive:'Passive Voice','weak-verb':'Weak Verb',adverb:'Adverb',cliche:'Cliché',wordy:'Wordy','show-tell':'Show vs Tell',repetition:'Repetition','sentence-length':'Long Sentence'};
 
   // Build annotated HTML
-  const sorted=[...r.issues].sort((a,b)=>a.index-b.index);
+  const sorted=[...liveIssues(r)].sort((a,b)=>a.index-b.index);
   const noOverlap=[];let lastEnd=-1;
   for(const i of sorted){if(i.index>=lastEnd){noOverlap.push(i);lastEnd=i.index+i.length}}
 
@@ -2413,31 +2677,14 @@ $('export-btn')?.addEventListener('click',()=>{
 });
 
 // SAVE / LOAD
-function _showSaveToast(msg){
+function _showSaveToast(msg,duration=2000){
   let toast=document.getElementById('save-toast');
-  if(!toast){toast=document.createElement('div');toast.id='save-toast';toast.style.cssText='position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:#1e1812;border:1px solid rgba(200,149,108,.3);color:var(--gold-l);padding:.4rem 1rem;border-radius:6px;font-size:.78rem;z-index:999;opacity:0;transition:opacity .3s;font-family:Inter,sans-serif';document.body.appendChild(toast)}
+  if(!toast){toast=document.createElement('div');toast.id='save-toast';toast.setAttribute('role','status');toast.setAttribute('aria-live','polite');toast.style.cssText='position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:#1e1812;border:1px solid rgba(200,149,108,.3);color:var(--gold-l);padding:.6rem 1rem;border-radius:6px;font-size:.78rem;line-height:1.5;max-width:min(36rem,calc(100vw - 2rem));width:max-content;box-sizing:border-box;overflow-wrap:anywhere;z-index:999;opacity:0;transition:opacity .3s;font-family:Inter,sans-serif';document.body.appendChild(toast)}
   toast.textContent=msg;toast.style.opacity='1';
-  clearTimeout(toast._t);toast._t=setTimeout(()=>{toast.style.opacity='0'},2000);
+  clearTimeout(toast._t);toast._t=setTimeout(()=>{toast.style.opacity='0'},duration);
 }
 async function saveAnalysis(){
-  if(!analysisResult||!uploadedFile)return;
-  // Save to Firestore
-  await Storage.whenReady();
-  if(Storage.userId){
-    try{
-      if(!Storage._currentManuscriptId){
-        Storage._currentManuscriptId=await Storage.saveManuscript(uploadedFile.name,extractedText,analysisResult);
-      }else{
-        await Storage.updateManuscript(Storage._currentManuscriptId,extractedText,analysisResult);
-      }
-      await Storage.saveVersion(Storage._currentManuscriptId,analysisResult);
-      _showSaveToast('Saved to cloud');
-      return;
-    }catch(e){_showSaveToast('Cloud save failed — changes remain open in this tab');console.warn('Cloud save error:',e.message)}
-  }
-  // Never place manuscript bodies in browser storage. Keep the editor state in memory
-  // and make the failure explicit so the author can retry cloud save or export.
-  _showSaveToast(Storage.userId?'Cloud save failed — changes remain open in this tab':'Sign in to save this manuscript to the cloud');
+  return persistDraft(true);
 }
 
 // ============================================================
@@ -2461,12 +2708,10 @@ async function renderLibrary(){
   if(Storage.userId){
     try{manuscripts=await Storage.getManuscripts()}catch(e){_showSaveToast('Could not load manuscripts from cloud');console.warn('Firestore load error:',e.message)}
   }
-  // Firestore is the manuscript library source of truth; legacy local manuscript bodies are ignored.
-
-  // Deduplicate by fileName — keep the most recently updated entry
+  // Cloud identity, not filename: authors may upload two drafts with the same name.
   const seen=new Map();
   for(const m of manuscripts){
-    const key=(m.fileName||'').toLowerCase().trim();
+    const key=m.id||((m.fileName||'')+':'+(m._data?.savedAt||''));
     if(!seen.has(key)){seen.set(key,m)}else{
       const prev=seen.get(key);
       const prevDate=prev.updatedAt?.toDate?prev.updatedAt.toDate():new Date(0);
@@ -2496,6 +2741,7 @@ async function renderLibrary(){
 
   // Status badge
   function statusBadge(m){
+    if(m.analysisState==='pending')return '<span class="lib-card-badge lib-badge-draft">Analysis pending</span>';
     const s=m.overall||0;
     if(s>=70)return '<span class="lib-card-badge lib-badge-analyzed">&#9679; Analyzed</span>';
     if(s>=45)return '<span class="lib-card-badge lib-badge-progress">&#9679; In Progress</span>';
@@ -2513,7 +2759,7 @@ async function renderLibrary(){
   // Build card HTML
   function cardHtml(m,i,isRecent){
     const date=m.updatedAt?.toDate?m.updatedAt.toDate():new Date();
-    const chs=chapterCount(m.text);
+    const chs=m.chapterCount||chapterCount(m.text);
     const chLabel=chs>0?chs+' Chapters':'';
     const name=esc(m.fileName||'Untitled').replace(/\.\w+$/,'');
     return '<div class="lib-card'+(isRecent?' lib-card-recent':'')+'" data-lib-idx="'+i+'">'+
@@ -2558,13 +2804,17 @@ async function renderLibrary(){
 }
 
 function _wireLibraryEvents(){
-  // Add Manuscript button
+  // Add Manuscript button (lives inside the re-rendered grid — must rewire each time)
   $('lib-add-btn')?.addEventListener('click',()=>{
     $('upload-modal')?.classList.remove('hidden');
   });
 
-  // Upload modal back button
-  $('upload-modal-back')?.addEventListener('click',e=>{
+  // Upload modal back button — static element in app.html; _wireLibraryEvents runs on
+  // every renderLibrary(), so guard against stacking a new listener each time
+  const modalBackBtn=$('upload-modal-back');
+  if(modalBackBtn&&!modalBackBtn._wired){
+  modalBackBtn._wired=true;
+  modalBackBtn.addEventListener('click',e=>{
     e.preventDefault();
     $('upload-modal')?.classList.add('hidden');
     // Reset upload state
@@ -2573,6 +2823,7 @@ function _wireLibraryEvents(){
     $('file-info')?.classList.add('hidden');
     fi.value='';uploadedFile=null;
   });
+  }
 
   // Open buttons
   document.querySelectorAll('[data-action="open"]').forEach(btn=>{
@@ -2637,7 +2888,7 @@ function _wireLibraryEvents(){
           extractedText=full.text;uploadedFile={name:full.fileName,size:0};
           const savedGenreKey=full.genrePrimary||(full.genre&&full.genre!=='Unknown'?_genreLabelToKey(full.genre):'');
           if(savedGenreKey){const go=$('genre-override');if(go)go.value=savedGenreKey;}
-          try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);alert('Analysis failed. Please try re-uploading.');return}
+          try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions())}catch(e){console.error('Analyze failed:',e);alert('Analysis failed. Please try re-uploading.');return}
           Storage._currentManuscriptId=full.id;
           $('upload-view').classList.add('hidden');$('editor-view').classList.remove('hidden');
           document.body.classList.remove('lib-mode');renderAll();
@@ -2709,7 +2960,7 @@ async function _openManuscript(idx){
       loadEl.textContent='Analyzing manuscript...';
       await new Promise(r=>setTimeout(r,50));
       try{
-        analysisResult=Analyzer.analyze(extractedText,_currentGenreKey());
+        analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions());
       }catch(analyzeErr){
         console.error('Analyzer.analyze failed:',analyzeErr);
         loadEl.remove();
@@ -2724,6 +2975,7 @@ async function _openManuscript(idx){
     $('editor-view').classList.remove('hidden');
     document.body.classList.remove('lib-mode');
     renderAll();
+    _savedText=extractTextFromEditor();setSaveState('saved','Saved to cloud');
     loadEl.remove();
   }catch(err){
     document.getElementById('lib-open-overlay')?.remove();
@@ -2778,7 +3030,6 @@ function _showContextMenu(anchor,idx){
       const lastOpen=safeLocalJSON('ml_last_open',null);
       if(lastOpen?.manuscriptId===m.id){
         localStorage.removeItem('ml_last_open');
-        localStorage.removeItem('ml_autosave');
       }
     }
     renderLibrary();
@@ -2789,6 +3040,21 @@ function _showContextMenu(anchor,idx){
 $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="save-btn">&#128190; Save</button>');
 $('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="upgrade-btn" style="color:var(--gold-l);border-color:var(--gold-d)">&#9733; Premium</button>');
 $('save-btn')?.addEventListener('click',saveAnalysis);
+$('export-btn')?.insertAdjacentHTML('beforebegin','<button class="tb-btn" id="optional-checks-btn">Optional checks</button>');
+$('optional-checks-btn')?.addEventListener('click',async e=>{
+  if(!analysisResult||!uploadedFile)return;
+  if(!confirm('Run optional checks? Manuscript passages will be sent to our AI and grammar providers. AI checks use your plan allowance.'))return;
+  const button=e.currentTarget;button.disabled=true;
+  const result=analysisResult,source=extractedText;
+  try{
+    // Calibration uses issue indices. Do not mutate that list concurrently.
+    for(const check of [maybeRunSmartScan,maybeBatchFix,_enhanceGrammar,_runReaderSimulation]){
+      if(!_isCurrentResult(result,source))break;
+      await check(result);
+    }
+  }
+  finally{button.disabled=false;}
+});
 // (Help lives in the static "? Help" → faq.html link in the topbar; the old injected
 // duplicate button re-triggered the wizard, which bails for anyone with a manuscript.)
 $('upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
@@ -2837,7 +3103,7 @@ async function maybeShowWizard(){
     {title:'Step 1: Upload & Select Genre',icon:'&#128196;',text:'Upload your .docx, .pdf, or .txt file, then <strong>select your genre</strong>. Genre determines which scoring rules apply — nonfiction is scored differently than fiction. This matters for accurate results.'},
     {title:'Step 2: Review Your Scores',icon:'&#128202;',text:'<strong>Document Health</strong> (left panel) shows engagement, clarity, pacing, and readability.<br><strong>Smart Feedback</strong> (right panel) shows copy editing, grammar, style, and structure scores — click any category to see specific issues.'},
     {title:'Step 3: Fix Issues',icon:'&#9998;',text:'Click any highlighted issue in the editor to see the suggestion. Use <strong>Apply Fix</strong> for auto-corrections or <strong>Fix</strong> for AI-powered rewrites. Your scores update live as you edit.'},
-    {title:'Step 4: Run AI Analysis',icon:'&#9889;',text:'For deeper insights, run <strong>AI features</strong> (paid plans): Deep Critique, Editing Roadmap, Reader Simulation, Beta Reader Simulation, and more. These scan your entire manuscript and cache the results.'},
+    {title:'Step 4: Ask for Optional Advice',icon:'&#9889;',text:'AI features use relevant passages and samples across your book, not an exhaustive reading of every word. You choose when to share passages. Advice never changes deterministic editing scores.'},
     {title:'Step 5: Save & Iterate',icon:'&#128190;',text:'Your manuscript <strong>saves automatically to the cloud</strong> when signed in. Click Save (&#128190;) anytime. Re-upload revised versions to track your improvement over time.'},
     {title:'Ready to Start?',icon:'&#9997;',text:'Upload your manuscript and select a genre to begin. Every score you see is computed from your actual text — nothing is hardcoded. A score of 60+ means your manuscript is in good shape.'}
   ];
@@ -2864,7 +3130,6 @@ Storage.whenReady().then(async user=>{
 
   // If no manuscripts anywhere, clear stale session data and show blank library
   if(!hasAnyManuscripts){
-    localStorage.removeItem('ml_autosave');
     localStorage.removeItem('ml_last_open');
     renderLibrary();
     maybeShowWizard();
@@ -2873,7 +3138,6 @@ Storage.whenReady().then(async user=>{
 
   // Try to restore the last opened manuscript
   const lastOpen=safeLocalJSON('ml_last_open',null);
-  const autosave=safeLocalJSON('ml_autosave',null);
 
   // Attempt 1: last opened manuscript by Firestore ID
   if(lastOpen?.manuscriptId){
@@ -2881,8 +3145,10 @@ Storage.whenReady().then(async user=>{
       const full=await Storage.getManuscript(lastOpen.manuscriptId);
       if(full&&full.text){
         extractedText=full.text;
+        _savedText=full.text;
+        $('genre-override').value=full.genrePrimary||_genreLabelToKey(full.genre)||'';
         uploadedFile={name:full.fileName,size:0};
-        try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
+        try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
         if(!analysisResult){renderLibrary();return}
         Storage._currentManuscriptId=full.id;
         $('upload-view').classList.add('hidden');
@@ -2908,8 +3174,10 @@ Storage.whenReady().then(async user=>{
       const full=await Storage.getManuscript(m.id);
       if(full&&full.text){
         extractedText=full.text;
+        _savedText=full.text;
+        $('genre-override').value=full.genrePrimary||_genreLabelToKey(full.genre)||'';
         uploadedFile={name:full.fileName,size:0};
-        try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
+        try{analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions())}catch(e){console.error('Analyze failed:',e);analysisResult=null}
         if(!analysisResult){renderLibrary();return}
         Storage._currentManuscriptId=m.id;
         localStorage.setItem('ml_last_open',JSON.stringify({fileName:m.fileName,manuscriptId:m.id}));
@@ -2923,7 +3191,6 @@ Storage.whenReady().then(async user=>{
   }
 
   // No manuscript could be loaded — clear stale data, show library
-  localStorage.removeItem('ml_autosave');
   localStorage.removeItem('ml_last_open');
   renderLibrary();
   maybeShowWizard();
@@ -2933,19 +3200,36 @@ Storage.whenReady().then(async user=>{
 // Genre override in editor topbar — re-analyze with new genre
 $('genre-override')?.addEventListener('change',()=>{
   if(!extractedText||!analysisResult)return;
+  _analyzeVersion++;_analysisRunner.cancel();clearTimeout(_reanalyzeTimer);
+  extractedText=extractTextFromEditor();
   // Clear stale AI feature panels — they were generated with the previous genre's context
   // and would mislead the user (e.g. "this is self-help masquerading as dystopian fiction").
   ['ai-deep-critique','ai-opening-analysis','ai-editing-roadmap','ai-comp-titles','ai-query-letter','ai-beta-readers','ai-market-readiness','ai-chapter-breakdown','ai-weakness-result'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.innerHTML='';
   });
   // Pass dropdown value as the sacred override — Analyzer.analyze() bypasses detection AND fallback reclassification.
-  analysisResult=Analyzer.analyze(extractedText, $('genre-override').value || undefined);
+  analysisResult=Analyzer.analyze(extractedText, $('genre-override').value || undefined, _analyzeOptions());
   renderAll();
 });
 
-function goToLibrary(){
+// Manuscript type in the header — the author's word on whether this is a full manuscript.
+// Remembered per manuscript; whole-book judgments (climax placement, ending, book-level DNF)
+// are made only when the mode is "Full manuscript".
+$('mode-override')?.addEventListener('change',()=>{
+  const value=$('mode-override').value;
+  try{value?localStorage.setItem(_modeStorageKey(),value):localStorage.removeItem(_modeStorageKey());}catch(_){}
+  if(!extractedText||!analysisResult)return;
+  _analyzeVersion++;_analysisRunner.cancel();clearTimeout(_reanalyzeTimer);
+  extractedText=extractTextFromEditor();
+  analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions());
+  renderAll();
+});
+
+async function goToLibrary(){
+  if(!await persistDraft())return;
   clearTimeout(autoSaveTimer);
   clearTimeout(_reanalyzeTimer);
+  _analyzeVersion++;_analysisRunner.cancel();
   _undoStack.length=0;
   _redoStack.length=0;
   _updateUndoBtn();
@@ -2973,6 +3257,9 @@ document.querySelectorAll('.fmt-btn[data-cmd]').forEach(btn=>{
     const cmd=btn.dataset.cmd;
     const ed=$('ed-annotated');
     if(!ed)return;
+    if(cmd==='undo'){undoLastFix();return;}
+    if(cmd==='redo'){redoLastFix();return;}
+    pushUndo();
     ed.focus();
     if(cmd.startsWith('formatBlock:')){
       const tag=cmd.split(':')[1];
@@ -3039,42 +3326,8 @@ $('focus-snooze')?.addEventListener('click',()=>FocusGuard.snooze());
 // Start focus guard when editor loads
 setTimeout(()=>FocusGuard.start(),2000);
 
-// ========================
-// AI CACHING — 24hr cache with change detection
-// ========================
-const AICache={
-  _key(text,feature){return 'aic_'+feature+'_'+(text.length+'_'+text.substring(0,100)).replace(/\W/g,'_').substring(0,80)},
-  get(text,feature){
-    try{
-      const k=this._key(text,feature);
-      const raw=localStorage.getItem(k);
-      if(!raw)return null;
-      const cached=JSON.parse(raw);
-      if(Date.now()-cached.ts>24*60*60*1000){localStorage.removeItem(k);return null}
-      // Verify text hasn't changed significantly
-      if(cached.textLen!==text.length||cached.textHash!==this._hash(text))return null;
-      return cached.data;
-    }catch(e){return null}
-  },
-  set(text,feature,data){
-    try{
-      const k=this._key(text,feature);
-      localStorage.setItem(k,JSON.stringify({data,ts:Date.now(),textLen:text.length,textHash:this._hash(text)}));
-    }catch(e){/* quota */}
-  },
-  _hash(text){let h=0;for(let i=0;i<text.length;i+=100){h=((h<<5)-h)+text.charCodeAt(i);h|=0}return h}
-};
-// Patch AIEngine to use cache
-if(typeof AIEngine!=='undefined'){
-  const origCall=AIEngine._callClaude.bind(AIEngine);
-  AIEngine._callClaude=async function(apiKey,systemPrompt,userPrompt,manuscriptText,feature){
-    const cached=AICache.get(manuscriptText,feature);
-    if(cached)return cached;
-    const result=await origCall(apiKey,systemPrompt,userPrompt,manuscriptText,feature);
-    AICache.set(manuscriptText,feature,result);
-    return result;
-  };
-}
+// AIEngine owns the single session cache. Do not wrap its request method:
+// the old second cache both missed small edits and discarded retrieval options.
 
 // ============================================================
 // RE-ENGAGEMENT SYSTEM (3-layer)
@@ -3085,13 +3338,10 @@ function trackSession(actionType){
   if(!uploadedFile||!analysisResult)return;
   const prev=safeLocalJSON('ml_session',{});
   const text=extractedText||'';
-  const chapters=text.match(/^(chapter\s+\d+[^\n]*|chapter\s+[a-z]+[^\n]*)/gim)||[];
-  const lastChapter=chapters.length>0?chapters[chapters.length-1].trim():(prev.lastChapter||null);
-
   const data={
-    manuscript:uploadedFile.name,
+    manuscript:'',
     manuscriptId:Storage._currentManuscriptId||prev.manuscriptId||null,
-    lastChapter,
+    lastChapter:'',
     lastActionType:actionType||prev.lastActionType||'viewing',
     lastScore:analysisResult.overall||prev.lastScore||0,
     lastSessionTime:Date.now(),
@@ -3412,8 +3662,53 @@ function maybePromptPush(){
 }
 
 // Register service worker early (needed for push to work even before prompting)
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('/sw.js').catch(()=>{});
-}
+try{
+  if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}catch(_){/* Optional notifications must never prevent editor initialization. */}
+
+window.AuthorScrollsEditor={
+  save:()=>persistDraft(),
+  getText:()=>uploadedFile?extractTextFromEditor():extractedText,
+  getAnalysis:()=>analysisResult,
+  async restoreVersion(id,versionId){
+    if(_restoreInProgress)throw new Error('A restore is already in progress. Please wait.');
+    if(id!==Storage._currentManuscriptId)throw new Error('Open this manuscript before restoring it');
+    const view=$('editor-view'),wasInert=view.inert;
+    const previousFocus=document.activeElement;
+    _restoreInProgress=true;view.inert=true;view.setAttribute('aria-busy','true');
+    clearTimeout(autoSaveTimer);clearTimeout(_reanalyzeTimer);_analyzeVersion++;
+    _analysisRunner.cancel();
+    // This recovery control stays outside the inert editor. If the network
+    // stalls, the author can still export the working draft before closing.
+    const notice=document.createElement('div');
+    notice.id='restore-progress';notice.setAttribute('role','status');
+    notice.style.cssText='position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:1002;background:#1e1812;color:#f3e4ce;border:1px solid #c8956c;border-radius:6px;padding:.75rem 1rem;width:max-content;max-width:calc(100vw - 2rem);box-sizing:border-box;font-size:.85rem;line-height:1.5';
+    const message=document.createElement('p');message.textContent='Restoring snapshot. Keep this tab open; editing will resume when it finishes.';message.style.margin='0 0 .5rem';
+    const recovery=document.createElement('button');recovery.type='button';recovery.textContent='Export current draft';
+    recovery.style.cssText='padding:.5rem .75rem;background:#d2b081;color:#211b14;border:0;border-radius:4px;cursor:pointer';
+    recovery.addEventListener('click',()=>$('export-btn').click());
+    notice.append(message,recovery);document.body.appendChild(notice);
+    recovery.focus();
+    try{
+      await pendingSave;
+      extractedText=await Storage.restoreVersion(id,versionId,analysisResult,extractTextFromEditor());
+      analysisResult=Analyzer.analyze(extractedText,_currentGenreKey(),_analyzeOptions());
+      _undoStack.length=0;_redoStack.length=0;renderAll();
+      if(!await persistDraft())throw new Error('Restored text is open, but its latest save could not be confirmed. Keep this tab open and export it.');
+      _showSaveToast('Snapshot restored. Your previous text is in the safety snapshot.');
+    }catch(error){
+      _showSaveToast(error.message,10000);
+      throw error;
+    }finally{
+      notice.remove();
+      _restoreInProgress=false;view.inert=wasInert;view.removeAttribute('aria-busy');
+      if(previousFocus?.isConnected&&!previousFocus.disabled)previousFocus.focus();
+    }
+  }
+};
+window.addEventListener('beforeunload',e=>{
+  if(!uploadedFile)return;
+  if(_restoreInProgress||extractTextFromEditor()!==_savedText){e.preventDefault();e.returnValue='';}
+});
 
 })();

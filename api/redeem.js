@@ -1,5 +1,6 @@
 'use strict';
 const { verifyToken, getAdmin } = require('./_auth');
+const {checkAndIncrement}=require('./_ratelimit');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
@@ -10,8 +11,8 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const code = (req.body.code || '').trim().toUpperCase();
-  if (!code) {
+  const code = typeof req.body?.code==='string'?req.body.code.trim().toUpperCase():'';
+  if (!/^[A-Z0-9_-]{3,80}$/.test(code)) {
     res.status(400).json({ error: 'Missing invite code' });
     return;
   }
@@ -24,6 +25,8 @@ module.exports = async (req, res) => {
 
   const db = fb.firestore();
   const uid = auth.user.uid;
+  try{if(await checkAndIncrement('redeem:'+uid,new Date().toISOString().slice(0,10))>20)return res.status(429).json({error:'Invite attempt limit reached. Try tomorrow.'});}
+  catch(_){return res.status(503).json({error:'Invite service temporarily unavailable'});}
 
   try {
     const userDoc = await db.collection('users').doc(uid).get();
@@ -59,13 +62,14 @@ module.exports = async (req, res) => {
       const fresh = await t.get(codeRef);
       if (!fresh.exists) throw new Error('Code invalid');
       const freshData = fresh.data() || {};
+      if(!['beta','starter','premium'].includes(freshData.tier||'beta'))throw new Error('Invalid invite tier');
       const freshUsed = freshData.usedBy || [];
       const freshMaxUses = freshData.maxUses || 1;
       if (freshUsed.includes(uid)) throw new Error('Code already redeemed');
       if (freshUsed.length >= freshMaxUses) throw new Error('Code fully used');
       t.update(codeRef, { usedBy: [...freshUsed, uid] });
       t.set(db.collection('users').doc(uid), {
-        tier,
+        tier:fresh.data().tier||'beta',
         tierUpdatedAt: fb.firestore.FieldValue.serverTimestamp(),
         betaCode: code
       }, { merge: true });
@@ -79,6 +83,8 @@ module.exports = async (req, res) => {
       res.status(400).json({ error: 'You already redeemed this code' });
     } else if (e.message === 'Code invalid') {
       res.status(404).json({ error: 'Invalid invite code' });
+    } else if (e.message === 'Invalid invite tier') {
+      res.status(400).json({ error: 'Invalid invite tier' });
     } else {
       console.error('Redemption failed:', e.message);
       res.status(500).json({ error: 'Redemption failed' });

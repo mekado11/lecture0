@@ -26,23 +26,12 @@ const AIEngine = {
   _setCache(text, feature, data) {
     const key = this._getCacheKey(text, feature);
     this._cache.set(key, { data, timestamp: Date.now() });
-    // Also persist to sessionStorage for tab refreshes
-    try {
-      const stored = JSON.parse(sessionStorage.getItem('ml_cache') || '{}');
-      stored[key] = { data, timestamp: Date.now() };
-      sessionStorage.setItem('ml_cache', JSON.stringify(stored));
-    } catch (e) { /* quota exceeded, ignore */ }
+    // Manuscript-derived responses are memory-only, bounded to this tab.
+    if(this._cache.size>30)this._cache.delete(this._cache.keys().next().value);
   },
 
   _loadSessionCache() {
-    try {
-      const stored = JSON.parse(sessionStorage.getItem('ml_cache') || '{}');
-      for (const [key, val] of Object.entries(stored)) {
-        if (Date.now() - val.timestamp < 30 * 60 * 1000) {
-          this._cache.set(key, val);
-        }
-      }
-    } catch (e) { /* ignore */ }
+    try{sessionStorage.removeItem('ml_cache');}catch(_){}
   },
 
   // ========================
@@ -53,12 +42,24 @@ const AIEngine = {
   // Local dev: /api/claude (Express server)
   // Both work with the same path
   API_ENDPOINT: '/api/claude',
+  // Whole-manuscript analysis features run once per 24 hours; the server enforces it and this
+  // browser remembers the next run time it was told, so the author sees the time, not a spent request.
+  ANALYSIS_FEATURES: new Set(['deepCritique','chapterBreakdown','openingAnalysis','weaknessAnalysis','compTitles','queryLetter','betaReaders','marketReadiness','editingRoadmap','readerSimulation','smartScan','calibrateIssues']),
+  nextAnalysisRun() {
+    try { const next = Number(localStorage.getItem('ml_ai_next_run')); if (next && next > Date.now()) return next; if (next) localStorage.removeItem('ml_ai_next_run'); } catch (_) {}
+    return null;
+  },
+  cooldownMessage(nextAt) {
+    const when = new Date(nextAt);
+    const sameDay = when.toDateString() === new Date().toDateString();
+    return 'AI analysis runs once every 24 hours. The next run is available ' + (sameDay ? 'today at ' + when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : when.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })) + '.';
+  },
 
   // Model routing: cheap OpenAI for most, Claude for premium
   _routeModel(feature) {
     // Features that benefit from Claude's superior analysis
     const claudeFeatures = ['deepCritique', 'chapterBreakdown', 'openingAnalysis'];
-    if (claudeFeatures.includes(feature)) return 'claude';
+    if (claudeFeatures.includes(feature) && (window.__isAdmin || ['premium','beta'].includes(window.__userPlan))) return 'claude';
     // Everything else uses OpenAI (10-50x cheaper)
     return 'openai-fast';
   },
@@ -67,6 +68,7 @@ const AIEngine = {
     if (!packet) return '';
     const compact = {
       query: packet.query,
+      documentType: packet.documentType, overview:packet.overview, nonfiction:packet.nonfiction,
       chapters: (packet.chapters || []).map(c => ({ id:c.chapterId, title:c.title, text:c.text })),
       documentType: packet.documentType || null,
       characters: packet.characters || [], facts: packet.facts || [], relationships: packet.relationships || [],
@@ -82,17 +84,7 @@ const AIEngine = {
     const key = this._shortHash(manuscriptText) + '|' + manuscriptText.length + '|' + analysisSig;
     let built = this._bookContextCache.get(key);
     if (!built) {
-      const parsed = ManuscriptParser.parse(manuscriptText);
-      let intel = BookIntelligence.build(parsed, analysis);
-      if (typeof DocumentIntelligence !== 'undefined') intel = DocumentIntelligence.enrich(parsed, intel);
-      const isNonfiction = intel.documentType?.type === 'nonfiction';
-      if (!isNonfiction && typeof StoryIntelligence !== 'undefined') intel = StoryIntelligence.enrich(parsed, intel);
-      if (!isNonfiction && typeof ContinuityIntelligence !== 'undefined') intel = ContinuityIntelligence.enrich(parsed, intel);
-      if (!isNonfiction && typeof TimelineIntelligence !== 'undefined') intel = TimelineIntelligence.enrich(parsed, intel);
-      if (!isNonfiction && typeof NarrativeMomentum !== 'undefined') intel = NarrativeMomentum.enrich(intel);
-      if (!isNonfiction && typeof RelationshipIntelligence !== 'undefined') intel = RelationshipIntelligence.enrich(parsed, intel);
-      if (!isNonfiction && typeof CharacterLedger !== 'undefined') intel = CharacterLedger.enrich(intel);
-      built = { parsed, intel };
+      built = IntelligencePipeline.build(manuscriptText, analysis);
       this._bookContextCache.clear();
       this._bookContextCache.set(key, built);
     }
@@ -116,10 +108,14 @@ const AIEngine = {
 
   async askManuscript(apiKey, question, manuscriptText, analysis = null) {
     const packet = this.buildGroundedContext(question, manuscriptText, analysis);
+    if (!packet || !packet.chapters.length) return {
+      answer: 'I could not find supporting passages for that question. Try naming a character, event, or phrase from your manuscript.',
+      evidence: [], confidence: 'low', insufficientEvidence: true
+    };
     const context = this._serializeContextPacket(packet);
     return this._callClaude(apiKey,
       "You are AuthorScrolls Writer's Room. Answer the author's question using only the supplied manuscript context. Distinguish manuscript evidence from interpretation. If the retrieved evidence is insufficient, say so instead of inventing details.",
-      'AUTHOR QUESTION:\\n' + question + '\\n\\nReturn JSON: {"answer":"...","evidence":[{"chapterId":"...","quote":"short supporting excerpt"}],"confidence":"high|medium|low","insufficientEvidence":false}',
+      'AUTHOR QUESTION:\n' + question + '\n\nReturn JSON: {"answer":"...","evidence":[{"chapterId":"...","quote":"short supporting excerpt"}],"confidence":"high|medium|low","insufficientEvidence":false}',
       '', 'writersRoom:' + this._shortHash(question + context), {
         contextOverride: 'RETRIEVED BOOK CONTEXT:\n' + context
       }
@@ -127,8 +123,16 @@ const AIEngine = {
   },
 
   async _callClaude(apiKey, systemPrompt, userPrompt, manuscriptText, feature, options = {}) {
+    const wholeBookFeatures=new Set(['deepCritique','compTitles','queryLetter','betaReaders','marketReadiness','chapterBreakdown','editingRoadmap','readerSimulation']);
+    if(wholeBookFeatures.has(feature)&&manuscriptText&&!options.contextOverride){
+      const packet=this.buildGroundedContext('Whole manuscript structure themes arguments evidence progression ending '+feature,manuscriptText,options.analysis||null);
+      if(!packet)throw new Error('Book context is unavailable. Reopen the manuscript before running whole-book advice.');
+      options={...options,contextOverride:'GROUNDED WHOLE-BOOK CONTEXT (sampled, not exhaustive):\n'+this._serializeContextPacket(packet)};
+      systemPrompt+=' Preserve the author’s voice. Distinguish evidence from interpretation. Coverage is sampled: disclose gaps and never claim every word or chapter was reviewed. For nonfiction focus on claims, evidence and reader application rather than fictional plot requirements.';
+    }
     // Check cache first
-    const cached = this._getCached(manuscriptText, feature);
+    const cacheInput = manuscriptText + JSON.stringify([systemPrompt,userPrompt,options.contextOverride||'']);
+    const cached = this._getCached(cacheInput, feature);
     if (cached) return cached;
 
     // In production: calls your server proxy (no API key in browser)
@@ -171,6 +175,13 @@ const AIEngine = {
       ]
     });
 
+    // AI analysis runs once per 24 hours (server-enforced). When the server has told this browser
+    // the next run time, say so without spending a request; cached results above still show.
+    if (AIEngine.ANALYSIS_FEATURES.has(headers['x-feature'])) {
+      const next = AIEngine.nextAnalysisRun();
+      if (next) throw new Error(AIEngine.cooldownMessage(next));
+    }
+
     let response = await fetch(endpoint, { method: 'POST', headers, body: bodyPayload });
 
     if (response.status === 401) {
@@ -186,6 +197,10 @@ const AIEngine = {
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       console.error('[AI API error]', response.status, err, 'User:', currentUser?.email || 'none', 'Had token:', !!headers['authorization']);
+      if (err.error?.code === 'ANALYSIS_COOLDOWN' && Number.isFinite(Number(err.error.nextAt))) {
+        try { localStorage.setItem('ml_ai_next_run', String(Number(err.error.nextAt))); } catch (_) {}
+        throw new Error(AIEngine.cooldownMessage(Number(err.error.nextAt)));
+      }
       if (err.error?.code === 'UNAUTHENTICATED') {
         const reason = err.error?.reason || 'unknown';
         const diag = err.error?.diagnostic || '';
@@ -216,7 +231,7 @@ const AIEngine = {
       cache_creation: result.usage?.cache_creation_input_tokens || 0
     };
 
-    this._setCache(manuscriptText, feature, parsed);
+    this._setCache(cacheInput, feature, parsed);
     return parsed;
   },
 
@@ -225,143 +240,7 @@ const AIEngine = {
   // Produces a compact, structured summary of analyzer findings to ground AI prompts.
   // Appended to user messages — not system blocks — so prompt caching stays intact.
   // ========================
-  // ========================
-  // AI → SCORE BLENDING
-  // After runAllFeatures completes, extract numeric signals from each AI result and
-  // blend them into the corresponding dimension scores. The regex analyzer measures
-  // mechanical signals; the AI measures semantic quality. Both inform the final score.
-  //
-  // Blend formula: new = round(existing * (1 - weight) + aiSignal * weight)
-  // Weights are intentionally conservative (0.25–0.45) — the analyzer is objective
-  // and deterministic; the AI is interpretive. We give AI more weight on dimensions
-  // the regex analyzer can't measure well (engagement, momentum, voice).
-  // ========================
-  _applyAIDerivedScores(r, ai) {
-    if (!r || !ai) return false;
-    const isNF = typeof Analyzer !== 'undefined' && Analyzer.isNonfiction(r.genre);
-    const isSH = r.genre?.primary === 'selfHelp';
-    let changed = false;
-
-    function blend(existing, aiSignal, weight) {
-      if (aiSignal == null || isNaN(aiSignal)) return existing;
-      const clamped = Math.max(0, Math.min(100, aiSignal));
-      return Math.round(existing * (1 - weight) + clamped * weight);
-    }
-    function fromTen(v) { return v != null ? Math.round((v / 10) * 100) : null; }
-    function fromFive(v) { return v != null ? Math.round(((v - 1) / 4) * 100) : null; }
-    function gradeToScore(g) { return {A:95,B:80,C:65,D:50,F:30}[String(g).toUpperCase()] ?? null; }
-
-    const dc = ai.deepCritique;
-    const oa = ai.openingAnalysis;
-    const br = ai.betaReaders;
-    const rs = ai.readerSimulation;
-    const cb = ai.chapterBreakdown;
-    const mr = ai.marketReadiness;
-
-    // ── HOOK STRENGTH ──────────────────────────────────────────────────────────
-    // openingAnalysis.hookStrength (1-10) is the AI's direct read of the first page.
-    // Reader simulation opening section gives a second signal.
-    if (oa && !oa.error) {
-      const hookAI = fromTen(oa.hookStrength);
-      if (hookAI != null && r.readerPerspective) {
-        r.readerPerspective.hookStrength = blend(r.readerPerspective.hookStrength || 0, hookAI, 0.45);
-        changed = true;
-      }
-    }
-    const openSec = rs?.sections?.find(s => /open/i.test(s.label)) || rs?.sections?.[0];
-    if (openSec?.engagement != null && r.readerPerspective) {
-      r.readerPerspective.hookStrength = blend(r.readerPerspective.hookStrength || 0, fromTen(openSec.engagement), 0.20);
-      changed = true;
-    }
-
-    // ── READER ENGAGEMENT ─────────────────────────────────────────────────────
-    // Beta readers give a crowd-sourced engagement signal; reader simulation gives
-    // an overall impression. Both feed readerPerspective.engagementScore.
-    if (br && !br.error && br.consensusRating != null) {
-      const engAI = fromFive(br.consensusRating);
-      if (engAI != null && r.readerPerspective) {
-        r.readerPerspective.engagementScore = blend(r.readerPerspective.engagementScore || 0, engAI, 0.40);
-        changed = true;
-      }
-    }
-    if (rs && !rs.error && rs.overall_engagement != null) {
-      const simEng = fromTen(rs.overall_engagement);
-      if (simEng != null) {
-        if (r.readerPerspective) {
-          r.readerPerspective.engagementScore = blend(r.readerPerspective.engagementScore || 0, simEng, 0.25);
-          changed = true;
-        }
-        // Reader simulation overall engagement also informs pacing (transitions proxy)
-        if (r.scores) {
-          r.scores.transitions = blend(r.scores.transitions || 0, simEng, 0.30);
-          changed = true;
-        }
-      }
-    }
-
-    // ── PACING / PLOT ─────────────────────────────────────────────────────────
-    // Chapter pacing grades map A→95, B→80, C→65, D→50, F→30. Average them.
-    if (cb && !cb.error && Array.isArray(cb.chapters) && cb.chapters.length > 0) {
-      const grades = cb.chapters.map(ch => gradeToScore(ch.pacingGrade)).filter(g => g != null);
-      if (grades.length > 0) {
-        const avgGrade = Math.round(grades.reduce((a, b) => a + b, 0) / grades.length);
-        if (r.scores) {
-          r.scores.plot = blend(r.scores.plot || 0, avgGrade, 0.30);
-          changed = true;
-        }
-      }
-    }
-
-    // ── DEEP CRITIQUE DIMENSION SCORES ────────────────────────────────────────
-    if (dc && !dc.error && dc.dimensionScores) {
-      const ds = dc.dimensionScores;
-      if (isSH && r.selfHelpScores) {
-        const sh = r.selfHelpScores;
-        if (ds.insightQuality != null)       { sh.insightQuality       = blend(sh.insightQuality       || 0, ds.insightQuality, 0.40);       changed = true; }
-        if (ds.voiceAuthority != null)        { sh.voiceAuthority        = blend(sh.voiceAuthority        || 0, ds.voiceAuthority, 0.40);        changed = true; }
-        if (ds.evidenceSupport != null)       { sh.evidenceSupport       = blend(sh.evidenceSupport       || 0, ds.evidenceSupport, 0.40);       changed = true; }
-        if (ds.practicalApplication != null)  { sh.practicalApplication  = blend(sh.practicalApplication  || 0, ds.practicalApplication, 0.40);  changed = true; }
-        if (ds.readerMomentum != null)        { sh.emotionalMomentum     = blend(sh.emotionalMomentum     || 0, ds.readerMomentum, 0.35);        changed = true; }
-      } else if (isNF && r.scores) {
-        if (ds.argumentStructure != null) { r.scores.plot  = blend(r.scores.plot  || 0, ds.argumentStructure, 0.35); changed = true; }
-        if (ds.voiceAuthority != null)    { r.scores.style = blend(r.scores.style || 0, ds.voiceAuthority,    0.35); changed = true; }
-      } else if (r.scores) {
-        if (ds.plot != null)     { r.scores.plot      = blend(r.scores.plot      || 0, ds.plot,     0.35); changed = true; }
-        if (ds.style != null)    { r.scores.style     = blend(r.scores.style     || 0, ds.style,    0.35); changed = true; }
-        if (ds.pacing != null)   { r.scores.transitions = blend(r.scores.transitions || 0, ds.pacing, 0.30); changed = true; }
-        if (ds.showTell != null && !isNF) { r.scores.showTell = blend(r.scores.showTell || 0, ds.showTell, 0.35); changed = true; }
-        if (ds.dialogue != null && r.scores.dialogue != null) { r.scores.dialogue = blend(r.scores.dialogue, ds.dialogue, 0.35); changed = true; }
-      }
-    }
-
-    // ── SELF-HELP: extra signals ──────────────────────────────────────────────
-    if (isSH && r.selfHelpScores) {
-      const sh = r.selfHelpScores;
-      // Beta readers → emotional momentum + reader identification
-      if (br && !br.error && br.consensusRating != null) {
-        const engAI = fromFive(br.consensusRating);
-        if (engAI != null) {
-          sh.emotionalMomentum    = blend(sh.emotionalMomentum    || 0, engAI, 0.40); changed = true;
-          sh.readerIdentification = blend(sh.readerIdentification || 0, engAI, 0.30); changed = true;
-        }
-      }
-      // Opening hook → readerIdentification
-      if (oa && !oa.error && oa.hookStrength != null) {
-        sh.readerIdentification = blend(sh.readerIdentification || 0, fromTen(oa.hookStrength), 0.35); changed = true;
-      }
-      // Market readiness → evidence support (authority proxy)
-      if (mr && !mr.error && mr.readinessScore != null) {
-        sh.evidenceSupport = blend(sh.evidenceSupport || 0, mr.readinessScore, 0.25); changed = true;
-      }
-      // Reader simulation → emotional momentum
-      if (rs && !rs.error && rs.overall_engagement != null) {
-        sh.emotionalMomentum = blend(sh.emotionalMomentum || 0, fromTen(rs.overall_engagement), 0.25); changed = true;
-      }
-    }
-
-    return changed;
-  },
-
+  // Scores are deterministic indicators. AI may interpret them, never blend them.
   _buildAnalysisContext(analysis) {
     if (!analysis) return '';
     const s = analysis.scores || {};
@@ -428,7 +307,14 @@ const AIEngine = {
       try {
         results[f.key] = await f.fn();
       } catch (err) {
-        results[f.key] = { error: err?.message || String(err) };
+        const msg = err?.message || String(err);
+        // Circuit breaker: auth failures and rate limits are batch-fatal — every
+        // remaining feature is guaranteed to fail the same way. Rethrow immediately
+        // instead of hammering the dead endpoint ten times in a row.
+        if (msg.startsWith('SERVER_AUTH_ERROR:') || msg.includes('limit reached') || msg.includes('RATE_LIMITED')) {
+          throw err;
+        }
+        results[f.key] = { error: msg };
       }
     }
     return results;
@@ -494,7 +380,7 @@ Return JSON:
   ],
   "priorityFix": "the single most impactful change, citing the specific pattern the analysis found",${dimensionScoresPrompt}
 }`,
-      text, 'deepCritique', this._wholeBookOptions('deepCritique', text, analysis));
+      text, 'deepCritique', {analysis});
   },
 
   // ========================
@@ -517,7 +403,7 @@ Return JSON:
   "targetAudience": "description of the ideal reader",
   "shelfPlacement": "where this would sit in a bookstore"
 }`,
-      text, 'compTitles', this._wholeBookOptions('compTitles', text, analysis));
+      text, 'compTitles', {analysis});
   },
 
   // ========================
@@ -537,7 +423,7 @@ Return JSON:
   "wordCountNote": "whether the word count is appropriate for this genre",
   "tips": ["tip for improving the query", "tip 2", "tip 3"]
 }`,
-      text, 'queryLetter', this._wholeBookOptions('queryLetter', text, analysis));
+      text, 'queryLetter', {analysis});
   },
 
   // ========================
@@ -570,7 +456,7 @@ Return JSON:
   "commonPraise": "What most readers agree is strong",
   "commonCriticism": "What most readers agree needs work — reference the analysis findings"
 }`,
-      text, 'betaReaders', this._wholeBookOptions('betaReaders', text, analysis));
+      text, 'betaReaders', {analysis});
   },
 
   // ========================
@@ -596,7 +482,7 @@ Return JSON:
   "estimatedRevisions": "how many more revision rounds needed based on current scores",
   "trendAlignment": "how this aligns with current genre trends"
 }`,
-      text, 'marketReadiness', this._wholeBookOptions('marketReadiness', text, analysis));
+      text, 'marketReadiness', {analysis});
   },
 
   // ========================
@@ -625,7 +511,7 @@ Return JSON:
   "recommendation": "structural recommendation"
 }
 If the text is a single chapter or doesn't have clear chapter breaks, treat major scene breaks as sections.`,
-      text, 'chapterBreakdown', this._wholeBookOptions('chapterBreakdown', text, analysis));
+      text, 'chapterBreakdown', {analysis});
   },
 
   // ========================
@@ -657,7 +543,7 @@ Return JSON:
   "overallOutlook": "honest 1-2 sentence assessment of revision scope, grounded in the overall score",
   "quickWin": "one small fix (named specifically) that would show immediate improvement in a single pass"
 }`,
-      text, 'editingRoadmap', this._wholeBookOptions('editingRoadmap', text, analysis));
+      text, 'editingRoadmap', {analysis});
   },
 
   // ========================
@@ -813,16 +699,14 @@ Return JSON:
   "what_loses_readers": "the most likely reason a reader stops — be specific",
   "recommendation": "one concrete change that would most improve the reading experience"
 }`,
-      text, 'readerSimulation');
+      text, 'readerSimulation', {analysis});
   },
 
   // ========================
   // VERSION TRACKING
   // ========================
   loadVersionHistory() {
-    try {
-      this._versionHistory = JSON.parse(localStorage.getItem('ml_versions') || '[]');
-    } catch (e) { this._versionHistory = []; }
+    if(!this._versionHistory)this._versionHistory=[];
     return this._versionHistory;
   },
 
@@ -845,7 +729,6 @@ Return JSON:
     this._versionHistory.push(version);
     // Keep last 20 versions
     if (this._versionHistory.length > 20) this._versionHistory = this._versionHistory.slice(-20);
-    localStorage.setItem('ml_versions', JSON.stringify(this._versionHistory));
     return version;
   },
 
@@ -859,33 +742,16 @@ Return JSON:
   },
 
   // ========================
-  // SMART SCAN — one-time Claude scan on upload (paid/admin only)
-  // Sends the first ~12K words to Claude, gets back real per-issue suggestions.
-  // Results cached in Firestore so it's only called once per manuscript.
+  // SMART SCAN — explicit, advisory per-issue review.
+  // Only the shared text/context-keyed in-memory cache is used.
   // ========================
-  async smartScan(apiKey, text, issues) {
-    // Check Firestore cache first
-    const manuscriptId = Storage._currentManuscriptId;
-    if (manuscriptId && Storage.userId) {
-      try {
-        const doc = await firebase.firestore()
-          .collection('users').doc(Storage.userId)
-          .collection('manuscripts').doc(manuscriptId)
-          .collection('aiScans').doc('smartScan').get();
-        if (doc.exists) {
-          const data = doc.data();
-          if (data.suggestions && Date.now() - (data.timestamp || 0) < 7 * 24 * 3600 * 1000) {
-            return data.suggestions; // Use cached scan (7 day TTL)
-          }
-        }
-      } catch (e) { console.warn('SmartScan cache read failed:', e.message); }
-    }
-
+  async smartScan(apiKey, text, issues, analysis=null) {
     // Build a compact issue list for Claude to review
     const issueSlice = issues.slice(0, 40).map(i => ({
       type: i.type,
       text: i.text.substring(0, 80),
-      index: i.index
+      index: i.index,
+      context: text.slice(Math.max(0,i.index-200),i.index+Math.min(i.length||i.text.length,500)+200)
     }));
 
     const result = await this._callClaude(apiKey,
@@ -902,14 +768,11 @@ Return JSON array:
 ]
 
 Rules:
-- For repetitions: suggest a specific synonym that fits the sentence context
-- For passive voice: rewrite in active voice
-- For adverbs: suggest a stronger verb that eliminates the need for the adverb
-- For weak verbs: suggest a more vivid/precise verb
-- For cliches: suggest an original alternative
-- For show-don't-tell: rewrite to show through action/sensory detail
+- Treat each flag as a candidate, not a proven error. Omit intentional or genre-appropriate choices.
+- Preserve deliberate repetition, plain diction, passive voice and explanatory nonfiction when they serve the author's meaning.
+- Suggest an alternative only when the supplied context supports an improvement.
 - Keep replacements concise — prefer single words when replacing single words`,
-      text, 'smartScan'
+      text, 'smartScan', {contextOverride:JSON.stringify({genre:analysis?.genre||null,issues:issueSlice})}
     );
 
     // Parse and normalize results
@@ -922,18 +785,7 @@ Rules:
       try { suggestions = JSON.parse(result.raw); } catch (e) {}
     }
 
-    // Cache to Firestore
-    if (manuscriptId && Storage.userId && suggestions.length > 0) {
-      try {
-        await firebase.firestore()
-          .collection('users').doc(Storage.userId)
-          .collection('manuscripts').doc(manuscriptId)
-          .collection('aiScans').doc('smartScan')
-          .set({ suggestions, timestamp: Date.now(), issueCount: issues.length });
-      } catch (e) { console.warn('SmartScan cache write failed:', e.message); }
-    }
-
-    return suggestions;
+    return Array.isArray(suggestions)?suggestions.filter(s=>s&&Number.isInteger(s.index)&&typeof s.replacement==='string'):[];
   },
 
   // ========================
@@ -1107,12 +959,7 @@ Rules:
   },
 
   getCachedFixes(text) {
-    const cacheKey = 'fixes:' + this._shortHash(text) + ':v1';
-    try {
-      const cached = JSON.parse(localStorage.getItem(cacheKey));
-      if (cached && Date.now() - cached.created_at < 24 * 3600 * 1000) return cached;
-    } catch (e) {}
-    return null;
+    return this._getCached(text,'fixes');
   },
 
   async batchFixSuggestions(text, issues, fingerprint) {
@@ -1221,9 +1068,7 @@ Rules:
       suggestions
     };
 
-    try {
-      localStorage.setItem('fixes:' + this._shortHash(text) + ':v1', JSON.stringify(cacheObj));
-    } catch (e) {}
+    this._setCache(text,'fixes',cacheObj);
 
     return cacheObj;
   }

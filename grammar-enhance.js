@@ -1,5 +1,5 @@
 // LanguageTool Grammar Enhancement
-// Calls LanguageTool API through the authenticated AuthorScrolls server proxy to supplement
+// Calls LanguageTool only through the authenticated server proxy to supplement
 // the local regex grammar checker with 2000+ linguistic rules: comma splices,
 // run-ons, dangling modifiers, pronoun agreement, parallel structure, etc.
 //
@@ -35,7 +35,7 @@ const GrammarEnhance = {
       return issues;
     } catch (e) {
       console.warn('[GrammarEnhance] LanguageTool unavailable:', e.message);
-      return [];
+      throw e;
     }
   },
 
@@ -66,12 +66,11 @@ const GrammarEnhance = {
   },
 
   async _callProxy(text) {
-    const user = typeof firebase !== 'undefined' ? firebase.auth().currentUser : null;
-    if (!user) throw new Error('Sign in required for enhanced grammar');
-    const token = await user.getIdToken();
+    const user=typeof firebase!=='undefined'?firebase.auth().currentUser:null;
+    if(!user)throw new Error('Sign in before running grammar checks');
     const response = await fetch(this.PROXY_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      headers: { 'Content-Type': 'application/json',Authorization:'Bearer '+await user.getIdToken() },
       body: JSON.stringify({ text: text, language: 'en-US' })
     });
     if (!response.ok) throw new Error('Grammar service returned ' + response.status);

@@ -3,59 +3,30 @@
 // Rate limited per user per day
 const https = require('https');
 const { verifyToken, getAdmin } = require('./_auth');
-const { checkAndIncrement, getCount } = require('./_ratelimit');
+const { checkAndIncrement, analysisRun, openAnalysisRun } = require('./_ratelimit');
 
 const LIMITS = { dev: 9999, beta: 50, premium: 75, starter: 25, free: 0 };
+// Whole-manuscript AI analysis runs once per 24 hours (see _ratelimit.analysisRun). Ask Book,
+// rewrites and fixes are per-request features and stay on the daily count above.
+const ANALYSIS_FEATURES = new Set(['deepcritique','chapterbreakdown','openinganalysis','weaknessanalysis','comptitles','queryletter','betareaders','marketreadiness','editingroadmap','readersimulation','smartscan','calibrateissues']);
 
-// Developer admin UIDs (your Firebase UID — unlimited access)
-const DEV_UIDS = new Set([
-  // Add your Firebase UID here after first sign-in
-]);
-
-// Admin emails — always dev tier, no rate limiting
-const ADMIN_EMAILS = new Set(['admin@authorscrolls.com']);
-
-// Brief in-memory tier cache to avoid hitting Firestore on every request
-const tierCache = new Map();
-const TIER_CACHE_TTL = 60000; // 1 minute
-
-async function getUserTier(userId, email) {
-  if (DEV_UIDS.has(userId)) return 'dev';
-  if (email && ADMIN_EMAILS.has(email.toLowerCase())) return 'dev';
-
-  const cached = tierCache.get(userId);
-
+async function getUserTier(userId) {
   const fb = getAdmin();
   if (fb) {
     try {
-      // Always read if no cache, or cache has expired.
-      // Also re-read if the Firestore tierUpdatedAt is newer than our cached snapshot —
-      // this ensures a downgrade (subscription cancelled) takes effect immediately rather
-      // than persisting for up to TIER_CACHE_TTL across all running instances.
-      let needsRead = !cached || Date.now() - cached.ts >= TIER_CACHE_TTL;
-      if (!needsRead && cached) {
-        const doc = await fb.firestore().collection('users').doc(userId).get();
-        if (doc.exists) {
-          const updatedAt = doc.data().tierUpdatedAt;
-          const updatedMs = updatedAt ? updatedAt.toMillis() : 0;
-          if (updatedMs > cached.ts) {
-            const tier = doc.data().tier || 'free';
-            tierCache.set(userId, { tier, ts: Date.now() });
-            return tier;
-          }
-        }
-        return cached.tier;
-      }
-      if (needsRead) {
-        const doc = await fb.firestore().collection('users').doc(userId).get();
-        const tier = doc.exists ? (doc.data().tier || 'free') : 'free';
-        tierCache.set(userId, { tier, ts: Date.now() });
-        return tier;
-      }
-      return cached.tier;
-    } catch (e) { /* Firestore unavailable — fall through to cached or free */ }
+      // Admin reads bypass Rules. Check the same deletion boundary explicitly,
+      // including privileged accounts, and never reuse stale authorization.
+      const db = fb.firestore();
+      const [profile, deletion] = await db.getAll(
+        db.collection('users').doc(userId),
+        db.collection('accountDeletions').doc(userId)
+      );
+      if (deletion.exists) return 'free';
+      if ((process.env.ADMIN_UIDS||'').split(',').map(s=>s.trim()).includes(userId)) return 'dev';
+      const tier = profile.exists ? profile.data().tier : 'free';
+      return typeof tier === 'string' && Object.hasOwn(LIMITS,tier) ? tier : 'free';
+    } catch (_) { return null; } // Unavailable authority is not a cached grant.
   }
-  if (cached) return cached.tier;
   return 'free';
 }
 
@@ -104,10 +75,13 @@ module.exports = async (req, res) => {
 
   const decoded = auth.user;
   const userId = decoded.uid;
-  const userEmail = (decoded.email || '').toLowerCase();
   const today = new Date().toISOString().split('T')[0];
 
-  const userTier = await getUserTier(userId, userEmail);
+  const userTier = await getUserTier(userId);
+  if (userTier === null) {
+    res.status(503).json({error:{message:'Access verification unavailable. Please try again.',code:'ACCESS_UNAVAILABLE'}});
+    return;
+  }
   const limit = LIMITS[userTier] || LIMITS.free;
 
   // The server owns model authorization. Client routing is only a request hint.
@@ -151,12 +125,28 @@ module.exports = async (req, res) => {
   res.setHeader('X-AuthorScrolls-Feature', requestedFeature);
 
   // Count only authenticated, authorized, structurally valid requests.
-  let used;
-  try { used = await checkAndIncrement(userId, today); }
-  catch (e) {
-    console.error('AI rate limiter unavailable:', e.message);
-    res.status(503).json({ error: { message: 'AI service temporarily unavailable', code: 'RATE_LIMIT_UNAVAILABLE' } }); return;
+  const needsClaude=requestedModel==='claude'||requestedModel==='claude-premium';
+  if(!(needsClaude?process.env.CLAUDE_API_KEY:process.env.OPENAI_API_KEY))return res.status(503).json({error:{message:'Requested provider is unavailable'}});
+  // One AI analysis run per 24 hours. Checked before the daily count so a blocked run is
+  // not charged against it; the dev tier is exempt so the feature can be exercised.
+  const isAnalysis = ANALYSIS_FEATURES.has(requestedFeature) && userTier !== 'dev';
+  let run = null;
+  if (isAnalysis) {
+    try { run = await analysisRun(userId, Date.now()); }
+    catch (_) { return res.status(503).json({ error: { message: 'Usage verification unavailable. Please try again.' } }); }
+    if (!run.allowed) {
+      res.setHeader('Retry-After', String(Math.max(1, Math.ceil((run.nextAt - Date.now()) / 1000))));
+      res.status(429).json({
+        error: {
+          message: 'AI analysis runs once every 24 hours. The next run is available at ' + new Date(run.nextAt).toISOString() + '.',
+          code: 'ANALYSIS_COOLDOWN', startedAt: run.startedAt, nextAt: run.nextAt
+        }
+      }); return;
+    }
   }
+  let used;
+  try{used=await checkAndIncrement(userId,today);}
+  catch(_){return res.status(503).json({error:{message:'Usage verification unavailable. Please try again.'}});}
   if (used > limit) {
     res.status(429).json({
       error: {
@@ -166,19 +156,21 @@ module.exports = async (req, res) => {
     }); return;
   }
 
-  if (requestedModel === 'claude' || requestedModel === 'claude-premium') {
-    return callClaude(sanitized, res);
-  } else {
-    return callOpenAI(sanitized, requestedModel, res);
+  const status = (requestedModel === 'claude' || requestedModel === 'claude-premium')
+    ? await callClaude(sanitized, res)
+    : await callOpenAI(sanitized, requestedModel, res);
+  // The run opens on the first successful analysis response, never on a failed one.
+  if (isAnalysis && run && run.startedAt == null && status >= 200 && status < 300) {
+    try { await openAnalysisRun(userId, Date.now()); } catch (_) { /* the response has been sent; nothing to add */ }
   }
 };
 
 function callClaude(body, res) {
   const apiKey = process.env.CLAUDE_API_KEY;
-  if (!apiKey) { res.status(500).json({ error: { message: 'Claude API key not configured' } }); return Promise.resolve(); }
+  if (!apiKey) { res.status(500).json({ error: { message: 'Claude API key not configured' } }); return Promise.resolve(500); }
 
   const payload = JSON.stringify({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-5-5',
     max_tokens: body.max_tokens,
     system: body.system,
     messages: body.messages
@@ -198,13 +190,14 @@ function callClaude(body, res) {
       let data = '';
       proxyRes.on('data', chunk => data += chunk);
       proxyRes.on('end', () => {
+        let status = proxyRes.statusCode;
         try { res.status(proxyRes.statusCode).json(JSON.parse(data)); }
-        catch (e) { res.status(500).json({ error: { message: 'Invalid response from Claude' } }); }
-        resolve();
+        catch (e) { status = 500; res.status(500).json({ error: { message: 'Invalid response from Claude' } }); }
+        resolve(status);
       });
     });
-    proxyReq.setTimeout(45000, () => proxyReq.destroy(new Error('AI provider timeout')));
-    proxyReq.on('error', err => { res.status(502).json({ error: { message: 'AI provider unavailable', code: 'PROVIDER_ERROR' } }); resolve(); });
+    proxyReq.setTimeout(45000,()=>proxyReq.destroy(new Error('AI provider timeout')));
+    proxyReq.on('error', err => { res.status(502).json({ error: { message: 'AI provider unavailable', code: 'PROVIDER_ERROR' } }); resolve(502); });
     proxyReq.write(payload); proxyReq.end();
   });
 }
@@ -212,17 +205,18 @@ function callClaude(body, res) {
 function callOpenAI(body, model, res) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    res.status(503).json({ error: { message: 'Requested AI provider is unavailable', code: 'PROVIDER_UNAVAILABLE' } });
-    return Promise.resolve();
+    res.status(503).json({error:{message:'Requested AI provider is unavailable',code:'PROVIDER_UNAVAILABLE'}});
+    return Promise.resolve(503);
   }
 
-  // Map our model names to OpenAI models
+  // Map our model names to OpenAI models (gpt-6-luna: OpenAI's named
+  // replacement for the retired 4.1 family; nano shuts down 2026-10-23)
   const modelMap = {
-    'openai-fast': 'gpt-4.1-mini',
-    'openai-nano': 'gpt-4.1-nano',
-    'openai-premium': 'gpt-4.1'
+    'openai-fast': 'gpt-6-luna',
+    'openai-nano': 'gpt-6-luna',
+    'openai-premium': 'gpt-6-luna'
   };
-  const openaiModel = modelMap[model] || 'gpt-4.1-mini';
+  const openaiModel = modelMap[model] || 'gpt-6-luna';
 
   // Convert from Claude format to OpenAI format
   const messages = [];
@@ -255,6 +249,7 @@ function callOpenAI(body, model, res) {
       let data = '';
       proxyRes.on('data', chunk => data += chunk);
       proxyRes.on('end', () => {
+        let status = proxyRes.statusCode;
         try {
           const parsed = JSON.parse(data);
           if (parsed.error) {
@@ -271,17 +266,12 @@ function callOpenAI(body, model, res) {
               _provider: 'openai', _model: openaiModel
             });
           }
-        } catch (e) { res.status(500).json({ error: { message: 'Invalid response from OpenAI' } }); }
-        resolve();
+        } catch (e) { status = 500; res.status(500).json({ error: { message: 'Invalid response from OpenAI' } }); }
+        resolve(status);
       });
     });
-    proxyReq.setTimeout(45000, () => proxyReq.destroy(new Error('AI provider timeout')));
-    proxyReq.on('error', err => { res.status(502).json({ error: { message: 'AI provider unavailable', code: 'PROVIDER_ERROR' } }); resolve(); });
+    proxyReq.setTimeout(45000,()=>proxyReq.destroy(new Error('AI provider timeout')));
+    proxyReq.on('error', err => { res.status(502).json({ error: { message: 'AI provider unavailable', code: 'PROVIDER_ERROR' } }); resolve(502); });
     proxyReq.write(payload); proxyReq.end();
   });
-}
-
-function convertToClaude(body) {
-  // Body is already in Claude format, just return it
-  return body;
 }

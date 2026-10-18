@@ -2,7 +2,8 @@
 // Converts manuscript text into stable structural units without changing source text.
 const ManuscriptParser = (() => {
   const CHAPTER_RE = /^\s*(chapter|chap\.?|ch\.?)\s+(\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)(?:\s*[:.\-–—]\s*.*)?\s*$/i;
-  const FRONT_RE = /^\s*(prologue|epilogue|introduction|preface|afterword)\s*$/i;
+  const FRONT_RE = /^\s*(prologue|epilogue|introduction|preface|afterword|acknowledg(?:e)?ments|dedication|contents|table of contents|copyright)\s*$/i;
+  const REVIEW_RE = /^(?:(?:part|book)\s+(?:\d+|[ivxlcdm]+)\s*[:.\-–—]\s*)?(?:(?:mid[- ]?(?:chapter|book)|chapter)\s+review|review of chapters\b.*|bonus toolkit\b.*|chapter-by-chapter reflection\b.*)$/i;
   const PART_RE = /^\s*(part|book)\s+(\d+|[ivxlcdm]+)(?:\s*[:.\-–—]\s*.*)?\s*$/i;
   const WORD_NUMBERS = {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20};
 
@@ -18,12 +19,52 @@ const ManuscriptParser = (() => {
     return { id:'chapter-'+String(index+1).padStart(3,'0'), index, number:index+1, title:heading||(index===0?'Opening':'Chapter '+(index+1)), heading:heading||null, kind, start, end, wordCount:countWords(body), text:raw, body };
   }
 
+  // Word documents very often style chapters as Heading 1 with a title that never says
+  // "Chapter" ("Awareness", "The Long Road Home"). Style information is lost when the file is
+  // flattened to text, so recover it structurally: a chapter opener is a short standalone
+  // line that reads like a title and is followed by a substantial block of prose.
+  const TITLE_STOP = /^(and|but|or|so|then|the|a|an|of|in|on|at|to|for|with|as|if|that|this|it|he|she|they)\b/i;
+  function looksLikeTitleLine(line){
+    const value=String(line||'').trim();
+    if(!value || value.length>80) return false;
+    if(/[.,;!?]$/.test(value)) return false;              // sentences and list items are not titles
+    if(/^[“"'‘]/.test(value)) return false;                // dialogue
+    if(!/[A-Za-z]/.test(value)) return false;              // scene-break glyphs
+    const words=value.split(/\s+/);
+    if(words.length>12) return false;
+    if(!/^[A-Z0-9]/.test(value)) return false;
+    if(words.length===1 && TITLE_STOP.test(value)) return false;
+    // Title case, ALL CAPS, or "Something: Subtitle" all qualify; a normal sentence
+    // fragment starting with a function word does not.
+    const capitalised=words.filter(w=>/^[A-Z0-9]/.test(w)).length;
+    return value===value.toUpperCase() || /[:—–-]/.test(value) || capitalised/words.length>=0.5;
+  }
+  function scanTitleHeadings(source){
+    const lines=source.split('\n');
+    const found=[]; let offset=0;
+    for(let i=0;i<lines.length;i++){
+      const value=lines[i].trim();
+      const previousBlank = i===0 || !lines[i-1].trim();
+      const nextBlank = i+1>=lines.length || !lines[i+1].trim();
+      if(value && previousBlank && nextBlank && looksLikeTitleLine(value) && !headingKind(value)){
+        found.push({title:value,start:offset,kind:'chapter'});
+      }
+      offset+=lines[i].length+1;
+    }
+    // Each candidate must introduce real prose, which removes tables of contents and
+    // front-matter label stacks (runs of short lines with nothing substantial between them).
+    return found.filter((heading,index)=>{
+      const end = index+1<found.length ? found[index+1].start : source.length;
+      return countWords(source.slice(heading.start+heading.title.length,end)) >= 40;
+    });
+  }
+
   function scanHeadings(source){
     const headings=[]; let offset=0, maxMainChapter=0, nested=null;
     const lines=source.split('\n');
     for(const line of lines){
       const value=line.trim(), kind=value.length<=120?headingKind(value):null, num=kind==='chapter'?headingNumber(value):null;
-      if (/^(bonus toolkit|chapter-by-chapter reflection|(?:part\\s+\\d+\\s*:\\s*)?mid[- ]?chapter review|mid[- ]?book review|review of chapters)/i.test(value) && maxMainChapter>0) nested={max:maxMainChapter,seenMax:false,reason:/toolkit/i.test(value)?'toolkit':'review'};
+      if (REVIEW_RE.test(value) && maxMainChapter>0) nested={max:maxMainChapter,seenMax:false,reason:/toolkit/i.test(value)?'toolkit':'review'};
 
       if(kind){
         if(kind==='review' && maxMainChapter>0){nested={max:maxMainChapter,seenMax:false,reason:'review'};headings.push({title:value,start:offset,kind:'review'});}
@@ -55,7 +96,17 @@ const ManuscriptParser = (() => {
   function parse(text) {
     const source=normalizeNewlines(text);
     if(!source.trim())return{version:3,textLength:0,wordCount:0,chapterCount:0,unitCount:0,chapterNumbers:[],chapters:[],warnings:['EMPTY_MANUSCRIPT']};
-    const headings=scanHeadings(source), chapters=[];
+    let headings=scanHeadings(source);
+    // Explicit "Chapter N" structure always wins. Only when the manuscript has none do we
+    // fall back to title-line detection, and only when it yields a consistent scheme.
+    if(headings.filter(h=>h.kind==='chapter').length<2){
+      const titles=scanTitleHeadings(source);
+      if(titles.length>=3){
+        const merged=[...headings.filter(h=>!titles.some(t=>Math.abs(t.start-h.start)<2)),...titles];
+        headings=merged.sort((a,b)=>a.start-b.start);
+      }
+    }
+    const chapters=[];
     if(!headings.length)chapters.push(buildUnit(source,null,0,source.length,0,'opening'));
     else {
       const prefix=source.slice(0,headings[0].start);

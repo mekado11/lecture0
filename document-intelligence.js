@@ -3,7 +3,8 @@
 const DocumentIntelligence = (() => {
   const norm = s => String(s || '').replace(/\r\n?/g, '\n');
 
-  function classify(parsed) {
+  const NONFICTION = new Set(['memoir','selfHelp','biography','historyNF','trueCrime','philosophy','nonfiction']);
+  function classify(parsed, analysis = null) {
     const text = norm((parsed?.chapters || []).map(c => c.text || c.body || '').join('\n'));
     const lower = text.toLowerCase();
     const signals = {
@@ -18,11 +19,12 @@ const DocumentIntelligence = (() => {
       Math.min(signals.actions, 3) * .12 +
       Math.min(signals.recommendations, 3) * .08 +
       Math.min(signals.researchAttribution, 5) * .06 +
-      Math.min(signals.instructionalAddress, 8) * .025 +
-      Math.min(signals.chapterInstruction, 8) * .035
+      Math.min(signals.instructionalAddress, 8) * .025
     );
+    const selected = analysis?.genre?.primary;
+    if (selected) return {type:NONFICTION.has(selected)?'nonfiction':'fiction',confidence:1,source:'author_selected_genre',signals};
     const type = nonfictionScore >= .35 ? 'nonfiction' : 'fiction_or_unclassified';
-    return { type, confidence: type === 'nonfiction' ? Math.min(.95, .55 + nonfictionScore * .4) : Math.max(.2, 1 - nonfictionScore), signals };
+    return { type, confidence: type === 'nonfiction' ? Math.min(.95, .55 + nonfictionScore * .4) : Math.max(.2, 1 - nonfictionScore), source:'heuristic', signals };
   }
 
   function sentenceEvidence(text, chapterId, regex, kind, max = 20) {
@@ -58,7 +60,8 @@ const DocumentIntelligence = (() => {
       let value = line.replace(/^action\s*:\s*/i, '').trim();
       for (let j = i + 1; j < lines.length && value.length < 900; j++) {
         const next = lines[j].trim();
-        if (!next || /^(chapter\b|reflection questions?\s*:|recommendations?\s*$)/i.test(next)) break;
+        if (!next && !value) continue;
+        if (!next || /^(chapter\b|reflection questions?\s*:|recommendations?\s*:?\s*$)/i.test(next)) break;
         value += ' ' + next;
       }
       if (value) out.push({ chapterId, text: value.slice(0, 1000), evidence: line.slice(0, 500), source: 'explicit_action' });
@@ -69,11 +72,12 @@ const DocumentIntelligence = (() => {
   function extractRecommendations(text, chapterId) {
     const lines = norm(text).split('\n'), out = [];
     for (let i = 0; i < lines.length; i++) {
-      if (!/^recommendations?\s*$/i.test(lines[i].trim())) continue;
+      if (!/^recommendations?\s*:?\s*$/i.test(lines[i].trim())) continue;
       const body = [];
       for (let j = i + 1; j < lines.length && body.join(' ').length < 1800; j++) {
         const next = lines[j].trim();
-        if (!next || /^chapter\b/i.test(next)) break;
+        if (!next && !body.length) continue;
+        if (!next || /^(chapter\b|reflection questions?\s*:|action\s*:)/i.test(next)) break;
         body.push(next);
       }
       if (body.length) out.push({ chapterId, text: body.join(' ').slice(0, 1800), source: 'explicit_recommendations' });
@@ -117,8 +121,8 @@ const DocumentIntelligence = (() => {
     return { reflectionQuestions:reflectionQuestions.slice(0,200), actions:actions.slice(0,100), recommendations:recommendations.slice(0,50), claims:claims.slice(0,200), personalEvidence:personalEvidence.slice(0,200), concepts:uniqueConcepts.slice(0,100) };
   }
 
-  function enrich(parsed, intelligence) {
-    const documentType = classify(parsed);
+  function enrich(parsed, intelligence, analysis = null) {
+    const documentType = classify(parsed, analysis);
     return { ...intelligence, documentType, nonfiction: documentType.type === 'nonfiction' ? build(parsed) : null };
   }
 

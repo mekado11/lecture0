@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#127807;</text></svg>">
   <title>AuthorScrolls - Author's Best Buddy</title>
-  <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="styles-mobile.css">
+  <link rel="stylesheet" href="styles.css?v=12">
+  <link rel="stylesheet" href="styles-mobile.css?v=2">
+  <link rel="stylesheet" href="workspace-header.css?v=4">
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js" integrity="sha384-nFoSjZIoH3CCp8W639jJyQkuPHinJ2NHe7on1xvlUA7SuGfJAfvMldrsoAVm6ECz" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG" crossorigin="anonymous"></script>
+  <script src="assets/mammoth.browser.min.js"></script>
+  <script src="assets/jszip.min.js"></script>
 </head>
 <body>
 
@@ -123,7 +123,7 @@
     <!-- TOP BAR -->
     <header class="topbar">
       <div class="topbar-l"><a href="index.html" style="text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:.3rem" title="Go to homepage"><span class="leaf-sm">&#127807;</span><strong class="brand">AuthorScrolls</strong></a><span class="status-pill" id="top-status">Analyzing...</span></div>
-      <div class="topbar-c"><span id="top-filename">Untitled</span><select id="genre-override" class="genre-override" title="Change genre"><option value="">Auto-detect</option><optgroup label="Fiction"><option value="scifi">Sci-Fi</option><option value="fantasy">Fantasy</option><option value="romance">Romance</option><option value="thriller">Thriller</option><option value="mystery">Mystery</option><option value="horror">Horror</option><option value="historical">Historical</option><option value="dystopian">Dystopian</option><option value="ya">YA</option><option value="literary">Literary</option><option value="romantasy">Romantasy</option><option value="cozyMystery">Cozy Mystery</option><option value="adventure">Adventure</option><option value="western">Western</option></optgroup><optgroup label="Non-Fiction"><option value="memoir">Memoir</option><option value="selfHelp">Self-Help</option><option value="biography">Biography</option><option value="historyNF">History</option><option value="trueCrime">True Crime</option><option value="philosophy">Philosophy</option></optgroup></select></div>
+      <div class="topbar-c"><span id="top-filename">Untitled</span><select id="genre-override" class="genre-override" title="Change genre"><option value="">Auto-detect</option><optgroup label="Fiction"><option value="scifi">Sci-Fi</option><option value="fantasy">Fantasy</option><option value="romance">Romance</option><option value="thriller">Thriller</option><option value="mystery">Mystery</option><option value="horror">Horror</option><option value="historical">Historical</option><option value="dystopian">Dystopian</option><option value="ya">YA</option><option value="literary">Literary</option><option value="romantasy">Romantasy</option><option value="cozyMystery">Cozy Mystery</option><option value="adventure">Adventure</option><option value="western">Western</option></optgroup><optgroup label="Non-Fiction"><option value="memoir">Memoir</option><option value="selfHelp">Self-Help</option><option value="biography">Biography</option><option value="historyNF">History</option><option value="trueCrime">True Crime</option><option value="philosophy">Philosophy</option></optgroup></select><select id="mode-override" class="genre-override" title="How this text is read: whole-book judgments are made only for a full manuscript"><option value="">Detected</option><option value="excerpt">Excerpt / scene</option><option value="chapter">Chapter</option><option value="partial">Partial manuscript</option><option value="book">Full manuscript</option></select></div>
       <div class="topbar-r"><span class="live-score">LIVE SCORE: <b id="top-score">0</b> <span id="top-delta" class="delta"></span></span><span class="wc">Words: <b id="top-wc">0</b></span><button class="tb-btn" id="intel-open">&#10022; Intelligence</button><button class="tb-btn" id="export-btn">&#8681; Export</button><button class="tb-btn" id="new-btn">&#128218; Library</button><a href="faq.html" class="tb-btn" style="text-decoration:none;font-size:.72rem">? Help</a></div>
     </header>
 
@@ -138,9 +138,9 @@
           <div class="gauge-value"><span id="gauge-num">0</span><span class="gauge-lbl">Overall Score</span></div>
         </div>
         <div class="gauge-cats" id="gauge-cats">Plot &middot; Clarity &middot; Pacing &middot; Dialogue</div>
-        <div class="lp-cards" id="lp-cards"></div>
-        <!-- Scene Intelligence -->
+        <!-- The verdict: genre contract, prose mix, one "Start here" card (rendered by app.js) -->
         <div id="scene-intel" class="scene-intel"></div>
+        </div>
       </aside>
 
       <!-- CENTER: Manuscript -->
@@ -310,7 +310,7 @@
       <!-- RIGHT: AI Feedback -->
       <aside class="right-panel" id="right-panel">
         <div class="rp-head"><span class="rp-title">AuthorScrolls Intelligence</span><button class="rp-collapse" id="rp-collapse-btn" title="Collapse panel">&#9660;</button></div>
-        <div class="workspace-intel-launch"><span>What does your book know right now?</span><button id="workspace-intel-open">Open Intelligence</button></div><div id="workspace-context" class="workspace-context"><h4>Story context</h4><p>Select a chapter, character, or thread to see what the manuscript knows about it.</p></div><div class="rp-tabs"><button class="rtab active">Suggestions</button><button class="rtab">Rewrite</button><button class="rtab">Tone Shift</button><button class="rtab">Dial.</button></div>
+        <div id="workspace-context" class="workspace-context"><h4>Story context</h4><p>Select a chapter, character, or thread to see what the manuscript knows about it.</p></div><div class="rp-tabs"><button class="rtab active">Suggestions</button><button class="rtab">Rewrite</button><button class="rtab">Tone Shift</button><button class="rtab">Dial.</button><button class="rtab rtab-intel" id="workspace-intel-open" title="Ask your book what it knows right now">&#10022; Ask your book</button></div>
         <div class="rp-scores" id="rp-scores"></div>
         <div class="rp-detail" id="rp-detail"></div>
       </aside>
@@ -397,8 +397,12 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <!-- Workspace demo (app.html?demo=selfhelp|novel): swaps in an in-memory Firebase double before init.js runs; inert otherwise. -->
+  <script src="demo-firebase.js?v=2"></script>
+  <script src="demo-boot.js?v=1"></script>
   <script src="firebase-config.js"></script>
-  <script src="init.js"></script>
+  <script src="legacy-recovery.js"></script>
+  <script src="init.js?v=2"></script>
   <!-- COOKIE BANNER -->
   <div id="cookie-banner" class="cookie-banner hidden">
     <div class="cookie-inner">
@@ -436,32 +440,40 @@
     </div>
   </div>
 
-  <script src="analyzer.js?v=17"></script>
+  <script src="prose-context.js?v=1"></script>
+  <script src="prose-norms.js?v=4"></script>
+  <script src="analyzer.js?v=34"></script>
   <script src="grammar-enhance.js?v=17"></script>
   <script src="manuscript-parser.js?v=3"></script>
-  <script src="book-intelligence.js?v=2"></script>
-  <script src="document-intelligence.js?v=1"></script>
+  <script src="book-intelligence.js?v=5"></script>
   <script src="story-intelligence.js?v=2"></script>
   <script src="continuity-intelligence.js?v=2"></script>
-  <script src="timeline-intelligence.js?v=2"></script>
+  <script src="timeline-intelligence.js?v=3"></script>
   <script src="narrative-momentum.js?v=2"></script>
   <script src="relationship-intelligence.js?v=2"></script>
   <script src="character-ledger.js?v=2"></script>
-  <script src="manuscript-retrieval.js?v=3"></script>
-  <script src="ai-engine.js?v=19"></script>
-  <script src="fixer.js?v=17"></script>
+  <script src="document-intelligence.js"></script>
+  <script src="genre-expectations.js?v=3"></script>
+  <script src="chapter-metrics.js?v=1"></script>
+  <script src="intelligence-pipeline.js?v=2"></script>
+  <script src="manuscript-retrieval.js?v=2"></script>
+  <script src="ai-engine.js?v=22"></script>
+  <script src="fixer.js?v=18"></script>
   <!-- intelligence dependencies are loaded above AIEngine -->
+  <script data-intelligence-order="complete"></script>
   <script src="storage.js?v=20"></script>
-  <script src="app.js?v=17"></script>
-  <script src="mobile-panels.js?v=17"></script>
+  <script src="analysis-runner.js?v=2"></script>
+  <script src="app.js?v=37"></script>
+  <script src="workspace-header.js?v=3"></script>
+  <script src="mobile-panels.js?v=21"></script>
 
-  <aside id="intel-window" class="intel-window" aria-label="Book Intelligence">
-    <div class="intel-head"><div><span class="intel-kicker">BOOK INTELLIGENCE</span><h3>Your manuscript, understood.</h3></div><button id="intel-close" class="intel-close" aria-label="Close">&times;</button></div>
-    <p class="intel-sub">A living map of what your manuscript has established and what may need your attention.</p>
+  <aside id="intel-window" class="intel-window" aria-label="Book Intelligence" hidden>
+    <div class="intel-head"><div><span class="intel-kicker">BOOK INTELLIGENCE</span><h3>Your story, understood.</h3></div><button id="intel-close" class="intel-close" aria-label="Close">&times;</button></div>
+    <p class="intel-sub">A living map of what your manuscript has established, what it is setting up, and what may need your attention.</p>
     <div id="intel-body" class="intel-body"></div>
     <div class="intel-askbox"><label for="intel-question">Ask your book</label><div><input id="intel-question" placeholder="What has Mara promised Daniel?"><button id="intel-ask">Ask</button></div><div id="intel-answer"></div></div>
   </aside>
 
-  <script src="intelligence-window.js?v=3"></script>
+  <script src="intelligence-window.js?v=11"></script>
 </body>
 </html>

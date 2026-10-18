@@ -1,255 +1,242 @@
-// AuthorScrolls - Firestore Storage Engine
-// Saves manuscripts, analysis results, and user preferences to the cloud
-
+// Cloud persistence. Manuscript generations are immutable until the root pointer
+// is committed, so a failed multi-batch save never replaces the last readable draft.
 const Storage = {
-  db: null,
-  userId: null,
-  _authReady: null,
-
+  db:null, userId:null, _authReady:null, _currentManuscriptId:null,
+  _writes:new Map(), _revisions:new Map(), _autoSaveTimer:null,
   init() {
-    this.db = firebase.firestore();
-    this._authReady = new Promise(resolve => {
-      firebase.auth().onAuthStateChanged(user => {
-        this.userId = user ? user.uid : null;
-        resolve(user);
-      });
-    });
+    this.db=firebase.firestore();
+    this._authReady=new Promise(resolve=>firebase.auth().onAuthStateChanged(user=>{
+      if(this.userId!==user?.uid)this._revisions.clear();
+      this.userId=user?.uid||null;resolve(user);
+    }));
   },
-
-  // Wait for auth to be resolved before accessing Firestore
-  whenReady() {
-    if (!this._authReady && typeof firebase !== 'undefined') this.init();
-    return this._authReady || Promise.resolve(null);
+  whenReady() {if(!this._authReady&&typeof firebase!=='undefined')this.init();return this._authReady||Promise.resolve(null);},
+  _userDoc() {return this.db&&this.userId?this.db.collection('users').doc(this.userId):null;},
+  _parseManuscript(text) {return ManuscriptParser.parse(text);},
+  _buildBookIntelligence(parsed, analysis=null) {return IntelligencePipeline.enrich(parsed,analysis);},
+  _utf8Bytes(text) {return new TextEncoder().encode(String(text||'')).length;},
+  async _digest(text) {
+    if(!globalThis.crypto?.subtle)throw new Error('A secure connection is required to verify manuscript saves. Keep this tab open and export your draft.');
+    const bytes=new TextEncoder().encode(text);
+    const digest=await globalThis.crypto.subtle.digest('SHA-256',bytes);
+    return Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
   },
-
-  _userDoc() {
-    if (!this.db || !this.userId) return null;
-    return this.db.collection('users').doc(this.userId);
+  async _verifyIntegrity(data,label) {
+    if((data.schemaVersion==null||data.schemaVersion<4)&&data.contentHash==null)return; // Older drafts remain readable, not retroactively verified.
+    if(typeof data.contentHash!=='string'||!/^[a-f0-9]{64}$/.test(data.contentHash)||
+      await this._digest(data.text)!==data.contentHash)
+      throw new Error(label+' integrity check failed. Do not overwrite this draft; recover a known-good snapshot or original file.');
   },
-
-  // ========================
-  // MANUSCRIPTS
-  // ========================
-  _parseManuscript(text) {
-    if (typeof ManuscriptParser !== 'undefined' && ManuscriptParser.parse) return ManuscriptParser.parse(text);
-    return { version: 0, textLength: text.length, wordCount: (text.match(/\\b\\w+\\b/g) || []).length, chapterCount: 1, chapters: [{ id: 'chapter-001', index: 0, number: 1, title: 'Manuscript', heading: null, start: 0, end: text.length, wordCount: (text.match(/\\b\\w+\\b/g) || []).length, text, body: text }], warnings: ['PARSER_NOT_LOADED'] };
-  },
-
-  _buildBookIntelligence(parsed, analysisResult = null) {
-    if (typeof BookIntelligence !== 'undefined' && BookIntelligence.build) {
-      let intel = BookIntelligence.build(parsed, analysisResult);
-      if (typeof DocumentIntelligence !== 'undefined' && DocumentIntelligence.enrich) intel = DocumentIntelligence.enrich(parsed, intel);
-      const isNonfiction = intel.documentType?.type === 'nonfiction';
-      if (!isNonfiction && typeof StoryIntelligence !== 'undefined' && StoryIntelligence.enrich) intel = StoryIntelligence.enrich(parsed, intel);
-      if (!isNonfiction && typeof ContinuityIntelligence !== 'undefined' && ContinuityIntelligence.enrich) intel = ContinuityIntelligence.enrich(parsed, intel);
-      if (!isNonfiction && typeof TimelineIntelligence !== 'undefined' && TimelineIntelligence.enrich) intel = TimelineIntelligence.enrich(parsed, intel);
-      if (!isNonfiction && typeof NarrativeMomentum !== 'undefined' && NarrativeMomentum.enrich) intel = NarrativeMomentum.enrich(intel);
-      if (!isNonfiction && typeof RelationshipIntelligence !== 'undefined' && RelationshipIntelligence.enrich) intel = RelationshipIntelligence.enrich(parsed, intel);
-      if (!isNonfiction && typeof CharacterLedger !== 'undefined' && CharacterLedger.enrich) intel = CharacterLedger.enrich(intel);
-      return intel;
-    }
-    return null;
-  },
-
-  async _replaceCollection(collectionRef, rows, idFor) {
-    const existing = await collectionRef.get();
-    for (let start=0; start<existing.docs.length; start+=400) {
-      const batch=this.db.batch();
-      existing.docs.slice(start,start+400).forEach(d=>batch.delete(d.ref));
-      await batch.commit();
-    }
-    for (let start=0; start<rows.length; start+=400) {
-      const batch=this.db.batch();
-      rows.slice(start,start+400).forEach((row,i)=>batch.set(collectionRef.doc(idFor(row,start+i)), row));
-      await batch.commit();
-    }
-  },
-
-  async _writeBookIntelligence(manuscriptRef, intelligence) {
-    if (!intelligence) return;
-    const root=manuscriptRef.collection('intelligence').doc('book');
-    await root.set({
-      version: intelligence.version, chapterCount: intelligence.chapterCount,
-      characterCount: (intelligence.characters||[]).length,
-      factCount: (intelligence.facts||[]).length,
-      relationshipCount: (intelligence.relationshipIntelligence?.relationships||[]).length,
-      timelineEventCount: (intelligence.timeline?.events||[]).length,
-      threadCount: (intelligence.narrativeMomentum?.arcs||[]).length,
-      continuityCount: (intelligence.continuity||[]).length,
-      documentType: intelligence.documentType || null, nonfictionCounts: intelligence.nonfiction ? { concepts:(intelligence.nonfiction.concepts||[]).length, claims:(intelligence.nonfiction.claims||[]).length, personalEvidence:(intelligence.nonfiction.personalEvidence||[]).length, reflectionQuestions:(intelligence.nonfiction.reflectionQuestions||[]).length, actions:(intelligence.nonfiction.actions||[]).length, recommendations:(intelligence.nonfiction.recommendations||[]).length } : null,
-      pov: intelligence.pov, scoreEvidence: intelligence.scoreEvidence || {},
-      scoreConflicts: (intelligence.scoreConflicts || []).slice(0,20),
-      generatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    await this._replaceCollection(root.collection('facts'), intelligence.facts||[], (x,i)=>x.id||('fact-'+String(i+1).padStart(5,'0')));
-    await this._replaceCollection(root.collection('relationships'), intelligence.relationshipIntelligence?.relationships||[], (x,i)=>x.id||('relationship-'+String(i+1).padStart(4,'0')));
-    await this._replaceCollection(root.collection('timeline'), intelligence.timeline?.events||[], (x,i)=>x.id||('event-'+String(i+1).padStart(5,'0')));
-    await this._replaceCollection(root.collection('threads'), intelligence.narrativeMomentum?.arcs||[], (x,i)=>x.id||('thread-'+String(i+1).padStart(4,'0')));
-    await this._replaceCollection(root.collection('characters'), intelligence.characterLedger?.characters||[], (x,i)=>x.id||('character-'+String(i+1).padStart(4,'0')));
-  },
-
-  _utf8Bytes(text) {
+  _splitChapterText(text,maxBytes=700000) {
     text=String(text||'');
-    if(typeof TextEncoder!=='undefined')return new TextEncoder().encode(text).length;
-    return unescape(encodeURIComponent(text)).length;
-  },
-
-  _splitChapterText(text, maxBytes = 700000) {
-    text=String(text||''); if(this._utf8Bytes(text)<=maxBytes)return [text];
-    const parts=[]; let start=0;
-    while(start<text.length){
-      let lo=start+1,hi=text.length,end=start+1;
+    if(maxBytes<4)throw new Error('Chunk budget must fit a Unicode character');
+    const parts=[];let start=0;
+    while(start<text.length) {
+      let lo=start+1,hi=text.length,end=start;
       while(lo<=hi){const mid=Math.floor((lo+hi)/2);if(this._utf8Bytes(text.slice(start,mid))<=maxBytes){end=mid;lo=mid+1;}else hi=mid-1;}
-      if(end<text.length){
-        const floor=start+Math.floor((end-start)*.7);
-        const para=text.lastIndexOf('\n\n',end);
-        const sentence=Math.max(text.lastIndexOf('. ',end),text.lastIndexOf('? ',end),text.lastIndexOf('! ',end));
-        const cut=para>=floor?para+2:(sentence>=floor?sentence+2:end);
-        if(cut>start)end=cut;
-      }
-      parts.push(text.slice(start,end)); start=end;
+      // Never split a UTF-16 surrogate pair, even when its UTF-8 byte size changes.
+      if(end<text.length&&/[\uD800-\uDBFF]/.test(text[end-1]))end--;
+      if(end<=start)throw new Error('Unable to split manuscript safely');
+      parts.push(text.slice(start,end));start=end;
     }
-    return parts;
+    return parts.length?parts:[''];
   },
-
-  async _writeChapters(manuscriptRef, parsed, intelligence = null) {
-    const rows=[];
-    for(const chapter of parsed.chapters||[]){
-      const chapterIntel=intelligence?.chapters?.find(c=>c.id===chapter.id);
-      const parts=this._splitChapterText(chapter.text);
-      parts.forEach((text,partIndex)=>rows.push({
-        id:parts.length===1?chapter.id:(chapter.id+'-part-'+String(partIndex+1).padStart(3,'0')),
-        chapterId:chapter.id, partIndex, partCount:parts.length, text,
-        index:chapter.index, number:chapter.number, title:chapter.title, heading:chapter.heading||null,
-        start:chapter.start, end:chapter.end, wordCount:chapter.wordCount,
-        intelligenceVersion:chapterIntel?intelligence.version:0,
-        ...(chapterIntel&&partIndex===0?{pov:chapterIntel.pov,characterCandidates:chapterIntel.characterCandidates}: {})
-      }));
+  _serialize(key, task) {
+    const previous=this._writes.get(key)||Promise.resolve();
+    const next=previous.catch(()=>{}).then(task);
+    this._writes.set(key,next);
+    next.finally(()=>{if(this._writes.get(key)===next)this._writes.delete(key);}).catch(()=>{});
+    return next;
+  },
+  async flush() {await Promise.all([...this._writes.values()]);},
+  async _writeParts(collection,parts,generation=null) {
+    for(let start=0;start<parts.length;start+=400) {
+      const batch=this.db.batch();
+      parts.slice(start,start+400).forEach((text,i)=>{
+        const index=start+i;
+        batch.set(collection.doc((generation?generation+'-':'')+String(index).padStart(6,'0')),{index,text,...(generation?{generation}:{})});
+      });
+      await batch.commit();
     }
-    const collection=manuscriptRef.collection('chapters');
-    const existing=await collection.get();
-    for(let start=0;start<existing.docs.length;start+=400){const batch=this.db.batch();existing.docs.slice(start,start+400).forEach(d=>batch.delete(d.ref));await batch.commit();}
-    for(let start=0;start<rows.length;start+=400){const batch=this.db.batch();rows.slice(start,start+400).forEach(row=>batch.set(collection.doc(row.id),{...row,updatedAt:firebase.firestore.FieldValue.serverTimestamp()}));await batch.commit();}
   },
-
-  async saveManuscript(fileName, text, analysisResult) {
-    const ref=this._userDoc(); if(!ref)return null;
-    const id=Date.now().toString(36)+Math.random().toString(36).slice(2,7);
-    const manuscriptRef=ref.collection('manuscripts').doc(id);
-    const parsed=this._parseManuscript(text), intelligence=this._buildBookIntelligence(parsed,analysisResult);
-    const meta={id,fileName,schemaVersion:2,parserVersion:parsed.version||0,textLength:text.length,wordCount:parsed.wordCount,chapterCount:parsed.chapterCount,genre:analysisResult?.genre?.label||'Unknown',genrePrimary:analysisResult?.genre?.primary||'',overall:analysisResult?.overall||0,scores:analysisResult?.scores||{},issueCount:analysisResult?.issues?.length||0,saveState:'writing',createdAt:firebase.firestore.FieldValue.serverTimestamp(),updatedAt:firebase.firestore.FieldValue.serverTimestamp()};
-    if(this._utf8Bytes(text)<=700000)meta.text=text;
-    await manuscriptRef.set(meta);
-    try{await this._writeChapters(manuscriptRef,parsed,intelligence);await this._writeBookIntelligence(manuscriptRef,intelligence);await manuscriptRef.set({saveState:'ready',updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});return id;}
-    catch(e){await manuscriptRef.set({saveState:'error',saveErrorAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}).catch(()=>{});throw e;}
+  async _deleteCollection(collection) {
+    const snap=await collection.get();
+    for(let start=0;start<snap.docs.length;start+=400) {
+      const batch=this.db.batch();snap.docs.slice(start,start+400).forEach(d=>batch.delete(d.ref));await batch.commit();
+    }
   },
-
-  async updateManuscript(id, text, analysisResult) {
-    const ref=this._userDoc(); if(!ref)return;
-    const manuscriptRef=ref.collection('manuscripts').doc(id);
-    const parsed=this._parseManuscript(text), intelligence=this._buildBookIntelligence(parsed,analysisResult);
-    const update={schemaVersion:2,parserVersion:parsed.version||0,textLength:text.length,wordCount:parsed.wordCount,chapterCount:parsed.chapterCount,genre:analysisResult?.genre?.label||'Unknown',genrePrimary:analysisResult?.genre?.primary||'',overall:analysisResult?.overall||0,scores:analysisResult?.scores||{},issueCount:analysisResult?.issues?.length||0,saveState:'writing',updatedAt:firebase.firestore.FieldValue.serverTimestamp()};
-    if(this._utf8Bytes(text)<=700000)update.text=text;else update.text=firebase.firestore.FieldValue.delete();
-    await manuscriptRef.set(update,{merge:true});
-    try{await this._writeChapters(manuscriptRef,parsed,intelligence);await this._writeBookIntelligence(manuscriptRef,intelligence);await manuscriptRef.set({saveState:'ready',updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});}
-    catch(e){await manuscriptRef.set({saveState:'error',saveErrorAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}).catch(()=>{});throw e;}
+  _metadata(text,analysis) {
+    const parsed=this._parseManuscript(text);
+    return {schemaVersion:4,parserVersion:parsed.version||0,textLength:text.length,
+      wordCount:parsed.wordCount,chapterCount:parsed.chapterCount,
+      genre:analysis?.genre?.label||'Unknown',genrePrimary:analysis?.genre?.primary||'',
+      analysisState:analysis?.analysisPending?'pending':'ready',
+      overall:analysis?.analysisPending?null:(analysis?.overall??0),scores:analysis?.scores||{},issueCount:analysis?.issues?.length||0,
+      saveState:'ready',updatedAt:firebase.firestore.FieldValue.serverTimestamp()};
   },
-
-  async _readChapterText(manuscriptRef) {
-    const snap=await manuscriptRef.collection('chapters').get();
-    return snap.docs.map(d=>d.data()).sort((a,b)=>(a.index-b.index)||((a.partIndex||0)-(b.partIndex||0))).map(x=>x.text||'').join('');
+  _revision(doc){
+    if(!doc.exists)return null;
+    const data=doc.data();
+    return data.activeGeneration||('legacy:'+(data.updatedAt?.toMillis?.()||0)+':'+(data.textLength??data.text?.length??0));
   },
-
+  async _commitText(ref,text,analysis,extra={}) {
+    const previous=await ref.get();
+    const oldGeneration=previous.exists?previous.data().activeGeneration:null;
+    const expected=this._revisions.has(ref.path)?this._revisions.get(ref.path):null;
+    if(this._revision(previous)!==expected)throw new Error('This manuscript changed on another device. Your edits remain in this tab; export them before reloading the cloud draft.');
+    const generation=ref.collection('chapters').doc().id;
+    const parts=this._splitChapterText(text);
+    const contentHash=await this._digest(text);
+    // Store source once. All derived intelligence is rebuilt on demand rather
+    // than deleting and rewriting five subcollections on every autosave.
+    try{
+      await this._writeParts(ref.collection('chapters'),parts,generation);
+      await this.db.runTransaction(async tx=>{
+        const current=await tx.get(ref);
+        if(this._revision(current)!==expected)throw new Error('Another device saved this manuscript. Export your edits from this tab before reloading the cloud draft.');
+        tx.set(ref,{...this._metadata(text,analysis),...extra,activeGeneration:generation,contentHash,
+          partCount:parts.length,text:firebase.firestore.FieldValue.delete()},{merge:true});
+      });
+    }catch(error){
+      // An acknowledgement can fail after a successful commit. Never delete
+      // chunks unless a SERVER read confirms this generation is unpublished.
+      try{
+        const current=await ref.get({source:'server'});
+        if(!current.exists||current.data().activeGeneration!==generation)
+          await this._deleteCollection(ref.collection('chapters').where('generation','==',generation));
+      }catch(_){console.warn('Unpublished draft cleanup deferred; server state could not be confirmed.');}
+      throw error;
+    }
+    this._revisions.set(ref.path,generation);
+    // Cleanup only the generation observed before this save. Never remove a
+    // concurrent writer's new generation.
+    if(oldGeneration&&oldGeneration!==generation) {
+      await this._deleteCollection(ref.collection('chapters').where('generation','==',oldGeneration))
+        .catch(error=>console.warn('Old draft cleanup deferred:',error.message));
+    }
+  },
+  async saveManuscript(fileName,text,analysis) {
+    const user=this._userDoc();if(!user)throw new Error('Sign in before saving to cloud');
+    const ref=user.collection('manuscripts').doc();
+    await this._serialize(ref.path,()=>this._commitText(ref,text,analysis,{
+      id:ref.id,fileName,createdAt:firebase.firestore.FieldValue.serverTimestamp()
+    }));
+    return ref.id;
+  },
+  async updateManuscript(id,text,analysis) {
+    const user=this._userDoc();if(!user)throw new Error('Sign in before saving to cloud');
+    const ref=user.collection('manuscripts').doc(id);
+    return this._serialize(ref.path,()=>this._commitText(ref,text,analysis));
+  },
   async getManuscripts() {
-    const ref=this._userDoc(); if(!ref)return [];
-    const snap=await ref.collection('manuscripts').orderBy('updatedAt','desc').limit(20).get();
-    return snap.docs.map(d=>({...d.data(),id:d.id})).filter(m=>m.saveState==='ready'||!m.saveState);
-  },
-
-  async getManuscript(id) {
-    const ref=this._userDoc(); if(!ref)return null;
-    const manuscriptRef=ref.collection('manuscripts').doc(id),doc=await manuscriptRef.get();
-    if(!doc.exists)return null;const data={...doc.data(),id:doc.id};
-    if(data.saveState && data.saveState!=='ready')throw new Error('MANUSCRIPT_NOT_READY');
-    if(data.schemaVersion>=2&&data.text==null)data.text=await this._readChapterText(manuscriptRef);
-    if(data.text!=null&&Number.isFinite(data.textLength)&&data.text.length!==data.textLength)throw new Error('MANUSCRIPT_INTEGRITY_MISMATCH');
-    return data;
-  },
-
-  async _deleteCollection(collectionRef) {
-    const snap=await collectionRef.get();
-    for(let start=0;start<snap.docs.length;start+=400){const batch=this.db.batch();snap.docs.slice(start,start+400).forEach(d=>batch.delete(d.ref));await batch.commit();}
-  },
-
-  async deleteManuscript(id) {
-    const ref=this._userDoc(); if(!ref)return;
-    const m=ref.collection('manuscripts').doc(id);
-    const versions=await m.collection('versions').get();
-    for(const v of versions.docs){await this._deleteCollection(v.ref.collection('parts'));await v.ref.delete();}
-    const intel=m.collection('intelligence').doc('book');
-    for(const name of ['facts','relationships','timeline','threads','characters'])await this._deleteCollection(intel.collection(name));
-    await intel.delete().catch(()=>{});
-    for(const name of ['chapters','aiScans'])await this._deleteCollection(m.collection(name));
-    await m.delete();
-    if(this._currentManuscriptId===id)this._currentManuscriptId=null;
-  },
-
-  async getVersions(manuscriptId) {
-    const ref=this._userDoc(); if(!ref)return [];
-    const snap=await ref.collection('manuscripts').doc(manuscriptId).collection('versions').orderBy('timestamp','desc').limit(30).get();
+    const user=this._userDoc();if(!user)return [];
+    const snap=await user.collection('manuscripts').orderBy('updatedAt','desc').get();
     return snap.docs.map(d=>({...d.data(),id:d.id}));
   },
-
-  async saveVersion(manuscriptId, analysisResult, text = null, reason = 'manual') {
-    const ref=this._userDoc(); if(!ref)return null;
-    const manuscriptRef=ref.collection('manuscripts').doc(manuscriptId);
-    if(text==null){const current=await this.getManuscript(manuscriptId);text=current?.text||'';}
-    const parsed=this._parseManuscript(text);
-    const snapshotRef=manuscriptRef.collection('versions').doc();
-    const parts=this._splitChapterText(text);
-    await snapshotRef.set({
-      schemaVersion:2, saveState:'writing', reason, textLength:text.length, wordCount:parsed.wordCount,
-      chapterCount:parsed.chapterCount, partCount:parts.length,
-      overall:analysisResult?.overall||0, scores:analysisResult?.scores||{},
-      issueCount:analysisResult?.issues?.length||0, genre:analysisResult?.genre?.label||'',
-      manuscriptHash:(typeof AIEngine!=='undefined'&&AIEngine._shortHash)?AIEngine._shortHash(text):null,
-      timestamp:firebase.firestore.FieldValue.serverTimestamp()
-    });
-    for(let start=0;start<parts.length;start+=400){
-      const batch=this.db.batch();
-      parts.slice(start,start+400).forEach((part,i)=>batch.set(snapshotRef.collection('parts').doc('part-'+String(start+i+1).padStart(4,'0')),{index:start+i,text:part}));
-      await batch.commit();
-    }
-    await snapshotRef.set({saveState:'ready'},{merge:true});
-    return snapshotRef.id;
-  },
-
-  async getVersion(manuscriptId, versionId) {
-    const ref=this._userDoc(); if(!ref)return null;
-    const versionRef=ref.collection('manuscripts').doc(manuscriptId).collection('versions').doc(versionId);
-    const doc=await versionRef.get(); if(!doc.exists)return null;
+  async getManuscript(id,retry=0) {
+    const user=this._userDoc();if(!user)return null;
+    const ref=user.collection('manuscripts').doc(id),doc=await ref.get();
+    if(!doc.exists)return null;
     const data={...doc.data(),id:doc.id};
-    if(data.saveState && data.saveState!=='ready')throw new Error('VERSION_NOT_READY');
-    if(data.schemaVersion>=2){
-      const parts=await versionRef.collection('parts').get();
-      const rows=parts.docs.map(d=>d.data()).sort((a,b)=>a.index-b.index);
-      if(Number.isFinite(data.partCount)&&rows.length!==data.partCount)throw new Error('VERSION_INTEGRITY_MISMATCH');
-      data.text=rows.map(p=>p.text||'').join('');
-      if(Number.isFinite(data.textLength)&&data.text.length!==data.textLength)throw new Error('VERSION_INTEGRITY_MISMATCH');
+    if(data.saveState&&data.saveState!=='ready')throw new Error('Draft is incomplete; save has not committed');
+    if(data.schemaVersion>=3) {
+      const snap=await ref.collection('chapters').where('generation','==',data.activeGeneration).get();
+      const parts=snap.docs.map(d=>d.data()).sort((a,b)=>a.index-b.index);
+      if(!Number.isInteger(data.partCount)||data.partCount<1||parts.length!==data.partCount||parts.some((p,i)=>p.index!==i||typeof p.text!=='string')){
+        // A concurrent save may clean up the generation we started reading.
+        // Retry only if the committed pointer actually changed; corruption is
+        // still reported rather than hidden by empty/truncated text.
+        if(retry<2&&this._revision(await ref.get())!==this._revision(doc))return this.getManuscript(id,retry+1);
+        throw new Error('Draft is incomplete; refusing to load truncated text');
+      }
+      data.text=parts.map(p=>p.text).join('');
+      if(data.text.length!==data.textLength)throw new Error('Draft length check failed');
+    } else if(data.schemaVersion>=2&&data.text==null) {
+      const snap=await ref.collection('chapters').get();
+      data.text=snap.docs.map(d=>d.data()).filter(p=>!p.generation).sort((a,b)=>(a.index-b.index)||((a.partIndex||0)-(b.partIndex||0))).map(p=>p.text||'').join('');
+      if(data.textLength!=null&&data.text.length!==data.textLength)throw new Error('Legacy draft is incomplete');
     }
+    if(typeof data.text!=='string'||(Number.isFinite(data.textLength)&&data.text.length!==data.textLength))throw new Error('Draft integrity check failed');
+    await this._verifyIntegrity(data,'Draft');
+    this._revisions.set(ref.path,this._revision(doc));
     return data;
   },
-
-  async restoreVersion(manuscriptId, versionId, analysisResult = null) {
-    const snapshot=await this.getVersion(manuscriptId,versionId);
-    if(!snapshot?.text)return false;
-    const current=await this.getManuscript(manuscriptId);
-    if(current?.text!=null)await this.saveVersion(manuscriptId,analysisResult,current.text,'before_restore');
-    await this.updateManuscript(manuscriptId,snapshot.text,analysisResult);
-    return snapshot.text;
+  async deleteManuscript(id) {
+    const user=this._userDoc();if(!user)return;
+    const ref=user.collection('manuscripts').doc(id);
+    return this._serialize(ref.path,async()=>{
+      const versions=await ref.collection('versions').get();
+      for(const version of versions.docs){await this._deleteCollection(version.ref.collection('parts'));await version.ref.delete();}
+      const legacy=ref.collection('intelligence').doc('book');
+      for(const name of ['facts','relationships','timeline','threads','characters'])await this._deleteCollection(legacy.collection(name));
+      await legacy.delete();
+      for(const name of ['chapters','aiScans'])await this._deleteCollection(ref.collection(name));
+      await ref.delete();
+      this._revisions.delete(ref.path);
+      if(this._currentManuscriptId===id)this._currentManuscriptId=null;
+    });
   },
-
-  // Current manuscript identity is shared with app.js save/open flows.
-  _currentManuscriptId:null
-
+  async getVersions(id) {
+    const user=this._userDoc();if(!user)return [];
+    const snap=await user.collection('manuscripts').doc(id).collection('versions').orderBy('timestamp','desc').limit(30).get();
+    return snap.docs.map(d=>({...d.data(),id:d.id})).filter(v=>v.saveState!=='writing');
+  },
+  async saveVersion(id,analysis,text=null,reason='manual') {
+    const user=this._userDoc();if(!user)throw new Error('Sign in to create snapshots');
+    return this._serialize(user.collection('manuscripts').doc(id).path,()=>this._saveVersion(user,id,analysis,text,reason));
+  },
+  async _saveVersion(user,id,analysis,text,reason) {
+    if(text==null)text=(await this.getManuscript(id))?.text;
+    if(typeof text!=='string')throw new Error('No manuscript text to snapshot');
+    const ref=user.collection('manuscripts').doc(id).collection('versions').doc();
+    const parsed=this._parseManuscript(text),parts=this._splitChapterText(text);
+    const contentHash=await this._digest(text);
+    // Publish snapshot metadata last. Incomplete snapshots never appear usable.
+    await this._writeParts(ref.collection('parts'),parts);
+    await ref.set({schemaVersion:4,saveState:'ready',reason,textLength:text.length,contentHash,
+      wordCount:parsed.wordCount,chapterCount:parsed.chapterCount,partCount:parts.length,
+      analysisState:analysis?.analysisPending?'pending':'ready',
+      overall:analysis?.analysisPending?null:(analysis?.overall??0),scores:analysis?.scores||{},issueCount:analysis?.issues?.length||0,
+      genre:analysis?.genre?.label||'',timestamp:firebase.firestore.FieldValue.serverTimestamp()});
+    return ref.id;
+  },
+  async getVersion(id,versionId) {
+    const user=this._userDoc();if(!user)return null;
+    const ref=user.collection('manuscripts').doc(id).collection('versions').doc(versionId),doc=await ref.get();
+    if(!doc.exists)return null;
+    const data={...doc.data(),id:doc.id};
+    if(data.saveState&&data.saveState!=='ready')throw new Error('Snapshot is incomplete; save has not committed');
+    if(data.schemaVersion>=2) {
+      const snap=await ref.collection('parts').get();
+      const parts=snap.docs.map(d=>d.data()).sort((a,b)=>a.index-b.index);
+      if(!Number.isInteger(data.partCount)||data.partCount<1||parts.length!==data.partCount||parts.some((p,i)=>p.index!==i||typeof p.text!=='string'))throw new Error('Snapshot is incomplete');
+      data.text=parts.map(p=>p.text||'').join('');
+      if(data.text.length!==data.textLength)throw new Error('Snapshot length check failed');
+    }
+    if(typeof data.text!=='string')throw new Error('This historical entry contains scores only, not restorable text');
+    await this._verifyIntegrity(data,'Snapshot');
+    return data;
+  },
+  async restoreVersion(id,versionId,analysis=null,currentText=null) {
+    const user=this._userDoc();if(!user)throw new Error('Sign in to restore snapshots');
+    const ref=user.collection('manuscripts').doc(id);
+    return this._serialize(ref.path,async()=>{
+      if(this.userId!==user.id)throw new Error('Your sign-in changed. Reopen the manuscript before restoring.');
+      const snapshot=await this.getVersion(id,versionId);
+      if(!snapshot)throw new Error('Snapshot not found');
+      const current=currentText??(await this.getManuscript(id))?.text;
+      if(typeof current!=='string')throw new Error('Cannot create a safety snapshot');
+      const safetyAnalysis={genre:analysis?.genre,analysisPending:true};
+      await this._saveVersion(user,id,safetyAnalysis,current,'before_restore');
+      // Storage owns persistence, not scoring. The editor analyzes restored text
+      // once; until then cloud metadata explicitly says analysis is pending.
+      await this._commitText(ref,snapshot.text,safetyAnalysis);
+      return snapshot.text;
+    });
+  },
+  async savePreferences(preferences) {
+    const ref=this._userDoc();if(ref)await ref.set({preferences,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+  },
+  async getPreferences() {const ref=this._userDoc();if(!ref)return {};const doc=await ref.get();return doc.exists?doc.data().preferences||{}:{};}
 };
+if(typeof module!=='undefined'&&module.exports)module.exports=Storage;
