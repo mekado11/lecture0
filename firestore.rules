@@ -24,6 +24,8 @@ service cloud.firestore {
     }
 
     match /betaCodes/{code} {
+      // Redemption/validation belongs on the trusted server; exposing the collection
+      // lets any signed-in client enumerate or probe beta codes.
       allow read, write: if false;
     }
     match /pushSubscriptions/{userId} {

@@ -70,8 +70,10 @@ const AIEngine = {
       query: packet.query,
       documentType: packet.documentType, overview:packet.overview, nonfiction:packet.nonfiction,
       chapters: (packet.chapters || []).map(c => ({ id:c.chapterId, title:c.title, text:c.text })),
+      documentType: packet.documentType || null,
       characters: packet.characters || [], facts: packet.facts || [], relationships: packet.relationships || [],
-      timeline: packet.timeline || [], stateChanges: packet.stateChanges || [], continuity: packet.continuity || [], plotThreads: packet.plotThreads || []
+      timeline: packet.timeline || [], stateChanges: packet.stateChanges || [], continuity: packet.continuity || [], plotThreads: packet.plotThreads || [],
+      nonfiction: packet.nonfiction || null
     };
     return JSON.stringify(compact);
   },
@@ -87,6 +89,21 @@ const AIEngine = {
       this._bookContextCache.set(key, built);
     }
     return ManuscriptRetrieval.contextPacket(query, built.parsed, built.intel, 5);
+  },
+
+  _wholeBookContext(feature, text, analysis = null) {
+    const packet = this.buildGroundedContext(feature + ' whole manuscript structure themes arguments concepts evidence examples progression ending', text, analysis);
+    if (!packet) return null;
+    const key = this._shortHash(text) + '|' + text.length + '|' + (analysis ? this._shortHash(JSON.stringify({overall:analysis.overall||0,scores:analysis.scores||{},genre:analysis.genre||{}})) : 'none');
+    const built = this._bookContextCache.get(key);
+    const overview = built && typeof ManuscriptRetrieval !== 'undefined' && ManuscriptRetrieval.overview
+      ? ManuscriptRetrieval.overview(built.parsed, built.intel, 30) : null;
+    return 'GROUNDED WHOLE-BOOK CONTEXT:\n' + JSON.stringify({overview,retrieved:JSON.parse(this._serializeContextPacket(packet))});
+  },
+
+  _wholeBookOptions(feature, text, analysis = null) {
+    const context = this._wholeBookContext(feature, text, analysis);
+    return context ? { contextOverride: context } : {};
   },
 
   async askManuscript(apiKey, question, manuscriptText, analysis = null) {
@@ -472,19 +489,20 @@ Return JSON:
   // 6. CHAPTER-BY-CHAPTER BREAKDOWN
   // ========================
   async chapterBreakdown(apiKey, text, analysis) {
+    const isNF = analysis?.genre?.primary && ['memoir','selfHelp','biography','historyNF','trueCrime','philosophy','nonfiction'].includes(analysis.genre.primary);
     return this._callClaude(apiKey,
-      'Analyze the structure of this manuscript, identifying chapters or major sections.',
-      `Break down this text by chapters or major sections. Return JSON:
+      isNF ? 'Analyze this nonfiction manuscript chapter by chapter. Focus on argument progression, chapter purpose, evidence/examples, reader application, repetition, and how each chapter advances the central thesis. Do not use fiction concepts such as plot tension unless the passage is actually narrative.' : 'Analyze the structure of this manuscript, identifying chapters or major sections.',
+      `Break down this ${isNF?'nonfiction':'fiction'} text by chapters or major sections. Return JSON:
 {
   "chapters": [
     {
       "number": 1,
       "title": "detected or inferred chapter title",
       "summary": "1-2 sentence summary of what happens",
-      "purpose": "what this chapter accomplishes narratively",
+      "purpose": "what this chapter accomplishes ${isNF?'for the book’s argument and reader':'narratively'}",
       "pacingGrade": "A/B/C/D/F",
-      "tensionLevel": "low/medium/high",
-      "keyEvent": "the most important thing that happens",
+      "tensionLevel": "${isNF?'N/A unless the chapter uses narrative tension':'low/medium/high'}",
+      "keyEvent": "${isNF?'main claim, example, or reader takeaway':'the most important thing that happens'}",
       "issue": "main issue with this chapter, if any"
     }
   ],

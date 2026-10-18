@@ -73,7 +73,7 @@ const GrammarEnhance = {
       headers: { 'Content-Type': 'application/json',Authorization:'Bearer '+await user.getIdToken() },
       body: JSON.stringify({ text: text, language: 'en-US' })
     });
-    if (!response.ok) throw new Error('Proxy returned ' + response.status);
+    if (!response.ok) throw new Error('Grammar service returned ' + response.status);
     const data = await response.json();
     if (data.error) throw new Error(data.error);
     return data.matches || [];

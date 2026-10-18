@@ -62,8 +62,9 @@ module.exports = async (req, res) => {
         resolve();
       });
     });
+    proxyReq.setTimeout(12000, () => proxyReq.destroy(new Error('Grammar provider timeout')));
     proxyReq.on('error', err => {
-      res.status(502).json({ error: 'LanguageTool unavailable: ' + err.message });
+      res.status(502).json({ error: 'LanguageTool unavailable' });
       resolve();
     });
     proxyReq.setTimeout(20000,()=>proxyReq.destroy(new Error('Grammar check timed out')));
