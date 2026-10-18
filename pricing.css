@@ -1,5 +1,5 @@
 /* Pricing page, on the features page's base (features.css). */
-.pr-hero{text-align:center;padding-top:clamp(1rem,4vw,3rem);padding-bottom:clamp(2rem,4vw,3rem)}
+.pr-hero{text-align:center;padding-top:clamp(1rem,4vw,3rem);padding-bottom:clamp(.75rem,2vw,1.25rem)}
 .pr-hero h1{margin:0 auto;max-width:16ch}
 .pr-hero .fx-lede{margin:var(--space-6) auto var(--space-4);max-width:58ch}
 
