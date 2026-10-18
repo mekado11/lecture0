@@ -767,7 +767,8 @@ function extractTextFromEditor(){
   return plain===_renderedPlain?_renderedSource:plain;
 }
 
-function _onAnalysisComplete(newResult){
+function _onAnalysisComplete(newResult, version=null){
+    if(version!==null&&version!==_analyzeVersion)return;
     if(newResult.error)return;
     _analysisSource=extractTextFromEditor();
     if(_initialIssueCount===null)_initialIssueCount=newResult.issues.length;
@@ -790,6 +791,7 @@ function scheduleReanalyze(){
   _reanalyzeTimer=setTimeout(()=>{
     const page=$('ed-annotated');
     if(!page)return;
+    const previousText=extractedText;
     extractedText=extractTextFromEditor();
     document.querySelectorAll('.rsc,.gauge-wrap').forEach(el=>el.classList.add('scores-pending'));
     const source=extractedText;
@@ -3157,6 +3159,8 @@ Storage.whenReady().then(async user=>{
       }
     }catch(e){console.warn('Could not restore last manuscript:',e.message)}
   }
+
+  // Legacy local manuscript autosaves are intentionally ignored; Firestore is the manuscript source of truth.
 
   // Attempt 3: any manuscript in Firestore (pick most recent)
   if(manuscripts.length>0){
