@@ -46,3 +46,4 @@
 @media(prefers-reduced-motion:reduce){
   .faq-a,.faq-q::after,.pr-facts div{transition:none}
 }
+/* premium-pass: hero fold tightening */
