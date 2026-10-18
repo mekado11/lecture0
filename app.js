@@ -190,7 +190,11 @@ function drawRing(canvas,score,size){
 
 // Track state
 let ignoredIssues=new Set();
-let previousScore=null;
+// Session trend baseline: the overall score when the current manuscript was opened.
+// It only resets when the manuscript identity changes, so the delta reads as revision
+// progress, not keystroke jitter from the 2s reanalyze loop.
+let _sessionBaseScore=null;
+let _sessionBaseId=null;
 let autoSaveTimer=null;
 let _cloudSaveWarned=false;
 let _tipDismissWired=false;
@@ -274,16 +278,21 @@ function renderAll(){
   $('top-wc').textContent=(r.totalWords||0).toLocaleString();
   drawGauge(r.overall||0);
 
-  // Live score + delta tracking
+  // Anchor the session trend baseline on first fresh render of a manuscript.
+  // updateScoresOnly (the 2s loop) must not move it — otherwise the delta measures
+  // keystrokes instead of revision progress.
+  const _mid=Storage._currentManuscriptId||(uploadedFile&&uploadedFile.name)||'';
+  if(_mid!==_sessionBaseId){_sessionBaseId=_mid;_sessionBaseScore=r.overall||0;}
+
+  // Live score + delta tracking (delta vs session baseline, not vs last keystroke)
   $('top-score').textContent=r.overall||0;
   const deltaEl=$('top-delta');
-  if(previousScore!==null){
-    const delta=r.overall-previousScore;
+  if(_sessionBaseScore!==null){
+    const delta=(r.overall||0)-_sessionBaseScore;
     if(delta>0){deltaEl.textContent='\u2191 +'+delta;deltaEl.className='delta up'}
     else if(delta<0){deltaEl.textContent='\u2193 '+delta;deltaEl.className='delta down'}
-    else{deltaEl.textContent='\u2194 0';deltaEl.className='delta same'}
+    else{deltaEl.textContent='';deltaEl.className='delta'}
   }else{deltaEl.textContent='';deltaEl.className='delta'}
-  previousScore=r.overall;
 
   // Apply manual genre override if selected (from upload or editor topbar)
   const genreLabels=_GENRE_LABELS;
@@ -893,15 +902,15 @@ function updateScoresOnly(r){
   drawGauge(r.overall||0);
   $('top-score').textContent=r.overall||0;
 
-  // Score delta
+  // Score delta vs the session baseline (set by renderAll on manuscript open).
+  // Never moved here: the 2s loop must not turn the trend into keystroke jitter.
   const deltaEl=$('top-delta');
-  if(previousScore!==null){
-    const delta=(r.overall||0)-previousScore;
+  if(_sessionBaseScore!==null){
+    const delta=(r.overall||0)-_sessionBaseScore;
     if(delta>0){deltaEl.textContent='\u2191 +'+delta;deltaEl.className='delta up'}
     else if(delta<0){deltaEl.textContent='\u2193 '+delta;deltaEl.className='delta down'}
     else{deltaEl.textContent='';deltaEl.className='delta'}
   }
-  previousScore=r.overall;
 
   // Sidebars are full innerHTML + canvas rebuilds \u2014 skip them when nothing they
   // display has changed (the 2s reanalyze loop fires this constantly while typing).
@@ -968,14 +977,26 @@ function _dimensionBasis(c){
   if(c.issues>0)return c.issues+' finding'+(c.issues===1?'':'s')+(c.evidence?' \u00B7 '+c.evidence:'');
   return c.evidence||'';
 }
+// Attention gain: (100 - score) x weight — the dimensions whose repair would move the
+// overall most. Shared by the "Start here" card and the right-rail ordering, so the
+// loudest card and the top of the list always agree.
+function _gain(c){
+  if(!Number.isFinite(c.score))return -1;
+  return (100-c.score)*(parseFloat(c.weight)||0)/100;
+}
+// Plain-word band for a 0-100 score. The number implies false precision; the word is honest.
+function _band(score){
+  if(!Number.isFinite(score))return '';
+  return score>=70?'Strong':score>=45?'Needs work':'Critical';
+}
 // "Start here": the dimension whose repair would move the overall most, i.e. the largest
 // (100 - score) x weight. A weaker score with a small weight does not outrank a middling one
 // that carries three times the weight.
 function _startHere(cats){
   let best=null;
   for(const c of cats){
-    if(!Number.isFinite(c.score))continue;
-    const gain=(100-c.score)*(parseFloat(c.weight)||0)/100;
+    const gain=_gain(c);
+    if(gain<0)continue;
     if(!best||gain>best.gain)best={...c,gain};
   }
   return best;
@@ -1010,23 +1031,34 @@ let _activeDetailCat=null;
 function renderRight(r){
   if(!r)return;
   const cats=_dimensionCards(r);
+  // Needs-attention order: highest repair gain first, so the weakest high-weight
+  // dimensions lead. Unscored dimensions (described, not scored) stay last in their
+  // original order. Stable sort keeps the order calm between keystrokes.
+  const ordered=[...cats].sort((a,b)=>_gain(b)-_gain(a));
   const container=$('rp-scores');
   // A row per dimension, a third of the height of the old ring cards, so the findings for the
-  // selected dimension sit above the fold.
-  container.innerHTML=cats.map(c=>{
+  // selected dimension sit above the fold. The top 3 by gain show fully; the rest collapse
+  // behind a toggle — eight competing numbers is noise, three is a triage.
+  const TOP_N=3;
+  const rowHtml=c=>{
     const scored=Number.isFinite(c.score);
     const col=scored?scHex(c.score):'var(--muted)';const basis=_dimensionBasis(c);
+    const band=scored?' <span style="font-size:.62em;font-weight:400;opacity:.75">'+_band(c.score)+'</span>':'';
     return '<div class="rsc rsc-row" data-cat="'+c.k+'" title="'+escA(c.name+' \u00B7 '+(scored?'weight '+c.weight:'not scored')+(basis?' \u00B7 '+basis:''))+'">'
       +'<span class="rsc-name">'+esc(c.name)+'</span>'
       +'<span class="rsc-basis">'+esc(basis)+'</span>'
-      +'<span class="rsc-score" style="color:'+col+'">'+(scored?c.score:'\u2014')+'</span></div>';
-  }).join('');
+      +'<span class="rsc-score" style="color:'+col+'">'+(scored?c.score+band:'\u2014')+'</span></div>';
+  };
+  const top=ordered.slice(0,TOP_N),rest=ordered.slice(TOP_N);
+  container.innerHTML=top.map(rowHtml).join('')
+    +(rest.length?'<details class="rsc-more"><summary>All '+ordered.length+' dimensions</summary>'+rest.map(rowHtml).join('')+'</details>':'');
   // Click handlers
   container.querySelectorAll('.rsc').forEach(el=>{el.addEventListener('click',()=>{container.querySelectorAll('.rsc').forEach(e=>e.classList.remove('active'));el.classList.add('active');_activeDetailCat=el.dataset.cat;showDetail(el.dataset.cat)})});
   // Preserve the user's selected category across re-renders — the 2s reanalyze loop
   // used to reset the detail panel to the first category on every score update.
-  if(cats.length){
-    const want=cats.some(c=>c.k===_activeDetailCat)?_activeDetailCat:cats[0].k;
+  // Default selection is now the highest-gain dimension, not the first in fixed order.
+  if(ordered.length){
+    const want=ordered.some(c=>c.k===_activeDetailCat)?_activeDetailCat:ordered[0].k;
     const activeEl=container.querySelector('.rsc[data-cat="'+want+'"]');
     if(activeEl)activeEl.classList.add('active');
     showDetail(want);
