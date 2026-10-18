@@ -1,17 +1,19 @@
 // AuthorScrolls — Manuscript Parser v2
 // Converts manuscript text into stable structural units without changing source text.
 const ManuscriptParser = (() => {
-  const CHAPTER_RE = /^\s*(chapter|chap\.?|ch\.?)\s+(\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)(?:\s*[:.\-–—]\s*.*)?\s*$/i;
+  const CHAPTER_RE = /^\s*(chapter|chap\.?|ch\.?)\s+(\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)([- ](?:one|two|three|four|five|six|seven|eight|nine))?(?:\s*[:.\-–—]\s*.*)?\s*$/i;
   const FRONT_RE = /^\s*(prologue|epilogue|introduction|preface|afterword|acknowledg(?:e)?ments|dedication|contents|table of contents|copyright)\s*$/i;
+  const INTERLUDE_RE = /^\s*interlude(?:\s*[:.\-–—]\s*.*)?\s*$/i;
   const REVIEW_RE = /^(?:(?:part|book)\s+(?:\d+|[ivxlcdm]+)\s*[:.\-–—]\s*)?(?:(?:mid[- ]?(?:chapter|book)|chapter)\s+review|review of chapters\b.*|bonus toolkit\b.*|chapter-by-chapter reflection\b.*)$/i;
-  const PART_RE = /^\s*(part|book)\s+(\d+|[ivxlcdm]+)(?:\s*[:.\-–—]\s*.*)?\s*$/i;
+  const PART_RE = /^\s*(part|book)\s+(\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)(?:\s*[:.\-–—]\s*.*)?\s*$/i;
   const WORD_NUMBERS = {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20};
+  const TENS = {twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
 
   function countWords(text) { return (String(text||'').match(/\b[\p{L}\p{N}'’\-]+\b/gu)||[]).length; }
   function normalizeNewlines(text) { return String(text||'').replace(/\r\n?/g,'\n'); }
   function romanToInt(s){const m={i:1,v:5,x:10,l:50,c:100,d:500,m:1000};let n=0,prev=0;for(const ch of String(s).toLowerCase().split('').reverse()){const v=m[ch]||0;n+=v<prev?-v:v;prev=Math.max(prev,v);}return n||null;}
-  function headingNumber(line){const m=String(line||'').match(CHAPTER_RE);if(!m)return null;const raw=m[2].toLowerCase();if(/^\d+$/.test(raw))return Number(raw);if(WORD_NUMBERS[raw])return WORD_NUMBERS[raw];return romanToInt(raw);}
-  function headingKind(line){const s=String(line||'').trim();if(FRONT_RE.test(s))return 'front';if(REVIEW_RE.test(s))return 'review';if(PART_RE.test(s))return 'part';if(CHAPTER_RE.test(s))return 'chapter';return null;}
+  function headingNumber(line){const m=String(line||'').match(CHAPTER_RE);if(!m)return null;const raw=m[2].toLowerCase();if(/^\d+$/.test(raw))return Number(raw);if(TENS[raw]){const ones=m[3]?WORD_NUMBERS[m[3].replace(/^[- ]/,'').toLowerCase()]||0:0;return TENS[raw]+ones;}if(WORD_NUMBERS[raw])return WORD_NUMBERS[raw];return romanToInt(raw);}
+  function headingKind(line){const s=String(line||'').trim();if(FRONT_RE.test(s))return 'front';if(INTERLUDE_RE.test(s))return 'interlude';if(REVIEW_RE.test(s))return 'review';if(PART_RE.test(s))return 'part';if(CHAPTER_RE.test(s))return 'chapter';return null;}
   function isHeading(line){const s=String(line||'').trim();return !!s&&s.length<=120&&!!headingKind(s);}
 
   function buildUnit(text, heading, start, end, index, kind='chapter') {
