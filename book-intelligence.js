@@ -134,7 +134,7 @@ const BookIntelligence = (() => {
     const paceSegments=Array.isArray(pacing.segments)?pacing.segments:[];
     return {
       overall: metric(analysis.overall, 'Analyzer._computeScoreBundle', ['applicable dimensions only; weights renormalized']),
-      plot: metric(scores.plot, plot.arc==='nonfiction'?'Analyzer._analyzeArgumentStructure':'Analyzer.analyzePlot', plotEvidence),
+      plot: metric(scores.plot, plot.arc==='nonfiction-structure'?'Analyzer._analyzeNonfictionStructure':'Analyzer.analyzePlot', plotEvidence),
       pacing: metric(Number.isFinite(scores.plot)&&Number.isFinite(scores.transitions)?(scores.plot+scores.transitions)/2:null,'plot + transitions composite',['plot='+(scores.plot??'N/A'),'transitions='+(scores.transitions??'N/A'),'classified pacing segments='+paceSegments.length]),
       hook: metric(rp.hookStrength,'Analyzer.analyzeReaderPerspective',[byType('hook')+' hook finding(s)']),
       engagement: metric(rp.engagementScore,'Analyzer.analyzeReaderPerspective',['reader-perspective heuristic']),

@@ -1543,37 +1543,27 @@ const Analyzer = {
   },
 
   // ========================
-  // ARGUMENT STRUCTURE (nonfiction equivalent of plot)
-  // Scores: thesis clarity, evidence density, logical transitions, conclusion synthesis
+  // SELF-HELP OVERALL — the weighted mean of the scored dimensions only. Argument progression
+  // is described, not scored, so its old 15% is renormalised across the other seven.
   // ========================
-  _analyzeArgumentStructure(text, mode) {
-    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
-    const words=text.match(/\b[\w’'-]+\b/g)||[], totalWords=words.length;
-    if(paragraphs.length<3)return {score:null,applicable:false,arc:'nonfiction',details:'Too little text for argument-structure measurement.',paragraphCount:paragraphs.length,quarters:[]};
-    const opening=paragraphs.slice(0,Math.min(3,paragraphs.length)).join(' ');
-    const closing=paragraphs.slice(-Math.min(3,paragraphs.length)).join(' ');
-    const claimRe=/\b(i argue|this book argues|this chapter argues|the central claim|the thesis|the problem is|the question is|we will show|i will show|this book shows|this chapter shows)\b/gi;
-    const evidenceRe=/\b(for example|for instance|according to|research|study|studies|data|evidence|statistics|case study|survey|experiment|analysis found|results show)\b/gi;
-    const transitionRe=/\b(first|second|third|finally|therefore|consequently|however|moreover|furthermore|in addition|on the other hand|in contrast|as a result|nevertheless|thus|hence|accordingly|meanwhile|subsequently)\b/gi;
-    const synthesisRe=/\b(in conclusion|in summary|to summarize|taken together|overall|ultimately|the takeaway|the evidence shows|we have seen|this means)\b/gi;
-    const thesisSignals=(opening.match(claimRe)||[]).length;
-    const evidenceSignals=(text.match(evidenceRe)||[]).length+(text.match(/\([^)]*\b(19|20)\d{2}\b[^)]*\)|\[\d+\]/g)||[]).length;
-    const transitionSignals=(text.match(transitionRe)||[]).length;
-    const synthesisSignals=(closing.match(synthesisRe)||[]).length;
-    const evidencePerK=+(evidenceSignals/Math.max(totalWords,1)*1000).toFixed(2);
-    const transitionPerK=+(transitionSignals/Math.max(totalWords,1)*1000).toFixed(2);
-    const observed=[thesisSignals>0,evidenceSignals>0,transitionSignals>0,synthesisSignals>0];
-    const score=Math.round(observed.filter(Boolean).length/observed.length*100);
-    const qSize=Math.ceil(paragraphs.length/4);
-    const quarters=[0,1,2,3].map(i=>{const t=paragraphs.slice(i*qSize,Math.min((i+1)*qSize,paragraphs.length)).join(' '),wc=(t.match(/\b[\w’'-]+\b/g)||[]).length,e=(t.match(evidenceRe)||[]).length;return {quarter:i+1,wordCount:wc,evidenceSignals:e,evidencePerK:+(e/Math.max(wc,1)*1000).toFixed(2)}});
-    return {score,applicable:true,arc:'nonfiction',methodology:'Observed claim, evidence, transition, and closing-synthesis signals.',thesisSignals,evidenceSignals,transitionSignals,synthesisSignals,evidencePerK,transitionPerK,hasThesis:thesisSignals>0,hasEvidence:evidenceSignals>0,hasTransitions:transitionSignals>0,hasConclusion:synthesisSignals>0,paragraphCount:paragraphs.length,quarters,hasRisingAction:null,hasClimax:null,hasResolution:null,hasCliffhanger:null,hasSceneGoal:null};
+  _SELF_HELP_WEIGHTS: { clarityReadability: 0.15, readerIdentification: 0.15, practicalApplication: 0.15, insightQuality: 0.15, voiceAuthority: 0.10, emotionalMomentum: 0.10, evidenceSupport: 0.05 },
+  _selfHelpOverall(sh) {
+    let total = 0, weight = 0;
+    for (const [k, w] of Object.entries(this._SELF_HELP_WEIGHTS)) { const v = sh[k]; if (Number.isFinite(v)) { total += v * w; weight += w; } }
+    return weight ? Math.round(total / weight) : 0;
   },
+  _selfHelpMessage(sh) {
+    const keys = ['readerIdentification', 'insightQuality', 'emotionalMomentum', 'practicalApplication', 'evidenceSupport'];
+    const vals = keys.map(k => sh[k]).filter(Number.isFinite);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+  },
+
 
   // ========================
   // SELF-HELP SCORING ENGINE
   // Scores: problem → insight → belief → action journey
   // ========================
-  _analyzeSelfHelp(text, mode) {
+  _analyzeSelfHelp(text, mode, structure) {
     const lower = text.toLowerCase();
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
@@ -1644,9 +1634,14 @@ const Analyzer = {
     practicalApplication += ramp(perK(implPatterns), 1.5, 15);
     practicalApplication = Math.max(0, Math.min(100, practicalApplication));
 
-    // 4. Structure / Progression (15%) — thesis → evidence → transitions → conclusion
-    const argStructure = this._analyzeArgumentStructure(text, mode);
-    const structureProgression = argStructure.score;
+    // 4. Argument progression — described, not scored. It used to be four yes/no checks for
+    // phrases like "this book argues" and "in conclusion", so a book that never used them
+    // scored 0-50 on 15% of its overall. It now reads the same unit model as Argument
+    // Structure: how each chapter balances illustration and exposition, where signposting
+    // thins, chapter length, and whether the book's key terms persist.
+    const argStructure = (structure && structure.arc === 'nonfiction-structure') ? structure : this._analyzeNonfictionStructure(text, mode, { primary: 'selfHelp' });
+    const structureProgression = null;
+    const structureLead = (argStructure.findings || []).find(f => !f.info) || (argStructure.findings || [])[0] || null;
 
     // 5. Insight Quality (15%) — non-obvious, memorable ideas backed by specific claims
     const insightMarkers = (lower.match(/\b(the\s+truth\s+is|here'?s?\s+(why|what|the\s+thing)|the\s+real\s+(reason|problem|issue|truth)|what\s+most\s+people|counterintuitive|paradox|the\s+key\s+(insight|idea|principle|lesson)|aha|breakthrough|mindset\s+shift|reframe|rethink)\b/g) || []).length;
@@ -1699,16 +1694,7 @@ const Analyzer = {
     evidenceSupport += ramp(perK(storyMarkers), 1.0, 10);
     evidenceSupport = Math.max(0, Math.min(100, evidenceSupport));
 
-    const overall = Math.round(
-      clarityReadability   * 0.15 +
-      readerIdentification * 0.15 +
-      practicalApplication * 0.15 +
-      structureProgression * 0.15 +
-      insightQuality       * 0.15 +
-      voiceAuthority       * 0.10 +
-      emotionalMomentum    * 0.10 +
-      evidenceSupport      * 0.05
-    );
+    const overall = this._selfHelpOverall({ clarityReadability, readerIdentification, practicalApplication, insightQuality, voiceAuthority, emotionalMomentum, evidenceSupport });
 
     return {
       overall,
@@ -1725,7 +1711,7 @@ const Analyzer = {
           clarity: 'Sentences average ' + Math.round(avgSentLen) + ' words and ' + Math.round(shortParaRatio * 100) + '% of paragraphs are short. Reading ease is ' + Math.round(fk.ease) + ' on a 100-point scale where higher is easier.',
           reader: 'The reader is spoken to as \u201Cyou\u201D ' + every(youCount) + '. The problems they bring are named ' + every(problemLang) + '.',
           practical: many(imperativeCount, 'line tells', 'lines tell') + ' the reader to do something, and ' + many(exerciseMarkers, 'exercise is', 'exercises are') + ' set: ' + every(imperativeCount + exerciseMarkers) + '.',
-          structure: (argStructure.thesisSignals ? 'The opening states what the book will argue.' : 'No sentence in the opening says what the book will argue.') + ' ' + (argStructure.synthesisSignals ? 'The close draws the argument together.' : 'The close does not signal a summing-up.'),
+          structure: structureLead ? structureLead.title + '. ' + structureLead.text : (argStructure.overview || argStructure.details || 'Too little text to describe the structure.'),
           insight: many(insightMarkers, 'insight is', 'insights are') + ' signposted (\u201Cthe truth is\u201D, \u201Chere\u2019s why\u201D), ' + every(insightMarkers) + '. ' + (researchClaims ? many(researchClaims, 'research claim', 'research claims') + ' and ' : 'No research is cited; ') + many(specificStats, 'specific figure', 'specific figures') + '.',
           voice: many(authorityMarkers, 'first-hand experience claim', 'first-hand experience claims') + '. Hedges such as \u201Cmaybe\u201D and \u201Csort of\u201D appear ' + every(hedgeWords) + '.',
           momentum: 'Language of change and progress appears ' + every(transformWords) + ', with ' + many(motivationalPhrases, 'motivational phrase', 'motivational phrases') + '.',
@@ -1738,7 +1724,7 @@ const Analyzer = {
         clarity: `Flesch ${Math.round(fk.ease)} · ${Math.round(avgSentLen)} words/sentence · ${Math.round(shortParaRatio * 100)}% short paragraphs`,
         reader: `${youPerK.toFixed(1)}/1K "you" · ${probPerK.toFixed(1)}/1K problem words · ${perK(empathyMarkers).toFixed(1)}/1K empathy cues`,
         practical: `${perK(imperativeCount).toFixed(1)}/1K imperatives (${imperativeCount}) · ${perK(exerciseMarkers).toFixed(1)}/1K exercises (${exerciseMarkers}) · ${perK(stepPatterns).toFixed(1)}/1K numbered steps · ${perK(howToPatterns).toFixed(1)}/1K how-tos`,
-        structure: `${argStructure.thesisSignals || 0} thesis · ${argStructure.evidenceSignals || 0} evidence · ${argStructure.transitionSignals || 0} transition · ${argStructure.synthesisSignals || 0} synthesis signals`,
+        structure: argStructure.overview || argStructure.details || '',
         insight: `${perK(insightMarkers).toFixed(1)}/1K insight cues (${insightMarkers}) · ${perK(researchClaims).toFixed(1)}/1K research claims · ${perK(specificStats).toFixed(1)}/1K figures · ${perK(novelFraming).toFixed(1)}/1K reframes`,
         voice: `${perK(authorityMarkers).toFixed(1)}/1K experience claims (${authorityMarkers}) · ${perK(confidentAssertions).toFixed(1)}/1K assertions · ${hedgePerK.toFixed(1)}/1K hedges`,
         momentum: `${energyDensity.toFixed(1)}/1K change words · ${perK(motivationalPhrases).toFixed(1)}/1K motivational phrases (${motivationalPhrases})`,
@@ -3934,7 +3920,7 @@ const Analyzer = {
     const writingQuality = this.analyzeWritingQuality(aText, narrativeIssues, sentenceVariety, readability, dialogue, style, genre);
 
     // Self-help: specialized 8-dimension scoring model (replaces fiction blend)
-    const selfHelpScores = (genre.primary === 'selfHelp') ? this._analyzeSelfHelp(aText, mode) : null;
+    const selfHelpScores = (genre.primary === 'selfHelp') ? this._analyzeSelfHelp(aText, mode, plot) : null;
 
     // Overall: weighted average across APPLICABLE dimensions only. Non-applicable
     // dimensions (null dialogue, show-vs-tell for nonfiction) are skipped and the
@@ -3954,7 +3940,7 @@ const Analyzer = {
     // 8-dimension self-help scores).
     if (selfHelpScores) {
       const sh = selfHelpScores;
-      subScores.narrativeHealth = Math.round(((sh.readerIdentification||0)+(sh.structureProgression||0)+(sh.insightQuality||0)+(sh.emotionalMomentum||0)+(sh.practicalApplication||0)+(sh.evidenceSupport||0))/6);
+      subScores.narrativeHealth = this._selfHelpMessage(sh);
       subScores.languageQuality = Math.round((sh.clarityReadability||0)*0.4+(sh.voiceAuthority||0)*0.3+grammarScore*0.3);
     }
 
@@ -4029,19 +4015,10 @@ const Analyzer = {
       const sh = r.selfHelpScores;
       // Keep sub-scores in the same model as the overall
       r.subScores = {
-        narrativeHealth: Math.round(((sh.readerIdentification||0)+(sh.structureProgression||0)+(sh.insightQuality||0)+(sh.emotionalMomentum||0)+(sh.practicalApplication||0)+(sh.evidenceSupport||0))/6),
+        narrativeHealth: this._selfHelpMessage(sh),
         languageQuality: Math.round((sh.clarityReadability||0)*0.4+(sh.voiceAuthority||0)*0.3+((r.scores&&r.scores.grammar)||0)*0.3)
       };
-      return Math.round(
-        (sh.clarityReadability   || 0) * 0.15 +
-        (sh.readerIdentification || 0) * 0.15 +
-        (sh.practicalApplication || 0) * 0.15 +
-        (sh.structureProgression || 0) * 0.15 +
-        (sh.insightQuality       || 0) * 0.15 +
-        (sh.voiceAuthority       || 0) * 0.10 +
-        (sh.emotionalMomentum    || 0) * 0.10 +
-        (sh.evidenceSupport      || 0) * 0.05
-      );
+      return this._selfHelpOverall(sh);
     }
     const s = r.scores || {};
     const wq = r.writingQuality || {};

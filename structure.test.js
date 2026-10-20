@@ -135,3 +135,17 @@ test('an early peak is reported only when the peak stands out from the typical c
   const strong=Analyzer.analyzePlot(book([8,8,2,2,2,2,2,2]),'book',lit);
   assert.ok(strong.findings.some(f=>f.id==='peak-early'));
 });
+
+test('self-help argument progression is described from the unit model, and the overall renormalises without it',()=>{
+  const book=nfBook([1,1,6,1,1,1],3);
+  const r=Analyzer.analyze(book,'selfHelp');
+  const sh=r.selfHelpScores;
+  assert.equal(sh.structureProgression,null);
+  assert.ok(!/this book argues|in conclusion|thesis/i.test(sh.plain.structure),'no phrase-lexicon verdict: '+sh.plain.structure);
+  assert.match(sh.plain.structure,/illustration|signpost|chapter|key terms/i);
+  const w={clarityReadability:.15,readerIdentification:.15,practicalApplication:.15,insightQuality:.15,voiceAuthority:.10,emotionalMomentum:.10,evidenceSupport:.05};
+  let tot=0,wt=0;for(const k in w){tot+=sh[k]*w[k];wt+=w[k];}
+  assert.equal(r.overall,Math.round(tot/wt),'the overall is the weighted mean of the seven scored dimensions');
+  assert.equal(Analyzer.recalcOverall(r),r.overall,'recalculation agrees with the first pass');
+  assert.equal(typeof Analyzer._analyzeArgumentStructure,'undefined','the phrase-lexicon model is gone');
+});

@@ -349,7 +349,7 @@ function pdf(){
     // say, and a way into the manuscript. No 40-number dump, no act labels nothing measured.
     await page.locator('.btab[data-p="detailed"]').click();
     const nsText=await page.locator('#ed-detailed .ns-sec').innerText();
-    assert.match(nsText,/Argument Structure/);
+    assert.match(nsText,/Argument (Structure|Progression)/);
     assert.match(nsText,/described, not scored/);
     assert.ok(!/\/100/.test(nsText.split('\n')[0]),'no score on the structure card');
     assert.equal(await page.locator('#ed-detailed svg.ns-curve').count(),1,'one curve from the measured units');

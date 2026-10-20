@@ -938,7 +938,8 @@ function _dimensionCards(r){
       {k:'sh_clarity',  name:'Clarity & Polish',     score:Math.round(sh.clarityReadability||0),  density:perPage(copyRaw),issues:copyRaw,weight:'15%',evidence:ev.clarity},
       {k:'sh_reader',   name:'Promise Strength',      score:Math.round(sh.readerIdentification||0),density:null,issues:hookScore<80?hookProblems:0,weight:'15%',evidence:ev.reader},
       {k:'sh_practical',name:'Practical Application',score:Math.round(sh.practicalApplication||0),density:null,issues:0,weight:'15%',evidence:ev.practical},
-      {k:'sh_structure',name:'Argument Progression', score:Math.round(sh.structureProgression||0),density:null,issues:0,weight:'15%',evidence:ev.structure},
+      // Described, not scored: the card carries the first thing the structure model points at.
+      {k:'sh_structure',name:'Argument Progression', score:null,density:null,issues:((r.plot&&r.plot.findings)||[]).filter(f=>!f.info).length,weight:'not scored',evidence:ev.structure},
       {k:'sh_insight',  name:'Insight Quality',       score:Math.round(sh.insightQuality||0),      density:null,issues:0,weight:'15%',evidence:ev.insight},
       {k:'sh_voice',    name:'Authority & Voice',     score:Math.round(sh.voiceAuthority||0),      density:null,issues:0,weight:'10%',evidence:ev.voice},
       {k:'sh_momentum', name:'Reader Momentum',       score:Math.round(sh.emotionalMomentum||0),   density:null,issues:0,weight:'10%',evidence:ev.momentum},
@@ -1201,6 +1202,7 @@ function showDetail(cat){
   const isSH=r&&r.genre?.primary==='selfHelp';
 
   // Self-help categories get a descriptive panel (no issue list except where there's a real issue mapping)
+  if(isSH&&cat==='sh_structure'){_renderStructureDetail(r,d);return;}
   if(isSH&&cat.startsWith('sh_')){
     const sh=r.selfHelpScores||{};
     const shTitles={sh_clarity:'Clarity & Polish',sh_reader:'Promise Strength',sh_practical:'Practical Application',sh_structure:'Argument Progression',sh_insight:'Insight Quality',sh_voice:'Authority & Voice',sh_momentum:'Reader Momentum',sh_evidence:'Evidence & Support'};
@@ -1374,7 +1376,7 @@ function _structureVocab(r){
   const nf=Analyzer.isNonfiction(r&&r.genre);const p=(r&&r.plot)||{};
   const noun=p.unitSource==='chapter'?'chapter':p.unitSource==='scene-break'?(nf?'section':'scene'):'segment';
   return {nf,noun,Noun:noun.charAt(0).toUpperCase()+noun.slice(1),share:nf?'illustrationShare':'sceneShare',
-    title:nf?'Argument Structure':'Narrative Structure',
+    title:(r&&r.genre&&r.genre.primary==='selfHelp')?'Argument Progression':nf?'Argument Structure':'Narrative Structure',
     curveLabel:nf?'Share of each '+noun+' that is example, story or scene, rather than exposition':'Share of each '+noun+' that is action or dialogue, rather than summary',
     note:nf?'Measures how the argument is built: illustration against exposition, signposting, '+noun+' length, and whether the book’s key terms persist. It does not judge whether the argument is sound.':'Measures structure, pacing and the presence of the cast. It does not evaluate stakes, causality or theme.'};
 }
@@ -1617,14 +1619,9 @@ function evidenceTip(r,key,score){
     return rec.length?top(rec):'No measured style-control weakness currently supports a recommendation.';
   }
   if(key==='plot'){
-    const rec=[];const comp=plot.components||{};const cv=plot.curve;
-    if(comp.rhythm&&comp.rhythm.value<0.7) rec.push('Scene share barely changes from unit to unit ('+(cv?cv.amplitude:0)+'-point range): every unit is built the same way.');
-    if(comp.shape&&cv&&cv.peakPosition<0.5) rec.push('The most scene-heavy unit is '+cv.peakUnit+', in the first half of the manuscript.');
-    if(comp.shape&&cv&&!cv.release) rec.push('The final unit is as scene-heavy as the peak; the manuscript does not come down from its climax.');
-    if(comp.lengthControl&&comp.lengthControl.outliers.length) rec.push('Unit length outliers: '+comp.lengthControl.outliers.slice(0,3).join(', ')+'.');
-    if(comp.cast&&comp.cast.value<0.7) rec.push(comp.cast.basis+'.');
-    if(plot.thesisSignals===0) rec.push('No explicit claim phrasing was found in the opening paragraphs.');
-    return rec.length?top(rec):'No measured structural weakness currently supports a recommendation.';
+    // Structure is described, not scored: the next step is the first finding that flags something.
+    const f=(plot.findings||[]).filter(x=>!x.info);
+    return f.length?top(f.map(x=>x.title+'. '+x.text)):'Nothing in the structure stands out from the rest of the manuscript.';
   }
   if(key==='dialogue'){
     const fs=(r.dialogue?.findings||[]);
