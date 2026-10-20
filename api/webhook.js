@@ -44,6 +44,7 @@ async function handler(req,res){
       if(data.stripeSubscriptionId&&data.stripeSubscriptionId!==sub.id){
         if(event.type==='customer.subscription.deleted')return;
         if((data.stripeSubscriptionCreated||0)>(sub.created||0))return;
+
       }
       tx.set(ref,{tier:active?plan:'free',stripeCustomerId:sub.customer,
         stripeSubscriptionId:sub.id,subscriptionStatus:sub.status,

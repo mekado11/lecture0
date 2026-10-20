@@ -57,6 +57,7 @@ function pdf(){
     await page.locator('#menu-toggle').click();
     assert.equal(await page.locator('#menu-toggle').getAttribute('aria-expanded'),'true');
     await page.locator('#mobile-nav a').first().click();
+    await page.waitForLoadState('load');
     await page.evaluate(()=>scrollTo(0,0));
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.screenshot({path:path.join(root,'test-results/home-mobile.png')});
@@ -285,7 +286,7 @@ function pdf(){
     assert.match(blurbText,/Blurb material/);
     assert.ok(!/protagonist|must face a choice|chance to survive/i.test(blurbText),'no fiction frame on a self-help book');
     await page.locator('.btab[data-p="annotated"]').click();
-    await page.locator('#rp-scores .rsc[data-cat="sh_evidence"]').click();
+    await page.evaluate(()=>document.querySelectorAll('details.rsc-more').forEach(d=>{d.open=true}));await page.locator('#rp-scores .rsc[data-cat="sh_evidence"]').click();
     await page.locator('#rp-detail .rpd-sub').filter({hasText:'fewest attributed claims'}).waitFor();
     assert.match(await page.locator('#rp-detail .rpd-basis').innerText(),/stor(y|ies) or examples? (is|are) told .* Evidence cues appear/);assert.ok(!/\/1K/.test(await page.locator('#rp-detail .rpd-basis').innerText()),'no per-thousand rates in author-facing copy');
     await page.locator('[data-wsnav="characters"]').click();
@@ -360,7 +361,7 @@ function pdf(){
     assert.ok(await page.locator('#ed-detailed .ns-table tbody tr').count()>=4,'every chapter is listed with its own Inspect');
     await page.locator('#ed-detailed .ns-inspect:visible').first().click();
     assert.equal(await page.locator('#ed-annotated.active').count(),1,'Inspect opens the manuscript view');
-    await page.locator('.rsc[data-cat="plot"]').count().then(async n=>{if(n){await page.locator('.rsc[data-cat="plot"]').click();assert.match(await page.locator('#rp-detail').innerText(),/described, not scored/);}});
+    await page.locator('.rsc[data-cat="plot"]').count().then(async n=>{if(n){await page.evaluate(()=>document.querySelectorAll('details.rsc-more').forEach(d=>{d.open=true}));await page.locator('.rsc[data-cat="plot"]').click();assert.match(await page.locator('#rp-detail').innerText(),/described, not scored/);}});
     console.log('PASS narrative structure: unscored, one curve, editor-phrased findings, inspect into the manuscript');
     // A signed-in author who goes back to the homepage stays signed in: the nav offers the
     // workspace, not Sign in, and the sign-up link the demo banner uses goes straight to the app.
