@@ -645,12 +645,16 @@ function renderSceneIntel(r){
   }else h+='<div class="si-row"><span class="si-label">Not available</span></div>';
   // Structure: the first thing an editor would point at, if there is one.
   const sf=((r.plot&&r.plot.findings)||[]).find(f=>!f.info);
-  if(sf)h+='<div class="si-row" title="'+escA(sf.text)+'"><span class="si-label">Structure</span><span class="si-val">'+esc(sf.title)+'</span></div>';
+  if(sf)h+='<div class="si-row si-stack" title="'+escA(sf.text)+'"><span class="si-label">Structure</span><span class="si-val">'+esc(sf.title)+'</span></div>';
   h+='</div>';
   h+='<div id="lp-start" class="lp-cards"></div>'; // filled by renderLeft: the one "Start here" card
+  h+='<div id="lp-nav-slot"></div>'; // the book navigator sits under "Start here"
   h+='<div class="focus-toggle" id="focus-toggle">Focus Mode <span class="focus-badge off">OFF</span></div>';
   h+='<button class="sim-btn" id="sim-reader-btn">\uD83D\uDC41 Simulate Reader Experience</button>';
+  // Keep the live navigator (its tabs and listeners) across re-renders: hold it, rebuild, re-seat it.
+  const navigator=$('lp-navigator');
   el.innerHTML=h;
+  if(navigator)$('lp-nav-slot')?.appendChild(navigator);
   _renderGenreGoals(r,goalId);
   // Focus mode: hides sidebars (shared state with the fullscreen toggle so the
   // ON/OFF badge can never desync from what's actually on screen)
@@ -939,16 +943,19 @@ function _dimensionCards(r){
   const isNF=Analyzer.isNonfiction(r.genre);const isSH=r.genre?.primary==='selfHelp';const sh=r.selfHelpScores||{};
   const hookScore=rp.hookStrength||0;const hookProblems=r.openingDiagnosis?.problems?.length||0;
   if(isSH&&r.selfHelpScores){
-    const ev=sh.evidence||{};
+    // Cards show the author-facing sentence; the raw rates ride along in the tooltip.
+    const raw=sh.evidence||{},ev=Object.assign({},raw,sh.plain||{});
     return [
       {k:'sh_clarity',  name:'Clarity & Polish',     score:Math.round(sh.clarityReadability||0),  density:perPage(copyRaw),issues:copyRaw,weight:'15%',evidence:ev.clarity},
       {k:'sh_reader',   name:'Promise Strength',      score:Math.round(sh.readerIdentification||0),density:null,issues:hookScore<80?hookProblems:0,weight:'15%',evidence:ev.reader},
       {k:'sh_practical',name:'Practical Application',score:Math.round(sh.practicalApplication||0),density:null,issues:0,weight:'15%',evidence:ev.practical},
-      {k:'sh_structure',name:'Argument Progression', score:Math.round(sh.structureProgression||0),density:null,issues:0,weight:'15%',evidence:ev.structure},
+      // Described, not scored: the card carries the first thing the structure model points at.
+      {k:'sh_structure',name:'Argument Progression', score:null,density:null,issues:((r.plot&&r.plot.findings)||[]).filter(f=>!f.info).length,weight:'not scored',evidence:ev.structure},
       {k:'sh_insight',  name:'Insight Quality',       score:Math.round(sh.insightQuality||0),      density:null,issues:0,weight:'15%',evidence:ev.insight},
       {k:'sh_voice',    name:'Authority & Voice',     score:Math.round(sh.voiceAuthority||0),      density:null,issues:0,weight:'10%',evidence:ev.voice},
       {k:'sh_momentum', name:'Reader Momentum',       score:Math.round(sh.emotionalMomentum||0),   density:null,issues:0,weight:'10%',evidence:ev.momentum},
-      {k:'sh_evidence', name:'Evidence & Support',    score:Math.round(sh.evidenceSupport||0),     density:null,issues:0,weight:'5%', evidence:ev.evidence}
+      // Described, not scored: what can be observed about sources, attributions and examples.
+      {k:'sh_evidence', name:'Evidence & Support',    score:null,density:null,issues:0,weight:'not scored',evidence:ev.evidence}
     ];
   }
   const p=r.plot||{};
@@ -1021,7 +1028,7 @@ function renderLeft(r){
     +'<div class="lp-start-row"><span class="lp-start-score" style="color:'+col+'">'+best.score+'</span>'
     +'<div class="lp-start-info"><div class="lp-start-name">'+esc(best.name)+'</div>'
     +(basis?'<div class="lp-start-basis">'+esc(basis)+'</div>':'')
-    +'<div class="lp-start-why">'+esc(best.weight)+' of the overall \u00B7 the fix that moves it most</div></div></div>'
+    +'<div class="lp-start-why">Of everything measured, improving this would lift your overall score the most.</div></div></div>'
     +'<button class="lpc-action" id="lp-start-open" data-cat="'+esc(best.k)+'">Open in workbench \u2192</button></div>';
   $('lp-start-open')?.addEventListener('click',()=>_activateDimension(best.k));
 }
@@ -1082,7 +1089,7 @@ const _issueWhy={
 const _REWRITE_TYPES = new Set(['passive','adverb','weak-verb','show-tell','wordy','cliche','grammar']);
 
 function _isPaid() {
-  return window.__isAdmin || window.__userPlan === 'starter' || window.__userPlan === 'premium' || window.__userPlan === 'beta';
+  return window.__aiOpenAccess === true || window.__isAdmin || window.__userPlan === 'starter' || window.__userPlan === 'premium' || window.__userPlan === 'beta';
 }
 
 function _cardBtnsHtml(card) {
@@ -1230,6 +1237,7 @@ function showDetail(cat){
   const isSH=r&&r.genre?.primary==='selfHelp';
 
   // Self-help categories get a descriptive panel (no issue list except where there's a real issue mapping)
+  if(isSH&&cat==='sh_structure'){_renderStructureDetail(r,d);return;}
   if(isSH&&cat.startsWith('sh_')){
     const sh=r.selfHelpScores||{};
     const shTitles={sh_clarity:'Clarity & Polish',sh_reader:'Promise Strength',sh_practical:'Practical Application',sh_structure:'Argument Progression',sh_insight:'Insight Quality',sh_voice:'Authority & Voice',sh_momentum:'Reader Momentum',sh_evidence:'Evidence & Support'};
@@ -1241,11 +1249,12 @@ function showDetail(cat){
       sh_insight:'The best self-help offers non-obvious ideas — reframes, counterintuitive claims, or research-backed surprises that make readers think "I never thought of it that way."',
       sh_voice:'Readers choose self-help authors they trust. Confident assertions, first-person authority, and low hedge-word density signal expertise. Avoid "maybe" and "sort of."',
       sh_momentum:'Self-help must carry emotional energy. Transformation language, motivational phrases, and forward-moving word choices keep readers energized to continue and act.',
-      sh_evidence:'Claims without backing are just opinions. Data, research citations, specific statistics, and personal case studies give readers confidence that the advice actually works.'
+      sh_evidence:'Described, not scored. What can be observed: the sources you cite, the claims you attribute, the specific figures you give, and how much of each chapter is example, story or scene. Whether a claim is true is not measured.'
     };
     const shScores={sh_clarity:sh.clarityReadability,sh_reader:sh.readerIdentification,sh_practical:sh.practicalApplication,sh_structure:sh.structureProgression,sh_insight:sh.insightQuality,sh_voice:sh.voiceAuthority,sh_momentum:sh.emotionalMomentum,sh_evidence:sh.evidenceSupport};
-    const score=Math.round(shScores[cat]||0);
-    const col=score>=80?'var(--green)':score>=60?'var(--yellow)':'var(--red)';
+    const scored=Number.isFinite(shScores[cat]);
+    const score=scored?Math.round(shScores[cat]):null;
+    const col=!scored?'var(--muted)':score>=80?'var(--green)':score>=60?'var(--yellow)':'var(--red)';
     const card=_dimensionCards(r).find(c=>c.k===cat);const basis=card?_dimensionBasis(card):'';
     // For copy/voice/structure categories, also surface relevant issues
     const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
@@ -1262,8 +1271,8 @@ function showDetail(cat){
     // Dimensions with no locatable copy findings show where in the book the evidence is thin,
     // from Document Intelligence's per-chapter extraction (filled once the build is ready).
     if(cat==='sh_evidence'||cat==='sh_practical')issueRows+='<div id="rpd-chapters" class="rpd-desc">Reading chapters…</div>';
-    d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+shTitles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">score: <b style="color:'+col+'">'+score+'/100</b></span></div>'+
-      (basis?'<div class="rpd-basis">Built from: '+esc(basis)+'</div>':'')+
+    d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+shTitles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">'+(scored?'score: <b style="color:'+col+'">'+score+'/100</b>':'described, not scored')+'</span></div>'+
+      (basis?'<div class="rpd-basis">'+esc(basis)+'</div>':'')+
       '<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+shWhy[cat]+'</div>'+
       issueRows;
     $('rpd-open-coach')?.addEventListener('click',()=>showOpeningCoach());
@@ -1315,7 +1324,7 @@ function showDetail(cat){
   const fCard=_dimensionCards(r).find(c=>c.k===cat);const fBasis=fCard?_dimensionBasis(fCard):'';
   d.innerHTML=progressHtml+
     '<div class="rpd-title"><span style="font-size:1.1rem">'+titles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">'+totalForCat+' issue'+(totalForCat===1?'':'s')+'</span></div>'+
-    (fBasis?'<div class="rpd-basis">Built from: '+esc(fBasis)+'</div>':'')+
+    (fBasis?'<div class="rpd-basis">'+esc(fBasis)+'</div>':'')+
     (catWhy[cat]?'<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+catWhy[cat]+'</div>':'')+
     (shown.length===0?'<p style="color:var(--muted);font-size:.78rem;padding:.5rem">No locatable findings are mapped to this category. Use the measured evidence in Detailed rather than treating absence of findings as a quality verdict.</p>':
     shown.map((iss,idx)=>{
@@ -1403,7 +1412,7 @@ function _structureVocab(r){
   const nf=Analyzer.isNonfiction(r&&r.genre);const p=(r&&r.plot)||{};
   const noun=p.unitSource==='chapter'?'chapter':p.unitSource==='scene-break'?(nf?'section':'scene'):'segment';
   return {nf,noun,Noun:noun.charAt(0).toUpperCase()+noun.slice(1),share:nf?'illustrationShare':'sceneShare',
-    title:nf?'Argument Structure':'Narrative Structure',
+    title:(r&&r.genre&&r.genre.primary==='selfHelp')?'Argument Progression':nf?'Argument Structure':'Narrative Structure',
     curveLabel:nf?'Share of each '+noun+' that is example, story or scene, rather than exposition':'Share of each '+noun+' that is action or dialogue, rather than summary',
     note:nf?'Measures how the argument is built: illustration against exposition, signposting, '+noun+' length, and whether the book’s key terms persist. It does not judge whether the argument is sound.':'Measures structure, pacing and the presence of the cast. It does not evaluate stakes, causality or theme.'};
 }
@@ -1446,7 +1455,7 @@ function renderStructureSection(r){
   h+=_structureCurve(p,v);
   h+='<div class="ns-curve-label">'+esc(v.curveLabel)+'</div>';
   h+=_structureFindingsHtml(p,v);
-  const flagged=new Map();(p.findings||[]).forEach(f=>(f.units||[]).forEach(i=>{if(!flagged.has(i))flagged.set(i,f.title)}));
+  const flagged=new Map();(p.findings||[]).filter(f=>!f.info).forEach(f=>(f.units||[]).forEach(i=>{if(!flagged.has(i))flagged.set(i,(f.notes&&f.notes[i])||f.title)}));
   h+='<details class="ns-table"><summary>All '+p.units.length+' '+esc(v.noun)+'s</summary><table><thead><tr><th>'+esc(v.Noun)+'</th><th>Words</th><th>'+(v.nf?'Illustration':'Scene')+'</th><th></th></tr></thead><tbody>'
     +p.units.map(u=>{const val=u[v.share];return '<tr><td>'+esc(_unitName(u,v))+'</td><td>'+u.words.toLocaleString()+'</td><td><span class="ns-bar"><span style="width:'+(val==null?0:val)+'%"></span></span> '+(val==null?'—':val+'%')+'</td><td class="ns-note">'+esc(flagged.get(u.index)||'')+' <button class="ns-inspect ns-inspect-sm" data-unit="'+u.index+'">Inspect →</button></td></tr>'}).join('')
     +'</tbody></table></details>';
@@ -1502,7 +1511,7 @@ function renderDetailed(r){
   const isNFDetail=Analyzer.isNonfiction(r.genre);
   h+=renderStructureSection(r);
   h+=secWithTip('Transitions',scores.transitions??null,[trans.smoothRate!=null?trans.smoothRate+'% of prose-to-prose paragraph boundaries supported by a connective, shared terms or a referential bridge':(trans.reason||'Not measured.'),sr('Boundaries measured',trans.measuredBoundaries??0),sr('Supported',(trans.smoothTransitions||0)+'/'+(trans.measuredBoundaries??0)),sr('Opening connectives',trans.transitionsUsed||0),sr('Dialogue boundaries not judged',trans.skipped?.dialogue??0),sr('Heading boundaries not judged',trans.skipped?.heading??0)],'transitions',r);
-  h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0)+(ic.repetition||0))+' copy issues in '+(r.totalWords||0).toLocaleString()+' words',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Wordy',ic.wordy||0),sr('Repetition',ic.repetition||0),sr('Confused Words',ic['confused-word']||0)],'copy',r);
+  h+=secWithTip('Copy Editing',scores.copy||0,[((ic.passive||0)+(ic.adverb||0)+(ic.cliche||0)+(ic.wordy||0)+(ic['confused-word']||0)+(ic.repetition||0))+' copy findings in '+(r.segmentation?.narrativeWords||r.totalWords||0).toLocaleString()+' words of narrative (front and back matter excluded)',sr('Passive',ic.passive||0),sr('Adverbs',ic.adverb||0),sr('Cliches',ic.cliche||0),sr('Wordy',ic.wordy||0),sr('Repetition',ic.repetition||0),sr('Confused Words',ic['confused-word']||0)],'copy',r);
   // Line Editing (true stylistic editing, not just readability)
   const le=r.lineEditing||{};
   const lineRows=['Scored: tone, word precision, sentence rhythm, extraneous language. Described only: sentence continuity and POV.'];
@@ -1631,7 +1640,8 @@ function evidenceTip(r,key,score){
   if(key==='transitions'){
     const weak=(trans.details||[]).filter(d=>!d.supported);
     if(!weak.length) return 'No unsupported paragraph boundary was detected by the transition model.';
-    return 'Review '+weak.length+' unsupported paragraph boundar'+(weak.length===1?'y':'ies')+'. Start with paragraphs '+weak.slice(0,3).map(d=>d.fromParagraph+'→'+d.toParagraph).join(', ')+'. These boundaries had no explicit connective and insufficient lexical/referential carryover.';
+    const firsts=weak.slice(0,2).map(d=>d.opening?'\u201C'+d.opening.replace(/\s+\S*$/,'')+'\u2026\u201D':'').filter(Boolean);
+    return weak.length+' of '+(trans.measuredBoundaries||weak.length)+' paragraph openings neither connect back nor repeat a word from the paragraph before.'+(firsts.length?' For example, the paragraphs beginning '+firsts.join(' and ')+'.':'')+' Short, punchy paragraphs often read this way on purpose; look for the ones where the reader loses the thread.';
   }
   if(key==='line'){
     const fs=(le.findings||[]).slice().sort((a,b)=>({high:0,medium:1,low:2}[a.severity]??2)-({high:0,medium:1,low:2}[b.severity]??2));
@@ -1645,14 +1655,9 @@ function evidenceTip(r,key,score){
     return rec.length?top(rec):'No measured style-control weakness currently supports a recommendation.';
   }
   if(key==='plot'){
-    const rec=[];const comp=plot.components||{};const cv=plot.curve;
-    if(comp.rhythm&&comp.rhythm.value<0.7) rec.push('Scene share barely changes from unit to unit ('+(cv?cv.amplitude:0)+'-point range): every unit is built the same way.');
-    if(comp.shape&&cv&&cv.peakPosition<0.5) rec.push('The most scene-heavy unit is '+cv.peakUnit+', in the first half of the manuscript.');
-    if(comp.shape&&cv&&!cv.release) rec.push('The final unit is as scene-heavy as the peak; the manuscript does not come down from its climax.');
-    if(comp.lengthControl&&comp.lengthControl.outliers.length) rec.push('Unit length outliers: '+comp.lengthControl.outliers.slice(0,3).join(', ')+'.');
-    if(comp.cast&&comp.cast.value<0.7) rec.push(comp.cast.basis+'.');
-    if(plot.thesisSignals===0) rec.push('No explicit claim phrasing was found in the opening paragraphs.');
-    return rec.length?top(rec):'No measured structural weakness currently supports a recommendation.';
+    // Structure is described, not scored: the next step is the first finding that flags something.
+    const f=(plot.findings||[]).filter(x=>!x.info);
+    return f.length?top(f.map(x=>x.title+'. '+x.text)):'Nothing in the structure stands out from the rest of the manuscript.';
   }
   if(key==='dialogue'){
     const fs=(r.dialogue?.findings||[]);

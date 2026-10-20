@@ -1306,6 +1306,20 @@ const Analyzer = {
       }
       const tail = text.slice(cursor), tw = wordsIn(tail);
       if (tw >= 60) units.push({ label, heading, start: cursor, end: text.length, words: tw });
+      // A heading over a few dozen lines is not a chapter: a recap page, a chapter summary, a
+      // contents list. When the manuscript has real chapters, fold such sections into the unit
+      // before them (or after, at the start) so they cannot set the typical length or add zeros.
+      const big = units.filter(u => u.words >= 300).map(u => u.words).sort((a, b) => a - b);
+      if (big.length >= 4) {
+        const floor = Math.max(300, big[big.length >> 1] * 0.15);
+        const merged = [];
+        for (const u of units) {
+          if (u.words < floor && merged.length) { const prev = merged[merged.length - 1]; prev.end = u.end; prev.words += u.words; (prev.absorbed = prev.absorbed || []).push(u.label); }
+          else merged.push({ ...u });
+        }
+        while (merged.length > 1 && merged[0].words < floor) { const first = merged.shift(); merged[0].start = first.start; merged[0].words += first.words; (merged[0].absorbed = merged[0].absorbed || []).push(first.label); }
+        if (merged.length >= 3) return { units: merged, source, folded: units.length - merged.length };
+      }
       if (units.length >= 3) return { units, source };
     }
     // Neither headings nor breaks: equal segments cut at paragraph boundaries.
@@ -1327,7 +1341,7 @@ const Analyzer = {
   // Shared by both structure models: units, their prose composition, robust statistics.
   _structureBase(text, mode) {
     const wordsIn = s => (s.match(/\b[\w’'-]+\b/g) || []).length;
-    const { units, source } = this._structureUnits(text, mode);
+    const { units, source, folded } = this._structureUnits(text, mode);
     const classifier = typeof ProseContext !== 'undefined';
     let passages = [];
     if (classifier) { try { passages = ProseContext.classify(text); } catch (e) { passages = []; } }
@@ -1353,7 +1367,7 @@ const Analyzer = {
       const signposts = paras.filter(p => /^(however|moreover|furthermore|meanwhile|consequently|therefore|nevertheless|nonetheless|additionally|similarly|conversely|in contrast|on the other hand|as a result|in addition|for example|for instance|in other words|in fact|indeed|likewise|accordingly|thus|hence|first|second|third|finally|next|then|but|so|yet|still|also)\b/i.test(p)).length;
       u.paragraphs = paras.length; u.signposts = signposts; u.signpostRate = u.words ? Math.round(signposts / u.words * 10000) / 10 : 0;
     });
-    return { units, source, classifier, wordsIn };
+    return { units, source, classifier, wordsIn, folded: folded || 0 };
   },
   _robust(values) {
     const v = values.filter(x => Number.isFinite(x)).sort((a, b) => a - b);
@@ -1391,7 +1405,8 @@ const Analyzer = {
       const max = Math.max(...measured.map(u => u[share])), min = Math.min(...measured.map(u => u[share]));
       if (max - min < 5) findings.push({ id: 'flat', unit: null, units: [], title: 'Every ' + noun + ' is built the same way', text: vocab.what.charAt(0).toUpperCase() + vocab.what.slice(1) + ' stays between ' + min + '% and ' + max + '% across all ' + n + ' ' + noun + 's. ' + vocab.flatWhy });
       // Where the most concentrated unit sits, full manuscripts only.
-      if (mode === 'book' && max - min >= 5) {
+      const { median: typical, mad: spread } = this._robust(measured.map(u => u[share]));
+      if (mode === 'book' && max - min >= 5 && max - typical >= Math.max(8, 2 * (spread || 0))) {
         const peak = measured.find(u => u[share] === max);
         const pos = (peak.index - 1) / Math.max(n - 1, 1);
         if (pos < 0.34) findings.push({ id: 'peak-early', unit: peak.index, units: [peak.index], title: 'The most ' + vocab.heavy + ' ' + noun + ' comes early', text: nameOf(peak) + ' carries the most ' + vocab.what + ' in the manuscript (' + max + '%), ' + Math.round(pos * 100) + '% of the way through. ' + vocab.earlyWhy });
@@ -1401,7 +1416,13 @@ const Analyzer = {
     if (n >= 4) {
       const { median } = this._robust(units.map(u => u.words));
       const outliers = units.filter(u => u.words < median * 0.3 || u.words > median * 3);
-      findings.push({ id: 'length', unit: outliers[0] ? outliers[0].index : null, units: outliers.map(u => u.index), title: (n - outliers.length) + ' of ' + n + ' ' + noun + 's are within the manuscript’s normal length', text: 'The typical ' + noun + ' runs ' + median.toLocaleString() + ' words.' + (outliers.length ? ' ' + outliers.map(u => nameOf(u) + ' (' + u.words.toLocaleString() + ' words)').join(' and ') + (outliers.length === 1 ? ' is' : ' are') + ' far outside that range.' : ' None is far outside that range.'), info: !outliers.length });
+      const listed = outliers.slice(0, 3).map(u => nameOf(u) + ' (' + u.words.toLocaleString() + ' words)');
+      const more = outliers.length > 3 ? ' and ' + (outliers.length - 3) + ' more' : '';
+      const notes = {}; outliers.forEach(u => { notes[u.index] = u.words > median ? 'Much longer than the typical ' + noun : 'Much shorter than the typical ' + noun; });
+      const title = !outliers.length ? 'Every ' + noun + ' is within the manuscript\u2019s normal length'
+        : outliers.length * 3 > n ? noun.charAt(0).toUpperCase() + noun.slice(1) + ' lengths vary widely'
+        : (n - outliers.length) + ' of ' + n + ' ' + noun + 's are within the manuscript\u2019s normal length';
+      findings.push({ id: 'length', unit: outliers[0] ? outliers[0].index : null, units: outliers.map(u => u.index), notes, title, text: 'The typical ' + noun + ' runs ' + median.toLocaleString() + ' words.' + (outliers.length ? ' ' + listed.join(', ') + more + (outliers.length === 1 ? ' is' : ' are') + ' far outside that range.' : ''), info: !outliers.length });
     }
     return findings;
   },
@@ -1410,7 +1431,7 @@ const Analyzer = {
     const legacy = { hasRisingAction: null, hasClimax: null, hasResolution: null, hasCliffhanger: null, hasSceneGoal: null };
     const totalWords = (text.match(/\b[\w’'-]+\b/g) || []).length;
     if (totalWords < 1200) return { score: null, scored: false, applicable: false, arc: 'insufficient-data', details: 'Under 1,200 words: too short to measure structure.', units: [], unitCount: 0, findings: [], components: {}, notAssessed: ['structure: under 1,200 words'], ...legacy };
-    const { units, source, classifier } = this._structureBase(text, mode);
+    const { units, source, classifier, folded } = this._structureBase(text, mode);
     const n = units.length, notAssessed = [];
     const measured = units.filter(u => u.sceneShare != null);
     if (!classifier) notAssessed.push('scene and summary: passage classifier unavailable');
@@ -1441,17 +1462,18 @@ const Analyzer = {
     } else notAssessed.push('cast persistence: fewer than two named characters');
     const shares = measured.map(u => u.sceneShare);
     const curve = shares.length ? { peakIndex: measured[shares.indexOf(Math.max(...shares))].index, peakShare: Math.max(...shares), lowShare: Math.min(...shares), lastUnitShare: shares[shares.length - 1] } : null;
-    const overview = this._structureOverview(units, source, curve, 'sceneShare', 'action or dialogue', findings);
+    const overview = this._structureOverview(units, source, curve, 'sceneShare', 'action or dialogue', findings, folded);
     return { score: null, scored: false, applicable: n >= 3, arc: 'structure', mode: mode || 'chapter',
       methodology: 'Structure is described, not scored. Units come from chapter headings, scene breaks, or equal segments; each unit’s share of scene (action and dialogue) against summary comes from the passage classifier; a unit is called unusual when it sits 2.5 MADs and at least 12 points from the manuscript’s own median; the ending is compared as the final third against the rest. Stakes, causality and what a character wants are not measured.',
       overview, findings,
-      units: units.map(u => ({ index: u.index, label: u.label, heading: u.heading || null, opening: u.opening, words: u.words, sceneShare: u.sceneShare, actionShare: u.actionShare, dialogueShare: u.dialogueShare, reflectionShare: u.reflectionShare, descriptionShare: u.descriptionShare, expositionShare: u.expositionShare, classifiedShare: u.classifiedShare, meanSentence: u.meanSentence, cast: u.cast || [] })),
-      unitCount: n, unitSource: source, curve, cast: castInfo, notAssessed, ...legacy };
+      units: units.map(u => ({ index: u.index, label: u.label, heading: u.heading || null, absorbed: u.absorbed || [], opening: u.opening, words: u.words, sceneShare: u.sceneShare, actionShare: u.actionShare, dialogueShare: u.dialogueShare, reflectionShare: u.reflectionShare, descriptionShare: u.descriptionShare, expositionShare: u.expositionShare, classifiedShare: u.classifiedShare, meanSentence: u.meanSentence, cast: u.cast || [] })),
+      unitCount: n, unitSource: source, folded: folded || 0, curve, cast: castInfo, notAssessed, ...legacy };
   },
-  _structureOverview(units, source, curve, share, what, findings) {
+  _structureOverview(units, source, curve, share, what, findings, folded) {
     const noun = source === 'chapter' ? 'chapter' : source === 'scene-break' ? 'scene' : 'segment';
     const n = units.length;
     let s = n + ' ' + noun + 's' + (source === 'chapter' ? ' from headings' : source === 'scene-break' ? ' from scene breaks' : ' (no headings or scene breaks found, so equal segments)') + '. ';
+    if (folded) s += folded + ' short headed section' + (folded === 1 ? ' (a recap, summary or contents page) is' : 's (recaps, summaries or contents pages) are') + ' counted with the ' + noun + ' before ' + (folded === 1 ? 'it' : 'them') + '. ';
     if (curve) {
       const peak = units.find(u => u.index === curve.peakIndex);
       const peakName = peak.heading ? peak.label : noun.charAt(0).toUpperCase() + noun.slice(1) + ' ' + peak.index;
@@ -1478,7 +1500,7 @@ const Analyzer = {
     const legacy = { hasRisingAction: null, hasClimax: null, hasResolution: null, hasCliffhanger: null, hasSceneGoal: null };
     const totalWords = (text.match(/\b[\w’'-]+\b/g) || []).length;
     if (totalWords < 1200) return { score: null, scored: false, applicable: false, arc: 'insufficient-data', details: 'Under 1,200 words: too short to measure structure.', units: [], unitCount: 0, findings: [], notAssessed: ['structure: under 1,200 words'], ...legacy };
-    const { units, source, classifier } = this._structureBase(text, mode);
+    const { units, source, classifier, folded } = this._structureBase(text, mode);
     const n = units.length, notAssessed = [];
     const measured = units.filter(u => u.illustrationShare != null);
     if (!classifier) notAssessed.push('illustration and exposition: passage classifier unavailable');
@@ -1512,46 +1534,37 @@ const Analyzer = {
     } else notAssessed.push('key-term persistence: too few recurring terms');
     const shares = measured.map(u => u.illustrationShare);
     const curve = shares.length ? { peakIndex: measured[shares.indexOf(Math.max(...shares))].index, peakShare: Math.max(...shares), lowShare: Math.min(...shares), lastUnitShare: shares[shares.length - 1] } : null;
-    const overview = this._structureOverview(units, source, curve, 'illustrationShare', 'example, story or scene', findings);
+    const overview = this._structureOverview(units, source, curve, 'illustrationShare', 'example, story or scene', findings, folded);
     return { score: null, scored: false, applicable: n >= 3, arc: 'nonfiction-structure', mode: mode || 'chapter',
       methodology: 'Argument structure is described, not scored. Units come from headings, section breaks, or equal segments; each unit’s share of illustration (example, story, scene) against exposition comes from the passage classifier; signposting is the rate of paragraphs opening with a connective; key terms are the manuscript’s most frequent content words. A unit is called unusual when it sits 2.5 MADs and at least 12 points from the manuscript’s own median. Whether the argument is sound is not measured.',
       overview, findings,
-      units: units.map(u => ({ index: u.index, label: u.label, heading: u.heading || null, opening: u.opening, words: u.words, illustrationShare: u.illustrationShare, expositionShare: u.expositionShare, reflectionShare: u.reflectionShare, descriptionShare: u.descriptionShare, actionShare: u.actionShare, dialogueShare: u.dialogueShare, classifiedShare: u.classifiedShare, meanSentence: u.meanSentence, signposts: u.signposts, signpostRate: u.signpostRate, paragraphs: u.paragraphs })),
-      unitCount: n, unitSource: source, curve, concepts, notAssessed, ...legacy };
+      units: units.map(u => ({ index: u.index, label: u.label, heading: u.heading || null, absorbed: u.absorbed || [], opening: u.opening, words: u.words, illustrationShare: u.illustrationShare, expositionShare: u.expositionShare, reflectionShare: u.reflectionShare, descriptionShare: u.descriptionShare, actionShare: u.actionShare, dialogueShare: u.dialogueShare, classifiedShare: u.classifiedShare, meanSentence: u.meanSentence, signposts: u.signposts, signpostRate: u.signpostRate, paragraphs: u.paragraphs })),
+      unitCount: n, unitSource: source, folded: folded || 0, curve, concepts, notAssessed, ...legacy };
   },
 
   // ========================
-  // ARGUMENT STRUCTURE (nonfiction equivalent of plot)
-  // Scores: thesis clarity, evidence density, logical transitions, conclusion synthesis
+  // SELF-HELP OVERALL — the weighted mean of the scored dimensions only. Argument progression
+  // and evidence & support are described, not scored, so their old 15% and 5% are
+  // renormalised across the other six.
   // ========================
-  _analyzeArgumentStructure(text, mode) {
-    const paragraphs=text.split(/\n\s*\n/).filter(p=>p.trim());
-    const words=text.match(/\b[\w’'-]+\b/g)||[], totalWords=words.length;
-    if(paragraphs.length<3)return {score:null,applicable:false,arc:'nonfiction',details:'Too little text for argument-structure measurement.',paragraphCount:paragraphs.length,quarters:[]};
-    const opening=paragraphs.slice(0,Math.min(3,paragraphs.length)).join(' ');
-    const closing=paragraphs.slice(-Math.min(3,paragraphs.length)).join(' ');
-    const claimRe=/\b(i argue|this book argues|this chapter argues|the central claim|the thesis|the problem is|the question is|we will show|i will show|this book shows|this chapter shows)\b/gi;
-    const evidenceRe=/\b(for example|for instance|according to|research|study|studies|data|evidence|statistics|case study|survey|experiment|analysis found|results show)\b/gi;
-    const transitionRe=/\b(first|second|third|finally|therefore|consequently|however|moreover|furthermore|in addition|on the other hand|in contrast|as a result|nevertheless|thus|hence|accordingly|meanwhile|subsequently)\b/gi;
-    const synthesisRe=/\b(in conclusion|in summary|to summarize|taken together|overall|ultimately|the takeaway|the evidence shows|we have seen|this means)\b/gi;
-    const thesisSignals=(opening.match(claimRe)||[]).length;
-    const evidenceSignals=(text.match(evidenceRe)||[]).length+(text.match(/\([^)]*\b(19|20)\d{2}\b[^)]*\)|\[\d+\]/g)||[]).length;
-    const transitionSignals=(text.match(transitionRe)||[]).length;
-    const synthesisSignals=(closing.match(synthesisRe)||[]).length;
-    const evidencePerK=+(evidenceSignals/Math.max(totalWords,1)*1000).toFixed(2);
-    const transitionPerK=+(transitionSignals/Math.max(totalWords,1)*1000).toFixed(2);
-    const observed=[thesisSignals>0,evidenceSignals>0,transitionSignals>0,synthesisSignals>0];
-    const score=Math.round(observed.filter(Boolean).length/observed.length*100);
-    const qSize=Math.ceil(paragraphs.length/4);
-    const quarters=[0,1,2,3].map(i=>{const t=paragraphs.slice(i*qSize,Math.min((i+1)*qSize,paragraphs.length)).join(' '),wc=(t.match(/\b[\w’'-]+\b/g)||[]).length,e=(t.match(evidenceRe)||[]).length;return {quarter:i+1,wordCount:wc,evidenceSignals:e,evidencePerK:+(e/Math.max(wc,1)*1000).toFixed(2)}});
-    return {score,applicable:true,arc:'nonfiction',methodology:'Observed claim, evidence, transition, and closing-synthesis signals.',thesisSignals,evidenceSignals,transitionSignals,synthesisSignals,evidencePerK,transitionPerK,hasThesis:thesisSignals>0,hasEvidence:evidenceSignals>0,hasTransitions:transitionSignals>0,hasConclusion:synthesisSignals>0,paragraphCount:paragraphs.length,quarters,hasRisingAction:null,hasClimax:null,hasResolution:null,hasCliffhanger:null,hasSceneGoal:null};
+  _SELF_HELP_WEIGHTS: { clarityReadability: 0.15, readerIdentification: 0.15, practicalApplication: 0.15, insightQuality: 0.15, voiceAuthority: 0.10, emotionalMomentum: 0.10 },
+  _selfHelpOverall(sh) {
+    let total = 0, weight = 0;
+    for (const [k, w] of Object.entries(this._SELF_HELP_WEIGHTS)) { const v = sh[k]; if (Number.isFinite(v)) { total += v * w; weight += w; } }
+    return weight ? Math.round(total / weight) : 0;
   },
+  _selfHelpMessage(sh) {
+    const keys = ['readerIdentification', 'insightQuality', 'emotionalMomentum', 'practicalApplication'];
+    const vals = keys.map(k => sh[k]).filter(Number.isFinite);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+  },
+
 
   // ========================
   // SELF-HELP SCORING ENGINE
   // Scores: problem → insight → belief → action journey
   // ========================
-  _analyzeSelfHelp(text, mode) {
+  _analyzeSelfHelp(text, mode, structure) {
     const lower = text.toLowerCase();
     const totalWords = (text.match(/\b\w+\b/g) || []).length;
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
@@ -1624,9 +1637,14 @@ const Analyzer = {
     practicalApplication += ramp(perK(implPatterns), 1.5, 15);
     practicalApplication = Math.max(0, Math.min(100, practicalApplication));
 
-    // 4. Structure / Progression (15%) — thesis → evidence → transitions → conclusion
-    const argStructure = this._analyzeArgumentStructure(text, mode);
-    const structureProgression = argStructure.score;
+    // 4. Argument progression — described, not scored. It used to be four yes/no checks for
+    // phrases like "this book argues" and "in conclusion", so a book that never used them
+    // scored 0-50 on 15% of its overall. It now reads the same unit model as Argument
+    // Structure: how each chapter balances illustration and exposition, where signposting
+    // thins, chapter length, and whether the book's key terms persist.
+    const argStructure = (structure && structure.arc === 'nonfiction-structure') ? structure : this._analyzeNonfictionStructure(text, mode, { primary: 'selfHelp' });
+    const structureProgression = null;
+    const structureLead = (argStructure.findings || []).find(f => !f.info) || (argStructure.findings || [])[0] || null;
 
     // 5. Insight Quality (15%) — non-obvious, memorable ideas backed by specific claims
     const insightMarkers = (lower.match(/\b(the\s+truth\s+is|here'?s?\s+(why|what|the\s+thing)|the\s+real\s+(reason|problem|issue|truth)|what\s+most\s+people|counterintuitive|paradox|the\s+key\s+(insight|idea|principle|lesson)|aha|breakthrough|mindset\s+shift|reframe|rethink)\b/g) || []).length;
@@ -1666,46 +1684,54 @@ const Analyzer = {
     emotionalMomentum = Math.max(0, Math.min(100, emotionalMomentum));
 
     // 8. Evidence & Support (5%) — data, research, stories that back up claims
-    const evidenceMarkers = (lower.match(/\b(for\s+example|for\s+instance|research|study|studies|data|evidence|according\s+to|statistics|percent|percentage|case\s+in\s+point|specifically|in\s+fact|demonstrates|illustrates)\b/g) || []).length;
+    // 8. Evidence & support — described, not scored. The score was built from a word list
+    // ("research", "data", "for example") and a story list ("when I", "let me tell you"), so a
+    // book that told its stories any other way read as having none. It now reports what can be
+    // observed: sources cited, claims attributed, specific figures, and how much of each chapter
+    // the passage classifier reads as example, story or scene.
     const citationMarkers = (text.match(/\(\d{4}\)|\[\d+\]|\bpage\s+\d+/gi) || []).length;
-    const storyMarkers = (lower.match(/\b(when\s+I|let\s+me\s+tell\s+you|here'?s?\s+a\s+(story|case|example)|I\s+remember|a\s+(client|student|friend|colleague|reader|person)\s+(once|told|asked|came))\b/g) || []).length;
-    const evidencePerK = perK(evidenceMarkers);
-    let evidenceSupport = 12;
-    if (evidencePerK >= 8) evidenceSupport += 65;
-    else if (evidencePerK >= 4) evidenceSupport += 45;
-    else if (evidencePerK >= 2) evidenceSupport += 22;
-    else if (evidencePerK >= 1) evidenceSupport += 10;
-    evidenceSupport += ramp(perK(citationMarkers), 0.5, 15);
-    evidenceSupport += ramp(perK(storyMarkers), 1.0, 10);
-    evidenceSupport = Math.max(0, Math.min(100, evidenceSupport));
+    const attributions = (lower.match(/\b(according\s+to|research\s+(shows?|suggests?|found|finds|indicates?)|studies\s+(show|suggest|found|find)|a\s+(study|survey|report|review)\s+(by|of|in|from|found|showed)|data\s+(from|show|shows|suggest)|(found|reported|concluded)\s+that)\b/g) || []).length;
+    const unitsMeasured = (argStructure.units || []).filter(u => Number.isFinite(u.illustrationShare));
+    const unitWords = unitsMeasured.reduce((n, u) => n + u.words, 0);
+    const illustrationPct = unitWords ? Math.round(unitsMeasured.reduce((n, u) => n + u.illustrationShare * u.words, 0) / unitWords) : null;
+    const thinUnits = unitsMeasured.filter(u => u.illustrationShare <= 2);
+    const evidenceSupport = null;
 
-    const overall = Math.round(
-      clarityReadability   * 0.15 +
-      readerIdentification * 0.15 +
-      practicalApplication * 0.15 +
-      structureProgression * 0.15 +
-      insightQuality       * 0.15 +
-      voiceAuthority       * 0.10 +
-      emotionalMomentum    * 0.10 +
-      evidenceSupport      * 0.05
-    );
+    const overall = this._selfHelpOverall({ clarityReadability, readerIdentification, practicalApplication, insightQuality, voiceAuthority, emotionalMomentum });
 
     return {
       overall,
       clarityReadability, readerIdentification, practicalApplication,
       structureProgression, insightQuality, voiceAuthority,
       emotionalMomentum, evidenceSupport,
+      // What an author reads: one sentence per dimension, in counts and spacing a writer can
+      // picture ("about one every 4,700 words"), not rates per thousand. The raw rates stay in
+      // evidence below for the tooltip and for anyone checking the arithmetic.
+      plain: (() => {
+        const every = n => n > 0 ? 'about one every ' + (Math.round(totalWords / n / 50) * 50 || 50).toLocaleString() + ' words' : 'nowhere in the book';
+        const many = (n, one, more) => n + ' ' + (n === 1 ? one : more);
+        return {
+          clarity: 'Sentences average ' + Math.round(avgSentLen) + ' words and ' + Math.round(shortParaRatio * 100) + '% of paragraphs are short. Reading ease is ' + Math.round(fk.ease) + ' on a 100-point scale where higher is easier.',
+          reader: 'The reader is spoken to as \u201Cyou\u201D ' + every(youCount) + '. The problems they bring are named ' + every(problemLang) + '.',
+          practical: many(imperativeCount, 'line tells', 'lines tell') + ' the reader to do something, and ' + many(exerciseMarkers, 'exercise is', 'exercises are') + ' set: ' + every(imperativeCount + exerciseMarkers) + '.',
+          structure: structureLead ? structureLead.title + '. ' + structureLead.text : (argStructure.overview || argStructure.details || 'Too little text to describe the structure.'),
+          insight: many(insightMarkers, 'insight is', 'insights are') + ' signposted (\u201Cthe truth is\u201D, \u201Chere\u2019s why\u201D), ' + every(insightMarkers) + '. ' + (researchClaims ? many(researchClaims, 'research claim', 'research claims') + ' and ' : 'No research is cited; ') + many(specificStats, 'specific figure', 'specific figures') + '.',
+          voice: many(authorityMarkers, 'first-hand experience claim', 'first-hand experience claims') + '. Hedges such as \u201Cmaybe\u201D and \u201Csort of\u201D appear ' + every(hedgeWords) + '.',
+          momentum: 'Language of change and progress appears ' + every(transformWords) + ', with ' + many(motivationalPhrases, 'motivational phrase', 'motivational phrases') + '.',
+          evidence: many(citationMarkers, 'source is', 'sources are') + ' cited and ' + many(attributions, 'claim is', 'claims are') + ' attributed (\u201Caccording to\u201D, \u201Ca study found\u201D), with ' + many(specificStats, 'specific figure', 'specific figures') + '.' + (illustrationPct == null ? '' : ' Example, story or scene makes up ' + illustrationPct + '% of the book' + (unitsMeasured.length >= 4 ? (thinUnits.length ? '; ' + thinUnits.length + ' of ' + unitsMeasured.length + ' chapters have almost none.' : ', and every chapter has some.') : '.')),
+        };
+      })(),
       // The counts each dimension was built from, so a card can show its basis instead of
       // a word like "Clean" that implies an inspection nobody made.
       evidence: {
         clarity: `Flesch ${Math.round(fk.ease)} · ${Math.round(avgSentLen)} words/sentence · ${Math.round(shortParaRatio * 100)}% short paragraphs`,
         reader: `${youPerK.toFixed(1)}/1K "you" · ${probPerK.toFixed(1)}/1K problem words · ${perK(empathyMarkers).toFixed(1)}/1K empathy cues`,
         practical: `${perK(imperativeCount).toFixed(1)}/1K imperatives (${imperativeCount}) · ${perK(exerciseMarkers).toFixed(1)}/1K exercises (${exerciseMarkers}) · ${perK(stepPatterns).toFixed(1)}/1K numbered steps · ${perK(howToPatterns).toFixed(1)}/1K how-tos`,
-        structure: `${argStructure.thesisSignals || 0} thesis · ${argStructure.evidenceSignals || 0} evidence · ${argStructure.transitionSignals || 0} transition · ${argStructure.synthesisSignals || 0} synthesis signals`,
+        structure: argStructure.overview || argStructure.details || '',
         insight: `${perK(insightMarkers).toFixed(1)}/1K insight cues (${insightMarkers}) · ${perK(researchClaims).toFixed(1)}/1K research claims · ${perK(specificStats).toFixed(1)}/1K figures · ${perK(novelFraming).toFixed(1)}/1K reframes`,
         voice: `${perK(authorityMarkers).toFixed(1)}/1K experience claims (${authorityMarkers}) · ${perK(confidentAssertions).toFixed(1)}/1K assertions · ${hedgePerK.toFixed(1)}/1K hedges`,
         momentum: `${energyDensity.toFixed(1)}/1K change words · ${perK(motivationalPhrases).toFixed(1)}/1K motivational phrases (${motivationalPhrases})`,
-        evidence: `${evidencePerK.toFixed(1)}/1K evidence cues · ${perK(citationMarkers).toFixed(1)}/1K citations (${citationMarkers}) · ${perK(storyMarkers).toFixed(1)}/1K stories (${storyMarkers})`
+        evidence: `${citationMarkers} citations · ${attributions} attributed claims · ${specificStats} figures · illustration ${illustrationPct == null ? 'not measured' : illustrationPct + '%'}${unitsMeasured.length ? ' · ' + thinUnits.length + '/' + unitsMeasured.length + ' chapters under 3%' : ''}`,
       }
     };
   },
@@ -1754,7 +1780,7 @@ const Analyzer = {
       const supported=Boolean(marker)||overlap>=0.06||(pronounBridge&&shared.length>=1);
       if(marker) transitionsUsed++;
       if(supported) smoothTransitions++;
-      details.push({fromParagraph:i,toParagraph:i+1,marker,sharedTerms:shared.slice(0,8),overlapScore:Math.round(overlap*100),pronounBridge,supported});
+      details.push({opening:currTrim.replace(/\s+/g,' ').slice(0,70),fromParagraph:i,toParagraph:i+1,marker,sharedTerms:shared.slice(0,8),overlapScore:Math.round(overlap*100),pronounBridge,supported});
     }
     if(details.length<3) return notMeasured('Fewer than three prose-to-prose paragraph boundaries ('+skipped.dialogue+' dialogue and '+skipped.heading+' heading boundaries were not measured).');
     const smoothRate=Math.round(smoothTransitions/details.length*100);
@@ -3903,7 +3929,7 @@ const Analyzer = {
     const writingQuality = this.analyzeWritingQuality(aText, narrativeIssues, sentenceVariety, readability, dialogue, style, genre);
 
     // Self-help: specialized 8-dimension scoring model (replaces fiction blend)
-    const selfHelpScores = (genre.primary === 'selfHelp') ? this._analyzeSelfHelp(aText, mode) : null;
+    const selfHelpScores = (genre.primary === 'selfHelp') ? this._analyzeSelfHelp(aText, mode, plot) : null;
 
     // Overall: weighted average across APPLICABLE dimensions only. Non-applicable
     // dimensions (null dialogue, show-vs-tell for nonfiction) are skipped and the
@@ -3923,13 +3949,15 @@ const Analyzer = {
     // 8-dimension self-help scores).
     if (selfHelpScores) {
       const sh = selfHelpScores;
-      subScores.narrativeHealth = Math.round(((sh.readerIdentification||0)+(sh.structureProgression||0)+(sh.insightQuality||0)+(sh.emotionalMomentum||0)+(sh.practicalApplication||0)+(sh.evidenceSupport||0))/6);
+      subScores.narrativeHealth = this._selfHelpMessage(sh);
       subScores.languageQuality = Math.round((sh.clarityReadability||0)*0.4+(sh.voiceAuthority||0)*0.3+grammarScore*0.3);
     }
 
     // Issue density normalized per 1000 words, over the findings that actually scored.
     const issuesPerK = Math.round(scoredIssues.length / Math.max(totalWords, 1) * 1000 * 10) / 10;
-    const countScored = t => scoredIssues.reduce((n, i) => n + (i.type === t ? 1 : 0), 0);
+    // The counts beside each score are the findings that score was built from: scored (not set
+    // aside) and inside the narrative span. Front-matter highlights stay visible but uncounted.
+    const countScored = t => narrativeIssues.reduce((n, i) => n + (i.type === t ? 1 : 0), 0);
 
     return {
       overall, genre, totalWords, manuscriptMode, issuesPerK,
@@ -3996,19 +4024,10 @@ const Analyzer = {
       const sh = r.selfHelpScores;
       // Keep sub-scores in the same model as the overall
       r.subScores = {
-        narrativeHealth: Math.round(((sh.readerIdentification||0)+(sh.structureProgression||0)+(sh.insightQuality||0)+(sh.emotionalMomentum||0)+(sh.practicalApplication||0)+(sh.evidenceSupport||0))/6),
+        narrativeHealth: this._selfHelpMessage(sh),
         languageQuality: Math.round((sh.clarityReadability||0)*0.4+(sh.voiceAuthority||0)*0.3+((r.scores&&r.scores.grammar)||0)*0.3)
       };
-      return Math.round(
-        (sh.clarityReadability   || 0) * 0.15 +
-        (sh.readerIdentification || 0) * 0.15 +
-        (sh.practicalApplication || 0) * 0.15 +
-        (sh.structureProgression || 0) * 0.15 +
-        (sh.insightQuality       || 0) * 0.15 +
-        (sh.voiceAuthority       || 0) * 0.10 +
-        (sh.emotionalMomentum    || 0) * 0.10 +
-        (sh.evidenceSupport      || 0) * 0.05
-      );
+      return this._selfHelpOverall(sh);
     }
     const s = r.scores || {};
     const wq = r.writingQuality || {};

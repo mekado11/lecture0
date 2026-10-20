@@ -31,9 +31,17 @@ test('deletion tombstones block privileged AI accounts too',async()=>{
   const res=await call(proxy({deleted:true,env:{ADMIN_UIDS:'author'}}));
   assert.equal(res.statusCode,403);
 });
-test('unknown or missing AI access profiles fail closed',async()=>{
-  for(const profile of [null,{}, {tier:'invented'},{tier:'toString'},{tier:'__proto__'}]){
-    const res=await call(proxy({profile}));assert.equal(res.statusCode,403);
+test('corrupt tier values fail closed; with the subscription gate on, so do missing profiles',async()=>{
+  for(const profile of [{tier:'invented'},{tier:'toString'},{tier:'__proto__'}]){
+    const res=await call(proxy({profile}));assert.equal(res.statusCode,403,JSON.stringify(profile));
+  }
+  for(const profile of [null,{},{tier:'invented'}]){
+    const res=await call(proxy({profile,env:{AI_REQUIRE_SUBSCRIPTION:'1'}}));assert.equal(res.statusCode,403,JSON.stringify(profile));
+  }
+});
+test('pre-launch: an ordinary account with no tier reaches the provider check',async()=>{
+  for(const profile of [null,{}]){
+    const res=await call(proxy({profile}));assert.equal(res.statusCode,503,'past the tier gate, stopped only by the absent provider key');
   }
 });
 test('AI provider and rate authority failures never fall back to another provider',async()=>{

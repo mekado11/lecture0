@@ -79,3 +79,11 @@ test('dialogue: a tag adverb needs a speech verb, and a handful of lines is not 
   assert.equal(few.score,null);
   assert.equal(few.applicable,false);
 });
+
+test('the copy count beside the score is the set the score was built from',()=>{
+  const front='Copyright 2026. All rights reserved. This book is very really quite extremely totally completely basically sold as is.\n\n';
+  const body=Array.from({length:40},()=>'The door was opened slowly. She really walked quickly to the gate, and the gate was very old. ').join('\n\n');
+  const r=Analyzer.analyze(front+body,'literary');
+  const c=r.issueCounts,n=c.passive+c.adverb+c.cliche+c.wordy+c['confused-word']+c.repetition;
+  assert.equal(Analyzer.scoreCopyEditing(Array.from({length:n},()=>({type:'adverb'})),r.segmentation.narrativeWords),r.scores.copy);
+});
