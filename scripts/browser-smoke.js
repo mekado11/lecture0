@@ -168,7 +168,7 @@ function pdf(){
     const startCat=await page.locator('#lp-start-open').getAttribute('data-cat');
     await page.locator('#lp-start-open').click();
     assert.equal(await page.locator('#rp-scores .rsc.active').getAttribute('data-cat'),startCat,'Start here opens its dimension in the workbench');
-    assert.match(await page.locator('#rp-detail').innerText(),/Built from:/);
+    assert.equal(await page.locator('#rp-detail .rpd-basis').count(),1,'the detail carries the finding it was built from');
     assert.ok(!(await page.locator('#right-panel').innerText()).includes('What does your book know'),'the Intelligence box is now a button');
     console.log('PASS verdict and workbench: Start here, Built from, Intelligence as a button');
     for(const mode of ['characters','threads','review','chapters']){
@@ -271,7 +271,7 @@ function pdf(){
     const nfRail=await page.locator('#scene-intel').innerText();
     assert.match(nfRail,/Self-Help reader comes for/i,nfRail);
     assert.ok(!/Strong dialogue|Fast pacing|Build tension/.test(nfRail),'a self-help book is not judged against fiction goals');
-    assert.match(await page.locator('#rp-scores').innerText(),/imperatives/,'self-help cards show the counts behind the score');
+    assert.match(await page.locator('#rp-scores').innerText(),/lines? tells? the reader to do something/,'self-help cards show the counts behind the score');
     // Twelve short chapters and no closing marker read as a partial manuscript; the author of
     // a short complete book confirms it in the header, and blurbs (a whole-book feature) open.
     assert.match(await page.locator('#top-status').innerText(),/Partial manuscript/);
@@ -287,7 +287,7 @@ function pdf(){
     await page.locator('.btab[data-p="annotated"]').click();
     await page.locator('#rp-scores .rsc[data-cat="sh_evidence"]').click();
     await page.locator('#rp-detail .rpd-sub').filter({hasText:'fewest attributed claims'}).waitFor();
-    assert.match(await page.locator('#rp-detail').innerText(),/Built from: .*evidence cues/);
+    assert.match(await page.locator('#rp-detail .rpd-basis').innerText(),/stor(y|ies) or examples? (is|are) told .* Evidence cues appear/);assert.ok(!/\/1K/.test(await page.locator('#rp-detail .rpd-basis').innerText()),'no per-thousand rates in author-facing copy');
     await page.locator('[data-wsnav="characters"]').click();
     assert.equal(await page.locator('[data-wsnav="characters"]').innerText(),'Concepts');
     await page.locator('#intel-open').click();

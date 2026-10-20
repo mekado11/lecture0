@@ -3,6 +3,9 @@ firebase.initializeApp(FIREBASE_CONFIG);
 const ADMIN_EMAILS = ['admin@authorscrolls.com'];
 window.__isAdmin = false;
 window.__userPlan = 'free';
+// Pre-launch: AI features are open to every signed-in account (the server enforces the same
+// rule; set AI_REQUIRE_SUBSCRIPTION=1 there and flip this to false to restore the gate).
+window.__aiOpenAccess = true;
 // Never silently erase the sole surviving copy of an older draft.
 sessionStorage.removeItem('ml_cache');
 function clearPrivateStorage(preserveLegacy=false){

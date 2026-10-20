@@ -6,6 +6,10 @@ const { verifyToken, getAdmin } = require('./_auth');
 const { checkAndIncrement, analysisRun, openAnalysisRun } = require('./_ratelimit');
 
 const LIMITS = { dev: 9999, beta: 50, premium: 75, starter: 25, free: 0 };
+// Pre-launch: every signed-in account gets the beta allowance, so AI can be exercised before
+// subscriptions ship. Sign-in, the daily count and the 24-hour analysis run still apply.
+// Set AI_REQUIRE_SUBSCRIPTION=1 on the server to restore the subscription gate.
+const subscriptionRequired = () => process.env.AI_REQUIRE_SUBSCRIPTION === '1';
 // Whole-manuscript AI analysis runs once per 24 hours (see _ratelimit.analysisRun). Ask Book,
 // rewrites and fixes are per-request features and stay on the daily count above.
 const ANALYSIS_FEATURES = new Set(['deepcritique','chapterbreakdown','openinganalysis','weaknessanalysis','comptitles','queryletter','betareaders','marketreadiness','editingroadmap','readersimulation','smartscan','calibrateissues']);
@@ -21,10 +25,13 @@ async function getUserTier(userId) {
         db.collection('users').doc(userId),
         db.collection('accountDeletions').doc(userId)
       );
-      if (deletion.exists) return 'free';
+      // A deleted account and a corrupt tier value are 'blocked', never 'free': pre-launch
+      // promotes 'free' to the beta allowance, and neither of these may ride that promotion.
+      if (deletion.exists) return 'blocked';
       if ((process.env.ADMIN_UIDS||'').split(',').map(s=>s.trim()).includes(userId)) return 'dev';
-      const tier = profile.exists ? profile.data().tier : 'free';
-      return typeof tier === 'string' && Object.hasOwn(LIMITS,tier) ? tier : 'free';
+      const tier = profile.exists ? profile.data().tier : undefined;
+      if (tier == null) return 'free'; // an ordinary account: clients cannot write a tier
+      return typeof tier === 'string' && Object.hasOwn(LIMITS,tier) ? tier : 'blocked';
     } catch (_) { return null; } // Unavailable authority is not a cached grant.
   }
   return 'free';
@@ -82,7 +89,9 @@ module.exports = async (req, res) => {
     res.status(503).json({error:{message:'Access verification unavailable. Please try again.',code:'ACCESS_UNAVAILABLE'}});
     return;
   }
-  const limit = LIMITS[userTier] || LIMITS.free;
+  // Before launch a free account is served as beta; the stored tier itself is untouched.
+  const effectiveTier = userTier === 'free' && !subscriptionRequired() ? 'beta' : userTier;
+  const limit = LIMITS[effectiveTier] || LIMITS.free;
 
   // The server owns model authorization. Client routing is only a request hint.
   const ALLOWED_ROUTES = new Set(['claude','claude-premium','openai-fast','openai-nano','openai-premium']);
@@ -98,7 +107,7 @@ module.exports = async (req, res) => {
     premium: new Set(['openai-fast','openai-nano','openai-premium','claude','claude-premium']),
     dev: ALLOWED_ROUTES
   };
-  const permittedRoutes = ROUTES_BY_TIER[userTier] || ROUTES_BY_TIER.free;
+  const permittedRoutes = ROUTES_BY_TIER[effectiveTier] || ROUTES_BY_TIER.free;
   if (!permittedRoutes.has(requestedModel)) {
     res.status(403).json({ error: { message: 'This AI route is not available for your subscription tier', code: 'MODEL_NOT_ALLOWED', tier: userTier } }); return;
   }
@@ -150,7 +159,7 @@ module.exports = async (req, res) => {
   if (used > limit) {
     res.status(429).json({
       error: {
-        message: userTier === 'free' ? 'AI features require a subscription.' : 'Daily AI limit reached (' + limit + '/day). Try again after the daily reset.',
+        message: effectiveTier === 'free' ? 'AI features require a subscription.' : 'Daily AI limit reached (' + limit + '/day). Try again after the daily reset.',
         code: 'RATE_LIMITED', limit, used: used - 1, tier: userTier
       }
     }); return;

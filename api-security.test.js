@@ -15,7 +15,7 @@ test('all authenticated mutation endpoints reject missing identity',async()=>{
   }
 });
 test('unverified admin email does not grant a model entitlement',async()=>{
-  const handler=load('claude',{'./_auth':{verifyToken:async()=>({user:{uid:'ordinary',email:'admin@authorscrolls.com',email_verified:false}}),getAdmin:()=>null},'./_ratelimit':{}});
+  const handler=load('claude',{'./_auth':{verifyToken:async()=>({user:{uid:'ordinary',email:'admin@authorscrolls.com',email_verified:false}}),getAdmin:()=>null},'./_ratelimit':{}},{AI_REQUIRE_SUBSCRIPTION:'1'});
   const res=response();await handler({method:'POST',headers:{'x-model':'claude'},body:{messages:[{role:'user',content:'test'}]}},res);
   assert.equal(res.code,403);
 });
@@ -94,4 +94,17 @@ test('checkout blocks an existing subscription and reuses an in-flight session',
   res=response();await handler(req,res);assert.equal(res.code,200);assert.equal(creations,1);
   res=response();await handler(req,res);assert.equal(res.code,200);assert.equal(creations,1);
   res=response();await handler({...req,body:{plan:'premium'}},res);assert.equal(res.code,409);assert.equal(creations,1);
+});
+test('pre-launch: a free account is served the beta allowance, and sign-in is still required',async()=>{
+  const calls={count:0};
+  const mocks={'./_auth':{verifyToken:async()=>({user:{uid:'writer'}}),getAdmin:()=>null},'./_ratelimit':{checkAndIncrement:async()=>{calls.count++;return 1;},analysisRun:async()=>({allowed:true,startedAt:null,nextAt:null}),openAnalysisRun:async()=>{}}};
+  const open=load('claude',mocks,{});
+  let res=response();await open({method:'POST',headers:{'x-model':'claude','x-feature':'ask-manuscript'},body:{messages:[{role:'user',content:'test'}]}},res);
+  assert.equal(res.code,503,'past the tier gate; stops only because no provider key is set in the test');
+  const gated=load('claude',mocks,{AI_REQUIRE_SUBSCRIPTION:'1',CLAUDE_API_KEY:'k'});
+  res=response();await gated({method:'POST',headers:{'x-model':'claude'},body:{messages:[{role:'user',content:'test'}]}},res);
+  assert.equal(res.code,403,'the switch restores the subscription gate');
+  const anon=load('claude',{'./_auth':{verifyToken:async()=>({user:null,reason:'no_token'}),getAdmin:()=>null},'./_ratelimit':{}},{});
+  res=response();await anon({method:'POST',headers:{},body:{}},res);
+  assert.equal(res.code,401,'no sign-in, no AI');
 });

@@ -56,6 +56,8 @@
       + '<a class="demo-banner-cta" href="index.html#signup">Create a free account →</a></span>';
     document.body.appendChild(banner);
     document.body.classList.add('demo-mode');
+    // The demo has no account and no API: AI stays closed here even while it is open pre-launch.
+    window.__aiOpenAccess = false;
 
     // Cloud actions are meaningless here; hide them rather than let them pretend.
     const saveBtn = document.getElementById('save-btn'); if (saveBtn) saveBtn.hidden = true;

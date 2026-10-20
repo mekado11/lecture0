@@ -59,7 +59,7 @@ const AIEngine = {
   _routeModel(feature) {
     // Features that benefit from Claude's superior analysis
     const claudeFeatures = ['deepCritique', 'chapterBreakdown', 'openingAnalysis'];
-    if (claudeFeatures.includes(feature) && (window.__isAdmin || ['premium','beta'].includes(window.__userPlan))) return 'claude';
+    if (claudeFeatures.includes(feature) && (window.__isAdmin || window.__aiOpenAccess === true || ['premium','beta'].includes(window.__userPlan))) return 'claude';
     // Everything else uses OpenAI (10-50x cheaper)
     return 'openai-fast';
   },

@@ -109,3 +109,29 @@ test('nonfiction findings are quiet when nothing stands out, and the pipeline ro
   assert.equal(r.plot.arc,'nonfiction-structure');
   assert.equal(r.scores.plot,null);
 });
+
+// The manuscript from the report: real chapters interleaved with ~110-word recap pages headed
+// "Chapter N — …". Recaps must not set the typical length, invert the length finding, or add
+// zeros to the curve.
+test('recap and summary pages are folded into the chapter before them, not counted as chapters',()=>{
+  const chapter=i=>'Chapter '+i+': Systems\n\n'+nfUnit(i%3===0?2:1,14);
+  const recap=i=>'Chapter '+i+' — Recap: the starting point\n\nRemember the one idea from this chapter. Write it down, keep it near you, and return to it before you read on. That is the whole exercise for today, and it is enough. '.repeat(3);
+  const parts=[];for(let i=1;i<=12;i++){parts.push(chapter(i));if(i%2===0)parts.push(recap(i));}
+  for(let i=1;i<=6;i++)parts.push(recap(i));
+  const p=Analyzer.analyzePlot(parts.join('\n\n'),'book',nf);
+  assert.equal(p.unitCount,12,'twelve chapters, not '+p.unitCount);
+  assert.equal(p.folded,12);
+  assert.match(p.overview,/12 short headed sections \(recaps, summaries or contents pages\) are counted with the chapter before them/);
+  assert.ok(p.units.every(u=>u.words>=300),'no recap-sized unit survives');
+  const len=p.findings.find(f=>f.id==='length');
+  assert.ok(len.info||len.units.length<=2,'the real chapters are the norm, not the outliers: '+len.title);
+  assert.ok(!/ and .* and .* and /.test(len.text),'outliers are listed briefly');
+});
+
+test('an early peak is reported only when the peak stands out from the typical chapter',()=>{
+  const slight=Analyzer.analyzePlot(book([3,2,2,2,2,2,2,2]),'book',lit);
+  const p=slight.curve;
+  assert.ok(!slight.findings.some(f=>f.id==='peak-early'),'a few points above typical is not a finding: '+JSON.stringify(p));
+  const strong=Analyzer.analyzePlot(book([8,8,2,2,2,2,2,2]),'book',lit);
+  assert.ok(strong.findings.some(f=>f.id==='peak-early'));
+});
