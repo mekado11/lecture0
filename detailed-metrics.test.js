@@ -58,7 +58,8 @@ test('self-help dimensions are rates: the same book five times over scores the s
   const once=Analyzer._analyzeSelfHelp(Array(6).fill(chapter).join('\n\n'),'book');
   const five=Analyzer._analyzeSelfHelp(Array(30).fill(chapter).join('\n\n'),'book');
   assert.equal(once.structureProgression,null,'argument progression is described, not scored');
-  for(const k of ['clarityReadability','readerIdentification','practicalApplication','insightQuality','voiceAuthority','emotionalMomentum','evidenceSupport'])
+  assert.equal(once.evidenceSupport,null,'evidence & support is described, not scored');
+  for(const k of ['clarityReadability','readerIdentification','practicalApplication','insightQuality','voiceAuthority','emotionalMomentum'])
     assert.ok(Math.abs(once[k]-five[k])<=2,k+': '+once[k]+' vs '+five[k]);
   assert.ok(once.practicalApplication<100,'a modest rate of actions does not saturate the dimension: '+once.practicalApplication);
   assert.match(once.evidence.practical,/\/1K imperatives/);

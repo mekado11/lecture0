@@ -1544,16 +1544,17 @@ const Analyzer = {
 
   // ========================
   // SELF-HELP OVERALL — the weighted mean of the scored dimensions only. Argument progression
-  // is described, not scored, so its old 15% is renormalised across the other seven.
+  // and evidence & support are described, not scored, so their old 15% and 5% are
+  // renormalised across the other six.
   // ========================
-  _SELF_HELP_WEIGHTS: { clarityReadability: 0.15, readerIdentification: 0.15, practicalApplication: 0.15, insightQuality: 0.15, voiceAuthority: 0.10, emotionalMomentum: 0.10, evidenceSupport: 0.05 },
+  _SELF_HELP_WEIGHTS: { clarityReadability: 0.15, readerIdentification: 0.15, practicalApplication: 0.15, insightQuality: 0.15, voiceAuthority: 0.10, emotionalMomentum: 0.10 },
   _selfHelpOverall(sh) {
     let total = 0, weight = 0;
     for (const [k, w] of Object.entries(this._SELF_HELP_WEIGHTS)) { const v = sh[k]; if (Number.isFinite(v)) { total += v * w; weight += w; } }
     return weight ? Math.round(total / weight) : 0;
   },
   _selfHelpMessage(sh) {
-    const keys = ['readerIdentification', 'insightQuality', 'emotionalMomentum', 'practicalApplication', 'evidenceSupport'];
+    const keys = ['readerIdentification', 'insightQuality', 'emotionalMomentum', 'practicalApplication'];
     const vals = keys.map(k => sh[k]).filter(Number.isFinite);
     return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
   },
@@ -1683,20 +1684,20 @@ const Analyzer = {
     emotionalMomentum = Math.max(0, Math.min(100, emotionalMomentum));
 
     // 8. Evidence & Support (5%) — data, research, stories that back up claims
-    const evidenceMarkers = (lower.match(/\b(for\s+example|for\s+instance|research|study|studies|data|evidence|according\s+to|statistics|percent|percentage|case\s+in\s+point|specifically|in\s+fact|demonstrates|illustrates)\b/g) || []).length;
+    // 8. Evidence & support — described, not scored. The score was built from a word list
+    // ("research", "data", "for example") and a story list ("when I", "let me tell you"), so a
+    // book that told its stories any other way read as having none. It now reports what can be
+    // observed: sources cited, claims attributed, specific figures, and how much of each chapter
+    // the passage classifier reads as example, story or scene.
     const citationMarkers = (text.match(/\(\d{4}\)|\[\d+\]|\bpage\s+\d+/gi) || []).length;
-    const storyMarkers = (lower.match(/\b(when\s+I|let\s+me\s+tell\s+you|here'?s?\s+a\s+(story|case|example)|I\s+remember|a\s+(client|student|friend|colleague|reader|person)\s+(once|told|asked|came))\b/g) || []).length;
-    const evidencePerK = perK(evidenceMarkers);
-    let evidenceSupport = 12;
-    if (evidencePerK >= 8) evidenceSupport += 65;
-    else if (evidencePerK >= 4) evidenceSupport += 45;
-    else if (evidencePerK >= 2) evidenceSupport += 22;
-    else if (evidencePerK >= 1) evidenceSupport += 10;
-    evidenceSupport += ramp(perK(citationMarkers), 0.5, 15);
-    evidenceSupport += ramp(perK(storyMarkers), 1.0, 10);
-    evidenceSupport = Math.max(0, Math.min(100, evidenceSupport));
+    const attributions = (lower.match(/\b(according\s+to|research\s+(shows?|suggests?|found|finds|indicates?)|studies\s+(show|suggest|found|find)|a\s+(study|survey|report|review)\s+(by|of|in|from|found|showed)|data\s+(from|show|shows|suggest)|(found|reported|concluded)\s+that)\b/g) || []).length;
+    const unitsMeasured = (argStructure.units || []).filter(u => Number.isFinite(u.illustrationShare));
+    const unitWords = unitsMeasured.reduce((n, u) => n + u.words, 0);
+    const illustrationPct = unitWords ? Math.round(unitsMeasured.reduce((n, u) => n + u.illustrationShare * u.words, 0) / unitWords) : null;
+    const thinUnits = unitsMeasured.filter(u => u.illustrationShare <= 2);
+    const evidenceSupport = null;
 
-    const overall = this._selfHelpOverall({ clarityReadability, readerIdentification, practicalApplication, insightQuality, voiceAuthority, emotionalMomentum, evidenceSupport });
+    const overall = this._selfHelpOverall({ clarityReadability, readerIdentification, practicalApplication, insightQuality, voiceAuthority, emotionalMomentum });
 
     return {
       overall,
@@ -1717,7 +1718,7 @@ const Analyzer = {
           insight: many(insightMarkers, 'insight is', 'insights are') + ' signposted (\u201Cthe truth is\u201D, \u201Chere\u2019s why\u201D), ' + every(insightMarkers) + '. ' + (researchClaims ? many(researchClaims, 'research claim', 'research claims') + ' and ' : 'No research is cited; ') + many(specificStats, 'specific figure', 'specific figures') + '.',
           voice: many(authorityMarkers, 'first-hand experience claim', 'first-hand experience claims') + '. Hedges such as \u201Cmaybe\u201D and \u201Csort of\u201D appear ' + every(hedgeWords) + '.',
           momentum: 'Language of change and progress appears ' + every(transformWords) + ', with ' + many(motivationalPhrases, 'motivational phrase', 'motivational phrases') + '.',
-          evidence: many(storyMarkers, 'story or example is', 'stories or examples are') + ' told and ' + many(citationMarkers, 'source is', 'sources are') + ' cited. Evidence cues appear ' + every(evidenceMarkers) + '.'
+          evidence: many(citationMarkers, 'source is', 'sources are') + ' cited and ' + many(attributions, 'claim is', 'claims are') + ' attributed (\u201Caccording to\u201D, \u201Ca study found\u201D), with ' + many(specificStats, 'specific figure', 'specific figures') + '.' + (illustrationPct == null ? '' : ' Example, story or scene makes up ' + illustrationPct + '% of the book' + (unitsMeasured.length >= 4 ? (thinUnits.length ? '; ' + thinUnits.length + ' of ' + unitsMeasured.length + ' chapters have almost none.' : ', and every chapter has some.') : '.')),
         };
       })(),
       // The counts each dimension was built from, so a card can show its basis instead of
@@ -1730,7 +1731,7 @@ const Analyzer = {
         insight: `${perK(insightMarkers).toFixed(1)}/1K insight cues (${insightMarkers}) · ${perK(researchClaims).toFixed(1)}/1K research claims · ${perK(specificStats).toFixed(1)}/1K figures · ${perK(novelFraming).toFixed(1)}/1K reframes`,
         voice: `${perK(authorityMarkers).toFixed(1)}/1K experience claims (${authorityMarkers}) · ${perK(confidentAssertions).toFixed(1)}/1K assertions · ${hedgePerK.toFixed(1)}/1K hedges`,
         momentum: `${energyDensity.toFixed(1)}/1K change words · ${perK(motivationalPhrases).toFixed(1)}/1K motivational phrases (${motivationalPhrases})`,
-        evidence: `${evidencePerK.toFixed(1)}/1K evidence cues · ${perK(citationMarkers).toFixed(1)}/1K citations (${citationMarkers}) · ${perK(storyMarkers).toFixed(1)}/1K stories (${storyMarkers})`
+        evidence: `${citationMarkers} citations · ${attributions} attributed claims · ${specificStats} figures · illustration ${illustrationPct == null ? 'not measured' : illustrationPct + '%'}${unitsMeasured.length ? ' · ' + thinUnits.length + '/' + unitsMeasured.length + ' chapters under 3%' : ''}`,
       }
     };
   },

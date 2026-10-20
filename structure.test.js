@@ -143,9 +143,19 @@ test('self-help argument progression is described from the unit model, and the o
   assert.equal(sh.structureProgression,null);
   assert.ok(!/this book argues|in conclusion|thesis/i.test(sh.plain.structure),'no phrase-lexicon verdict: '+sh.plain.structure);
   assert.match(sh.plain.structure,/illustration|signpost|chapter|key terms/i);
-  const w={clarityReadability:.15,readerIdentification:.15,practicalApplication:.15,insightQuality:.15,voiceAuthority:.10,emotionalMomentum:.10,evidenceSupport:.05};
+  const w={clarityReadability:.15,readerIdentification:.15,practicalApplication:.15,insightQuality:.15,voiceAuthority:.10,emotionalMomentum:.10};
   let tot=0,wt=0;for(const k in w){tot+=sh[k]*w[k];wt+=w[k];}
-  assert.equal(r.overall,Math.round(tot/wt),'the overall is the weighted mean of the seven scored dimensions');
+  assert.equal(r.overall,Math.round(tot/wt),'the overall is the weighted mean of the six scored dimensions');
   assert.equal(Analyzer.recalcOverall(r),r.overall,'recalculation agrees with the first pass');
   assert.equal(typeof Analyzer._analyzeArgumentStructure,'undefined','the phrase-lexicon model is gone');
+});
+
+test('evidence & support is described from observable signals, not a story word list',()=>{
+  const told='Chapter 1: Systems\n\n'+nfUnit(1,6)+'\n\nChapter 2: Habits\n\n'+nfUnit(6,6)+'\n\nChapter 3: Change\n\n'+nfUnit(1,6)+'\n\nChapter 4: Rest\n\n'+nfUnit(2,6)+'\n\nAccording to a 2019 survey (2019), most people found that small cues matter.';
+  const r=Analyzer.analyze(told,'selfHelp');
+  const sh=r.selfHelpScores;
+  assert.equal(sh.evidenceSupport,null);
+  assert.match(sh.plain.evidence,/1 source is cited and \d+ claims? (is|are) attributed/);
+  assert.match(sh.plain.evidence,/Example, story or scene makes up \d+% of the book/,'stories told without "when I" are still seen: '+sh.plain.evidence);
+  assert.ok(!/stor(y|ies) or examples? (is|are) told/.test(sh.plain.evidence),'no story word-list count');
 });

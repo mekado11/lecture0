@@ -954,7 +954,8 @@ function _dimensionCards(r){
       {k:'sh_insight',  name:'Insight Quality',       score:Math.round(sh.insightQuality||0),      density:null,issues:0,weight:'15%',evidence:ev.insight},
       {k:'sh_voice',    name:'Authority & Voice',     score:Math.round(sh.voiceAuthority||0),      density:null,issues:0,weight:'10%',evidence:ev.voice},
       {k:'sh_momentum', name:'Reader Momentum',       score:Math.round(sh.emotionalMomentum||0),   density:null,issues:0,weight:'10%',evidence:ev.momentum},
-      {k:'sh_evidence', name:'Evidence & Support',    score:Math.round(sh.evidenceSupport||0),     density:null,issues:0,weight:'5%', evidence:ev.evidence}
+      // Described, not scored: what can be observed about sources, attributions and examples.
+      {k:'sh_evidence', name:'Evidence & Support',    score:null,density:null,issues:0,weight:'not scored',evidence:ev.evidence}
     ];
   }
   const p=r.plot||{};
@@ -1248,11 +1249,12 @@ function showDetail(cat){
       sh_insight:'The best self-help offers non-obvious ideas — reframes, counterintuitive claims, or research-backed surprises that make readers think "I never thought of it that way."',
       sh_voice:'Readers choose self-help authors they trust. Confident assertions, first-person authority, and low hedge-word density signal expertise. Avoid "maybe" and "sort of."',
       sh_momentum:'Self-help must carry emotional energy. Transformation language, motivational phrases, and forward-moving word choices keep readers energized to continue and act.',
-      sh_evidence:'Claims without backing are just opinions. Data, research citations, specific statistics, and personal case studies give readers confidence that the advice actually works.'
+      sh_evidence:'Described, not scored. What can be observed: the sources you cite, the claims you attribute, the specific figures you give, and how much of each chapter is example, story or scene. Whether a claim is true is not measured.'
     };
     const shScores={sh_clarity:sh.clarityReadability,sh_reader:sh.readerIdentification,sh_practical:sh.practicalApplication,sh_structure:sh.structureProgression,sh_insight:sh.insightQuality,sh_voice:sh.voiceAuthority,sh_momentum:sh.emotionalMomentum,sh_evidence:sh.evidenceSupport};
-    const score=Math.round(shScores[cat]||0);
-    const col=score>=80?'var(--green)':score>=60?'var(--yellow)':'var(--red)';
+    const scored=Number.isFinite(shScores[cat]);
+    const score=scored?Math.round(shScores[cat]):null;
+    const col=!scored?'var(--muted)':score>=80?'var(--green)':score>=60?'var(--yellow)':'var(--red)';
     const card=_dimensionCards(r).find(c=>c.k===cat);const basis=card?_dimensionBasis(card):'';
     // For copy/voice/structure categories, also surface relevant issues
     const copyTypes=new Set(['passive','adverb','cliche','wordy','confused-word','repetition']);
@@ -1269,7 +1271,7 @@ function showDetail(cat){
     // Dimensions with no locatable copy findings show where in the book the evidence is thin,
     // from Document Intelligence's per-chapter extraction (filled once the build is ready).
     if(cat==='sh_evidence'||cat==='sh_practical')issueRows+='<div id="rpd-chapters" class="rpd-desc">Reading chapters…</div>';
-    d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+shTitles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">score: <b style="color:'+col+'">'+score+'/100</b></span></div>'+
+    d.innerHTML='<div class="rpd-title"><span style="font-size:1.1rem">'+shTitles[cat]+'</span><span style="font-size:.7rem;color:var(--muted)">'+(scored?'score: <b style="color:'+col+'">'+score+'/100</b>':'described, not scored')+'</span></div>'+
       (basis?'<div class="rpd-basis">'+esc(basis)+'</div>':'')+
       '<div style="padding:.3rem .5rem;font-size:.7rem;color:var(--muted);line-height:1.5;margin-bottom:.4rem;border-left:2px solid var(--gold-d)">'+shWhy[cat]+'</div>'+
       issueRows;

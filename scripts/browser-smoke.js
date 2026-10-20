@@ -288,7 +288,7 @@ function pdf(){
     await page.locator('.btab[data-p="annotated"]').click();
     await page.evaluate(()=>document.querySelectorAll('details.rsc-more').forEach(d=>{d.open=true}));await page.locator('#rp-scores .rsc[data-cat="sh_evidence"]').click();
     await page.locator('#rp-detail .rpd-sub').filter({hasText:'fewest attributed claims'}).waitFor();
-    assert.match(await page.locator('#rp-detail .rpd-basis').innerText(),/stor(y|ies) or examples? (is|are) told .* Evidence cues appear/);assert.ok(!/\/1K/.test(await page.locator('#rp-detail .rpd-basis').innerText()),'no per-thousand rates in author-facing copy');
+    assert.match(await page.locator('#rp-detail .rpd-basis').innerText(),/sources? (is|are) cited and .* attributed/);assert.match(await page.locator('#rp-detail').innerText(),/described, not scored/);assert.ok(!/\/1K/.test(await page.locator('#rp-detail .rpd-basis').innerText()),'no per-thousand rates in author-facing copy');
     await page.locator('[data-wsnav="characters"]').click();
     assert.equal(await page.locator('[data-wsnav="characters"]').innerText(),'Concepts');
     await page.locator('#intel-open').click();
