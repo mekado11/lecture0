@@ -2556,7 +2556,8 @@ async function runAI(key){
     const msg=e.message||'Unknown error';
     const isCooldown=msg.includes('once every 24 hours');
     const isRateLimit=!isCooldown&&(msg.includes('limit reached')||msg.includes('RATE_LIMITED'));
-    const isAuthErr=msg.startsWith('SERVER_AUTH_ERROR:')||msg.startsWith('SERVER_CONFIG_ERROR:');
+    const isConfigErr=msg.startsWith('SERVER_CONFIG_ERROR:');
+    const isAuthErr=msg.startsWith('SERVER_AUTH_ERROR:')||isConfigErr;
     // Errors render into their own slot. Writing over the intro used to delete the run button's
     // status line, so a Retry then crashed on a missing element.
     const intro=$('ai-error')||document.querySelector('.ai-intro');
@@ -2570,7 +2571,7 @@ async function runAI(key){
         intro.querySelector('.ai-upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
       }else if(isAuthErr){
         const diagText=msg.startsWith('SERVER_CONFIG_ERROR:')?_configDiagnosticMessage(msg):_authDiagnosticMessage(msg);
-        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Authentication Error</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">'+esc(diagText)+'</p><div style="display:flex;justify-content:center"><button class="btn-gold ai-reload-btn" style="width:fit-content;padding:.5rem 1.5rem">Reload to Continue</button></div></div>';
+        intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">'+(isConfigErr?'AI isn\u2019t set up yet':'Sign-in problem')+'</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">'+esc(diagText)+'</p>'+(isConfigErr?'':'<div style="display:flex;justify-content:center"><button class="btn-gold ai-reload-btn" style="width:fit-content;padding:.5rem 1.5rem">Reload to Continue</button></div>')+'</div>';
         intro.querySelector('.ai-reload-btn')?.addEventListener('click',()=>window.location.reload());
       }else{
         intro.innerHTML='<div style="color:var(--red);padding:1rem"><h4>AI Analysis Error</h4><p style="margin:.5rem 0;font-size:.85rem">'+esc(msg)+'</p><button class="btn-gold ai-retry-btn" style="width:auto;padding:.4rem 1rem;margin-top:.75rem">Retry</button></div>';
