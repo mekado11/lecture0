@@ -2583,9 +2583,24 @@ async function runAI(key){
     }
   }
 }
+// A reading that failed, or came back in a form the app could not read, says so in its card.
+// Before this, an error drew an empty box and a parse failure drew headings around nothing.
+function _aiCardStatus(ai){
+  const cards={deepCritique:['ai-deep-critique','Deep Critique'],openingAnalysis:['ai-opening-analysis','Opening Analysis'],editingRoadmap:['ai-editing-roadmap','Editing Roadmap'],compTitles:['ai-comp-titles','Comp Titles'],queryLetter:['ai-query-letter','Query Letter'],betaReaders:['ai-beta-readers','Beta Readers'],marketReadiness:['ai-market-readiness','Market Readiness'],chapterBreakdown:['ai-chapter-breakdown','Chapters']};
+  for(const [key,[id,title]] of Object.entries(cards)){
+    const el=$(id),data=ai[key];if(!el)continue;
+    if(!data){el.innerHTML='<h3>'+title+'</h3><p style="font-size:.75rem;color:var(--muted)">Not part of this run.</p>';continue}
+    if(data.error){el.innerHTML='<h3>'+title+'</h3><p style="font-size:.75rem;color:var(--red)">This reading did not run: '+esc(String(data.error))+'</p>';continue}
+    if(data.parseError){
+      el.innerHTML='<h3>'+title+'</h3><p style="font-size:.75rem;color:var(--yellow)">The model answered, but not in a form the app could read.'+(data.truncated?' The answer was cut off at the length limit; running again usually completes it.':'')+'</p>'
+        +(data.raw?'<details style="font-size:.7rem;color:var(--muted)"><summary>Show the answer as it came back</summary><pre style="white-space:pre-wrap;margin-top:.3rem">'+esc(String(data.raw).slice(0,4000))+'</pre></details>':'');
+    }
+  }
+}
 function renderAI(ai){
+  _aiCardStatus(ai);
   const dc=ai.deepCritique;
-  if(dc&&!dc.error){
+  if(dc&&!dc.error&&!dc.parseError){
     let dcH='<h3>Deep Critique</h3><p style="font-size:.82rem;line-height:1.6;margin-bottom:.6rem">'+esc(dc.overallAssessment||'')+'</p>';
     dcH+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin:.5rem 0">';
     dcH+='<div><h4 style="color:var(--green);font-size:.75rem;margin-bottom:.3rem">Strengths</h4>';
@@ -2611,14 +2626,14 @@ function renderAI(ai){
     dcH+='<div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);margin-top:.4rem"><strong style="color:var(--yellow)">Priority Fix:</strong> '+esc(dc.priorityFix||'')+'</div>';
     $('ai-deep-critique').innerHTML=dcH;
   }
-  const ct=ai.compTitles;if(ct&&!ct.error)$('ai-comp-titles').innerHTML='<h3>Comp Titles</h3><div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);font-weight:600;color:var(--gold-l);margin:.4rem 0">'+esc(ct.pitchLine||'')+'</div><div class="comp-grid">'+(ct.compTitles||[]).map(c=>'<div class="comp-card"><div class="comp-title">'+esc(c.title)+'</div><div class="comp-author">'+esc(c.author)+'</div><div class="comp-reason">'+esc(c.reason)+'</div></div>').join('')+'</div>';
-  const ql=ai.queryLetter;if(ql&&!ql.error){const qlEl=$('ai-query-letter');qlEl.innerHTML='<h3>Query Letter</h3><div class="ql-text">'+esc(ql.queryLetter||'').replace(/\n/g,'<br>')+'</div><button class="btn-dark ql-copy-btn" style="margin-top:.4rem">Copy</button>';const qlCopyBtn=qlEl.querySelector('.ql-copy-btn');if(qlCopyBtn){const qlText=ql.queryLetter||'';qlCopyBtn.addEventListener('click',function(){navigator.clipboard.writeText(qlText);this.textContent='Copied!'})}}
-  const br=ai.betaReaders;if(br&&!br.error)$('ai-beta-readers').innerHTML='<h3>Beta Readers</h3><div class="beta-grid">'+(br.readers||[]).map(r=>'<div class="beta-card"><div class="beta-hdr"><span class="beta-nm">'+esc(r.name)+' '+(r.emoticon||'')+'</span><span class="beta-rt">'+'\u2605'.repeat(r.rating||0)+'</span></div><div class="beta-pro">'+esc(r.profile)+'</div><div class="beta-rx">'+esc(r.reaction)+'</div></div>').join('')+'</div>';
-  const mr=ai.marketReadiness;if(mr&&!mr.error)$('ai-market-readiness').innerHTML='<h3>Market Readiness</h3><div style="font-size:1.8rem;font-weight:800;color:'+sc(mr.readinessScore||0)+'">'+(mr.readinessScore||0)+'/100</div>'+sr('Path',mr.publishingPath||'')+sr('Stage',mr.developmentalStage||'')+sr('Trends',mr.trendAlignment||'');
-  const cb=ai.chapterBreakdown;if(cb&&!cb.error)$('ai-chapter-breakdown').innerHTML='<h3>Chapters</h3><p style="font-size:.75rem;color:var(--muted)">'+esc(cb.structureAssessment||'')+'</p><div class="ch-grid2">'+(cb.chapters||[]).map(c=>'<div class="ch-card2"><div class="ch-num">'+c.number+'</div><div><div class="ch-ttl">'+esc(c.title||'')+'</div><div class="ch-sum">'+esc(c.summary||'')+'</div><div style="display:flex;gap:.2rem;margin-top:.2rem"><span class="ch-bdg">'+c.pacingGrade+'</span><span class="ch-bdg">'+c.tensionLevel+'</span></div></div></div>').join('')+'</div>';
+  const ct=ai.compTitles;if(ct&&!ct.error&&!ct.parseError)$('ai-comp-titles').innerHTML='<h3>Comp Titles</h3><div style="padding:.4rem;background:var(--surface2);border-radius:var(--rs);font-weight:600;color:var(--gold-l);margin:.4rem 0">'+esc(ct.pitchLine||'')+'</div><div class="comp-grid">'+(ct.compTitles||[]).map(c=>'<div class="comp-card"><div class="comp-title">'+esc(c.title)+'</div><div class="comp-author">'+esc(c.author)+'</div><div class="comp-reason">'+esc(c.reason)+'</div></div>').join('')+'</div>';
+  const ql=ai.queryLetter;if(ql&&!ql.error&&!ql.parseError){const qlEl=$('ai-query-letter');qlEl.innerHTML='<h3>Query Letter</h3><div class="ql-text">'+esc(ql.queryLetter||'').replace(/\n/g,'<br>')+'</div><button class="btn-dark ql-copy-btn" style="margin-top:.4rem">Copy</button>';const qlCopyBtn=qlEl.querySelector('.ql-copy-btn');if(qlCopyBtn){const qlText=ql.queryLetter||'';qlCopyBtn.addEventListener('click',function(){navigator.clipboard.writeText(qlText);this.textContent='Copied!'})}}
+  const br=ai.betaReaders;if(br&&!br.error&&!br.parseError)$('ai-beta-readers').innerHTML='<h3>Beta Readers</h3><div class="beta-grid">'+(br.readers||[]).map(r=>'<div class="beta-card"><div class="beta-hdr"><span class="beta-nm">'+esc(r.name)+' '+(r.emoticon||'')+'</span><span class="beta-rt">'+'\u2605'.repeat(r.rating||0)+'</span></div><div class="beta-pro">'+esc(r.profile)+'</div><div class="beta-rx">'+esc(r.reaction)+'</div></div>').join('')+'</div>';
+  const mr=ai.marketReadiness;if(mr&&!mr.error&&!mr.parseError)$('ai-market-readiness').innerHTML='<h3>Market Readiness</h3><div style="font-size:1.8rem;font-weight:800;color:'+sc(mr.readinessScore||0)+'">'+(mr.readinessScore||0)+'/100</div>'+sr('Path',mr.publishingPath||'')+sr('Stage',mr.developmentalStage||'')+sr('Trends',mr.trendAlignment||'');
+  const cb=ai.chapterBreakdown;if(cb&&!cb.error&&!cb.parseError)$('ai-chapter-breakdown').innerHTML='<h3>Chapters</h3><p style="font-size:.75rem;color:var(--muted)">'+esc(cb.structureAssessment||'')+'</p><div class="ch-grid2">'+(cb.chapters||[]).map(c=>'<div class="ch-card2"><div class="ch-num">'+c.number+'</div><div><div class="ch-ttl">'+esc(c.title||'')+'</div><div class="ch-sum">'+esc(c.summary||'')+'</div><div style="display:flex;gap:.2rem;margin-top:.2rem"><span class="ch-bdg">'+c.pacingGrade+'</span><span class="ch-bdg">'+c.tensionLevel+'</span></div></div></div>').join('')+'</div>';
   // Opening Analysis
   const oa=ai.openingAnalysis;
-  if(oa&&!oa.error){
+  if(oa&&!oa.error&&!oa.parseError){
     const hkCol=oa.hookStrength>=7?'var(--green)':oa.hookStrength>=4?'var(--yellow)':'var(--red)';
     let oaH='<h3>Opening Analysis</h3>';
     oaH+='<div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.5rem"><div style="font-size:1.6rem;font-weight:800;color:'+hkCol+'">'+(oa.hookStrength||'?')+'/10</div><div style="font-size:.78rem;color:var(--text)">'+esc(oa.verdict||'')+'</div></div>';
@@ -2643,7 +2658,7 @@ function renderAI(ai){
   }
   // Editing Roadmap
   const er=ai.editingRoadmap;
-  if(er&&!er.error){
+  if(er&&!er.error&&!er.parseError){
     let erH='<h3>Editing Roadmap</h3>';
     if(er.overallOutlook){erH+='<div style="font-size:.78rem;color:var(--text);margin-bottom:.5rem;padding:.4rem .6rem;background:var(--surface2);border-radius:var(--rs);border-left:3px solid var(--gold-l)">'+esc(er.overallOutlook)+'</div>'}
     if(er.priorities&&er.priorities.length>0){

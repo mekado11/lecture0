@@ -128,7 +128,9 @@ module.exports = async (req, res) => {
   const sanitized = {
     system,
     messages,
-    max_tokens: Math.min(Math.max(Number(body.max_tokens) || 2048, 64), 2048)
+    // A full critique or chapter breakdown does not fit in 2,048 tokens, and on Claude the
+    // thinking counts against the same limit.
+    max_tokens: Math.min(Math.max(Number(body.max_tokens) || 8192, 64), 8192)
   };
   // Feature identity is metadata only; authorization remains server-owned.
   res.setHeader('X-AuthorScrolls-Feature', requestedFeature);
@@ -181,6 +183,8 @@ function callClaude(body, res) {
   const payload = JSON.stringify({
     model: 'claude-sonnet-5-5',
     max_tokens: body.max_tokens,
+    // Structured, bounded answers: medium effort keeps the thinking from spending the budget.
+    output_config: { effort: 'medium' },
     system: body.system,
     messages: body.messages
   });
@@ -243,7 +247,7 @@ function callOpenAI(body, model, res) {
   const payload = JSON.stringify({
     model: openaiModel,
     messages,
-    max_tokens: Math.min(body.max_tokens || 2048, 2048),
+    max_tokens: Math.min(body.max_tokens || 8192, 8192),
     temperature: 0.7
   });
 
@@ -268,9 +272,11 @@ function callOpenAI(body, model, res) {
             res.status(proxyRes.statusCode).json({ error: { message: parsed.error.message } });
           } else {
             // Convert OpenAI response to Claude-compatible format
-            const content = parsed.choices?.[0]?.message?.content || '';
+            const choice = parsed.choices?.[0] || {};
+            const content = choice.message?.content || '';
             res.json({
               content: [{ type: 'text', text: content }],
+              stop_reason: choice.finish_reason === 'length' ? 'max_tokens' : 'end_turn',
               usage: {
                 input_tokens: parsed.usage?.prompt_tokens || 0,
                 output_tokens: parsed.usage?.completion_tokens || 0

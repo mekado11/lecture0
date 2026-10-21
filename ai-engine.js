@@ -42,6 +42,24 @@ const AIEngine = {
   // Local dev: /api/claude (Express server)
   // Both work with the same path
   API_ENDPOINT: '/api/claude',
+  // Every text block of a Messages API reply, joined; thinking and other blocks are skipped.
+  responseText(result) {
+    const blocks = Array.isArray(result && result.content) ? result.content : [];
+    return blocks.filter(b => b && typeof b.text === 'string' && (!b.type || b.type === 'text')).map(b => b.text).join('\n').trim();
+  },
+  // The JSON object in a reply: fenced or bare, with prose around it. Null when there is none
+  // or it is cut off, so the caller can say so instead of rendering empty fields.
+  parseStructured(text) {
+    if (!text) return null;
+    const candidates = [];
+    const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence) candidates.push(fence[1]);
+    const first = text.indexOf('{'), last = text.lastIndexOf('}');
+    if (first !== -1 && last > first) candidates.push(text.slice(first, last + 1));
+    candidates.push(text);
+    for (const c of candidates) { try { const v = JSON.parse(c); if (v && typeof v === 'object') return v; } catch (_) {} }
+    return null;
+  },
   // Whole-manuscript analysis features run once per 24 hours; the server enforces it and this
   // browser remembers the next run time it was told, so the author sees the time, not a spent request.
   ANALYSIS_FEATURES: new Set(['deepCritique','chapterBreakdown','openingAnalysis','weaknessAnalysis','compTitles','queryLetter','betaReaders','marketReadiness','editingRoadmap','readerSimulation','smartScan','calibrateIssues']),
@@ -154,7 +172,7 @@ const AIEngine = {
 
     const bodyPayload = JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 2048,
+      max_tokens: 8192,
       system: [
         {
           type: 'text',
@@ -214,16 +232,15 @@ const AIEngine = {
     }
 
     const result = await response.json();
-    const content = result.content?.[0]?.text || '';
+    // The answer is every text block, in order. Claude Sonnet 5.5 puts a thinking block first,
+    // so content[0] is not the text; reading only it left every card empty.
+    const content = AIEngine.responseText(result);
+    const truncated = result.stop_reason === 'max_tokens';
 
-    // Parse JSON from response
-    let parsed;
-    try {
-      // Try to extract JSON if wrapped in markdown
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : content);
-    } catch (e) {
-      parsed = { raw: content, parseError: true };
+    let parsed = AIEngine.parseStructured(content);
+    if (!parsed) {
+      console.warn('[AI] ' + feature + ': the answer could not be read as JSON' + (truncated ? ' (cut off at the length limit)' : '') + '. First 300 chars: ' + content.slice(0, 300));
+      parsed = { raw: content, parseError: true, truncated };
     }
 
     // Add cache usage info
@@ -234,7 +251,8 @@ const AIEngine = {
       cache_creation: result.usage?.cache_creation_input_tokens || 0
     };
 
-    this._setCache(cacheInput, feature, parsed);
+    // A failure is not a result: caching it would replay the blank cards on Retry.
+    if (!parsed.parseError) this._setCache(cacheInput, feature, parsed);
     return parsed;
   },
 
@@ -1010,7 +1028,7 @@ Rules:
 
     const batchBody = JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 2048,
+      max_tokens: 8192,
       system: [{
         type: 'text',
         text: 'You are a fiction editor. For each flagged issue, provide a specific rewrite that preserves the author\'s voice. Return ONLY a valid JSON array — no markdown, no explanation.'
