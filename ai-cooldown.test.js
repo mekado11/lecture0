@@ -79,3 +79,11 @@ test('per-request features and the dev tier never consult the analysis window',a
   assert.equal((await dev.call()).statusCode,200);
   assert.equal(dev.calls.analysisRun,0);
 });
+
+test('each missing server setting answers with its own code, so the owner can tell which',async()=>{
+  const res=await proxy({feature:'deepCritique',env:{}}).call();
+  assert.equal(res.statusCode,503);
+  assert.equal(res.body.error.code,'PROVIDER_KEY_MISSING');
+  assert.equal(res.body.error.provider,'openai');
+  assert.ok(!/KEY|UPSTASH|FIREBASE/.test(res.body.error.message),'the visitor-facing message names no setting');
+});

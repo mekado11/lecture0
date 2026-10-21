@@ -227,6 +227,7 @@
                 <div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0"></div>
                 <span id="ai-status-text" style="font-size:.82rem;color:var(--muted)">Connecting to AI...</span>
               </div>
+              <div id="ai-error" role="status" aria-live="polite"></div>
             </div>
             <div id="ai-results" class="hidden" style="padding:1rem">
               <div id="ai-cache-info"></div>
@@ -457,13 +458,13 @@
   <script src="chapter-metrics.js?v=1"></script>
   <script src="intelligence-pipeline.js?v=2"></script>
   <script src="manuscript-retrieval.js?v=2"></script>
-  <script src="ai-engine.js?v=24"></script>
+  <script src="ai-engine.js?v=25"></script>
   <script src="fixer.js?v=18"></script>
   <!-- intelligence dependencies are loaded above AIEngine -->
   <script data-intelligence-order="complete"></script>
   <script src="storage.js?v=20"></script>
   <script src="analysis-runner.js?v=2"></script>
-  <script src="app.js?v=41"></script>
+  <script src="app.js?v=42"></script>
   <script src="workspace-header.js?v=3"></script>
   <script src="mobile-panels.js?v=21"></script>
 
@@ -474,6 +475,6 @@
     <div class="intel-askbox"><label for="intel-question">Ask your book</label><div><input id="intel-question" placeholder="What has Mara promised Daniel?"><button id="intel-ask">Ask</button></div><div id="intel-answer"></div></div>
   </aside>
 
-  <script src="intelligence-window.js?v=12"></script>
+  <script src="intelligence-window.js?v=13"></script>
 </body>
 </html>

@@ -19,7 +19,21 @@ function _currentGenreKey(){
 }
 document.body.classList.add('lib-mode'); // Library is first view — allow scroll
 
+// A server that is reachable but missing a setting. The visitor sees one plain sentence; the
+// console names the exact Vercel setting for the site owner.
+function _configDiagnosticMessage(msg) {
+  const [code, provider] = msg.replace('SERVER_CONFIG_ERROR:', '').split(':');
+  const owner = {
+    ACCESS_UNAVAILABLE: 'The server could not read the account record. The Firebase service account needs Firestore access (the Cloud Datastore User role).',
+    USAGE_LIMITER_UNAVAILABLE: 'The usage limiter is unavailable. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN on Vercel and redeploy.',
+    PROVIDER_KEY_MISSING: 'No model provider key. Set ' + (provider === 'claude' ? 'CLAUDE_API_KEY' : 'OPENAI_API_KEY') + ' on Vercel and redeploy.',
+    PROVIDER_UNAVAILABLE: 'No model provider key. Set OPENAI_API_KEY on Vercel and redeploy.'
+  }[code] || code;
+  console.warn('[AI] server configuration:', owner);
+  return 'AI isn\u2019t available yet: the server is missing a setting (' + code + '). If you\u2019re the site owner, the browser console says which.';
+}
 function _authDiagnosticMessage(msg) {
+  if (String(msg).startsWith('SERVER_CONFIG_ERROR:')) return _configDiagnosticMessage(msg);
   const parts = msg.replace('SERVER_AUTH_ERROR:', '').split(':');
   const reason = parts[0];
   // Owner breadcrumb: the UI message is deliberately vague (no infra details for
@@ -32,6 +46,8 @@ function _authDiagnosticMessage(msg) {
   if (reason === 'token_invalid') return 'Your login token was rejected by the server. Try signing out and back in.';
   return 'Authentication failed (' + reason + '). Try reloading the page.';
 }
+// app.js runs inside a function scope; panels in other files reach the formatters through here.
+window.AuthorScrollsDiagnostics={auth:_authDiagnosticMessage,config:_configDiagnosticMessage};
 
 // Web Worker for off-main-thread analysis
 // Note: no global onmessage handler here — each caller adds its own per-request handler
@@ -1196,7 +1212,7 @@ async function doRewrite(card) {
     });
 
   } catch(err) {
-    const isAuthErr = err.message.startsWith('SERVER_AUTH_ERROR:');
+    const isAuthErr = /^SERVER_(AUTH|CONFIG)_ERROR:/.test(err.message);
     const errMsg = isAuthErr ? _authDiagnosticMessage(err.message) : esc(err.message);
     btns.innerHTML =
       '<div class="rpd-rewrite-error">⚠ ' + errMsg + '</div>' +
@@ -1802,7 +1818,7 @@ function renderReader(r){
     }catch(e){
       diagBtn.innerHTML='⚡ Diagnose Weak Passages';diagBtn.disabled=false;
       const container=$('ai-weakness-result');
-      const diagMsg=e.message.startsWith('SERVER_AUTH_ERROR:')?_authDiagnosticMessage(e.message):esc(e.message);
+      const diagMsg=/^SERVER_(AUTH|CONFIG)_ERROR:/.test(e.message)?esc(_authDiagnosticMessage(e.message)):esc(e.message);
       if(container)container.innerHTML='<p style="color:var(--red);font-size:.75rem">'+diagMsg+'</p>';
     }
   })}
@@ -2515,9 +2531,10 @@ $('run-ai-btn')?.addEventListener('click',async()=>{
 // API keys handled server-side only
 async function runAI(key){
   if(!analysisResult)return;
-  const st=$('ai-status'),stxt=$('ai-status-text');
-  st.classList.remove('hidden');
-  stxt.textContent='Connecting...';
+  const st=$('ai-status'),stxt=$('ai-status-text'),slot=$('ai-error');
+  if(slot)slot.innerHTML='';
+  st?.classList.remove('hidden');
+  if(stxt)stxt.textContent='Connecting...';
   await Storage.whenReady();
   const u=typeof firebase!=='undefined'?firebase.auth().currentUser:null;
   if(u){try{ await u.getIdToken(true); }catch(_){}}
@@ -2535,12 +2552,15 @@ async function runAI(key){
     $('ai-results').classList.remove('hidden');
     document.querySelector('.ai-intro')?.classList.add('hidden');
   }catch(e){
-    st.classList.add('hidden');
+    st?.classList.add('hidden');
     const msg=e.message||'Unknown error';
     const isCooldown=msg.includes('once every 24 hours');
     const isRateLimit=!isCooldown&&(msg.includes('limit reached')||msg.includes('RATE_LIMITED'));
-    const isAuthErr=msg.startsWith('SERVER_AUTH_ERROR:');
-    const intro=document.querySelector('.ai-intro');
+    const isAuthErr=msg.startsWith('SERVER_AUTH_ERROR:')||msg.startsWith('SERVER_CONFIG_ERROR:');
+    // Errors render into their own slot. Writing over the intro used to delete the run button's
+    // status line, so a Retry then crashed on a missing element.
+    const intro=$('ai-error')||document.querySelector('.ai-intro');
+    document.querySelector('.ai-intro')?.classList.remove('hidden');
     if(intro){
       if(isCooldown){
         intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#9203;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">AI analysis runs once every 24 hours</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:.4rem">'+esc(msg.replace(/^AI analysis runs once every 24 hours\.\s*/,''))+'</p><p style="color:var(--dim);font-size:.72rem">Your last results stay open. Ask Book, rewrites and fixes are not affected.</p></div>';
@@ -2549,7 +2569,7 @@ async function runAI(key){
         intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Daily Limit Reached</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">Free accounts get 3 AI analyses per day.</p><p style="color:var(--muted);font-size:.78rem">Resets at midnight UTC.</p><button class="btn-gold ai-upgrade-btn" style="width:auto;padding:.5rem 1.5rem;margin-top:1rem">&#9733; Upgrade to Premium — $5/mo</button><p style="color:var(--dim);font-size:.7rem;margin-top:.5rem">50 AI analyses/day + Claude deep critique</p></div>';
         intro.querySelector('.ai-upgrade-btn')?.addEventListener('click',()=>$('pricing-modal')?.classList.remove('hidden'));
       }else if(isAuthErr){
-        const diagText=_authDiagnosticMessage(msg);
+        const diagText=msg.startsWith('SERVER_CONFIG_ERROR:')?_configDiagnosticMessage(msg):_authDiagnosticMessage(msg);
         intro.innerHTML='<div style="padding:1.5rem;text-align:center"><div style="font-size:2rem;margin-bottom:.5rem">&#128274;</div><h4 style="color:var(--gold-l);margin-bottom:.5rem">Authentication Error</h4><p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">'+esc(diagText)+'</p><div style="display:flex;justify-content:center"><button class="btn-gold ai-reload-btn" style="width:fit-content;padding:.5rem 1.5rem">Reload to Continue</button></div></div>';
         intro.querySelector('.ai-reload-btn')?.addEventListener('click',()=>window.location.reload());
       }else{

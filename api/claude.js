@@ -135,14 +135,14 @@ module.exports = async (req, res) => {
 
   // Count only authenticated, authorized, structurally valid requests.
   const needsClaude=requestedModel==='claude'||requestedModel==='claude-premium';
-  if(!(needsClaude?process.env.CLAUDE_API_KEY:process.env.OPENAI_API_KEY))return res.status(503).json({error:{message:'Requested provider is unavailable'}});
+  if(!(needsClaude?process.env.CLAUDE_API_KEY:process.env.OPENAI_API_KEY))return res.status(503).json({error:{message:'AI is not configured on the server yet.',code:'PROVIDER_KEY_MISSING',provider:needsClaude?'claude':'openai'}});
   // One AI analysis run per 24 hours. Checked before the daily count so a blocked run is
   // not charged against it; the dev tier is exempt so the feature can be exercised.
   const isAnalysis = ANALYSIS_FEATURES.has(requestedFeature) && userTier !== 'dev';
   let run = null;
   if (isAnalysis) {
     try { run = await analysisRun(userId, Date.now()); }
-    catch (_) { return res.status(503).json({ error: { message: 'Usage verification unavailable. Please try again.' } }); }
+    catch (_) { return res.status(503).json({ error: { message: 'Usage verification unavailable. Please try again.', code: 'USAGE_LIMITER_UNAVAILABLE' } }); }
     if (!run.allowed) {
       res.setHeader('Retry-After', String(Math.max(1, Math.ceil((run.nextAt - Date.now()) / 1000))));
       res.status(429).json({
@@ -155,7 +155,7 @@ module.exports = async (req, res) => {
   }
   let used;
   try{used=await checkAndIncrement(userId,today);}
-  catch(_){return res.status(503).json({error:{message:'Usage verification unavailable. Please try again.'}});}
+  catch(_){return res.status(503).json({error:{message:'Usage verification unavailable. Please try again.',code:'USAGE_LIMITER_UNAVAILABLE'}});}
   if (used > limit) {
     res.status(429).json({
       error: {

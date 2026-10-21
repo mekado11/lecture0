@@ -196,7 +196,10 @@ const AIEngine = {
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      console.error('[AI API error]', response.status, err, 'User:', currentUser?.email || 'none', 'Had token:', !!headers['authorization']);
+      console.error('[AI API error] ' + response.status + ' ' + (err.error?.code || '') + ': ' + (err.error?.message || 'no message') + (err.error?.provider ? ' (provider: ' + err.error.provider + ')' : ''));
+      if (['ACCESS_UNAVAILABLE', 'USAGE_LIMITER_UNAVAILABLE', 'PROVIDER_KEY_MISSING', 'PROVIDER_UNAVAILABLE'].includes(err.error?.code)) {
+        throw new Error('SERVER_CONFIG_ERROR:' + err.error.code + ':' + (err.error.provider || ''));
+      }
       if (err.error?.code === 'ANALYSIS_COOLDOWN' && Number.isFinite(Number(err.error.nextAt))) {
         try { localStorage.setItem('ml_ai_next_run', String(Number(err.error.nextAt))); } catch (_) {}
         throw new Error(AIEngine.cooldownMessage(Number(err.error.nextAt)));
@@ -311,7 +314,7 @@ const AIEngine = {
         // Circuit breaker: auth failures and rate limits are batch-fatal — every
         // remaining feature is guaranteed to fail the same way. Rethrow immediately
         // instead of hammering the dead endpoint ten times in a row.
-        if (msg.startsWith('SERVER_AUTH_ERROR:') || msg.includes('limit reached') || msg.includes('RATE_LIMITED')) {
+        if (msg.startsWith('SERVER_AUTH_ERROR:') || msg.startsWith('SERVER_CONFIG_ERROR:') || msg.includes('once every 24 hours') || msg.includes('limit reached') || msg.includes('RATE_LIMITED')) {
           throw err;
         }
         results[f.key] = { error: msg };
