@@ -190,7 +190,10 @@ function callClaude(body, res) {
     headers: {
       'Content-Type': 'application/json', 'x-api-key': apiKey,
       'anthropic-version': '2023-06-01', 'anthropic-beta': 'prompt-caching-2024-07-31',
-      'Content-Length': Buffer.byteLength(payload)
+      'Content-Length': Buffer.byteLength(payload),
+      // An organisation-level key must name its workspace; a key created inside a workspace
+      // needs nothing here. Read from the server environment only, never from the request.
+      ...(process.env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': process.env.ANTHROPIC_WORKSPACE_ID.trim() } : {})
     }
   };
 

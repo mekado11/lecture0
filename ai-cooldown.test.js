@@ -87,3 +87,24 @@ test('each missing server setting answers with its own code, so the owner can te
   assert.equal(res.body.error.provider,'openai');
   assert.ok(!/KEY|UPSTASH|FIREBASE/.test(res.body.error.message),'the visitor-facing message names no setting');
 });
+
+test('the Claude request names its workspace only when the server is configured with one',async()=>{
+  const sent=[];
+  const make=env=>{
+    const db={collection:n=>({doc:u=>({path:n+'/'+u})}),getAll:async()=>[{exists:true,data:()=>({tier:'premium'})},{exists:false}]};
+    const context={module:{exports:{}},process:{env},console,Buffer,Set,Date,Number,Math,JSON,
+      require:id=>{
+        if(id==='https')return {request(options,onResponse){sent.push(options.headers);const l={};const res={statusCode:200,on(e,f){l[e]=f;}};return {on(){},setTimeout(){},write(){},end(){setImmediate(()=>{onResponse(res);l.data('{"content":[{"type":"text","text":"{}"}]}');l.end();});}};}};
+        if(id==='./_auth')return {verifyToken:async()=>({user:{uid:'author'}}),getAdmin:()=>({firestore:()=>db})};
+        if(id==='./_ratelimit')return {checkAndIncrement:async()=>1,analysisRun:async()=>({allowed:true,startedAt:null,nextAt:null}),openAnalysisRun:async()=>{}};
+        return require(id);
+      }};
+    vm.runInNewContext(fs.readFileSync(require.resolve('./api/claude'),'utf8'),context);
+    return context.module.exports;
+  };
+  const call=async h=>{const res={statusCode:200,status(c){this.statusCode=c;return this;},json(b){this.body=b;return this;},setHeader(){}};await h({method:'POST',headers:{'x-model':'claude','x-feature':'ask-manuscript','anthropic-workspace-id':'from-the-browser'},body:{messages:[{role:'user',content:'x'}]}},res);return res;};
+  await call(make({CLAUDE_API_KEY:'k'}));
+  await call(make({CLAUDE_API_KEY:'k',ANTHROPIC_WORKSPACE_ID:' wrkspc_123 '}));
+  assert.equal(sent[0]['anthropic-workspace-id'],undefined,'no header without the setting, and never one taken from the browser');
+  assert.equal(sent[1]['anthropic-workspace-id'],'wrkspc_123');
+});
