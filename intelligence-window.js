@@ -333,7 +333,7 @@ const IntelligenceWindow = (() => {
       // Display only quotations that can be located verbatim in the claimed chapter.
       const supported=(result.evidence||[]).filter(e=>e.quote&&data.parsed.chapters.some(c=>c.id===e.chapterId&&(c.body||c.text).includes(e.quote)));
       out.innerHTML=`<article class="intel-answer"><b>Writer’s Room</b><p>${esc(result.answer||result.raw||'No answer returned.')}</p>${supported.map(e=>`<small>${esc(e.chapterId)} · “${esc(e.quote)}”</small>`).join('')}<small>Interpretation, not a verdict. Verify against your manuscript.</small></article>`;
-    } catch(error){if(token===answerId){const m=error.message||'';out.textContent=m.startsWith('SERVER_AUTH_ERROR:')&&typeof _authDiagnosticMessage==='function'?_authDiagnosticMessage(m):(m||'The answer could not be loaded.');}}
+    } catch(error){if(token===answerId){const m=error.message||'';const diag=window.AuthorScrollsDiagnostics;out.textContent=diag&&/^SERVER_(AUTH|CONFIG)_ERROR:/.test(m)?diag.auth(m):(m||'The answer could not be loaded.');}}
     finally{if(token===answerId)button.disabled=false;}
   }
   // The panel is a floating card: closed = `hidden` attribute (so it cannot render

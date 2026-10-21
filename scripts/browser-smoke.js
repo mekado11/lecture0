@@ -398,6 +398,17 @@ function pdf(){
       await context.unroute('**/api/claude');
       await page.evaluate(()=>localStorage.removeItem('ml_ai_next_run'));
       console.log('PASS AI analysis cooldown: refusal carries the next run time, no repeat request');
+      // A server missing a setting answers 503 with a code: the batch stops after one request
+      // instead of ten, and the message is readable.
+      let configHits=0;
+      await context.route('**/api/claude',route=>{configHits++;route.fulfill({status:503,json:{error:{code:'PROVIDER_KEY_MISSING',provider:'openai',message:'AI is not configured on the server yet.'}}});});
+      const cfg=await page.evaluate(()=>AIEngine.runAllFeatures(null,'Chapter 1\n\nSome manuscript text for the configuration check, long enough to send.',{genre:{primary:'literary'}}).then(()=>'ok').catch(e=>e.message));
+      assert.match(cfg,/^SERVER_CONFIG_ERROR:PROVIDER_KEY_MISSING/);
+      assert.equal(configHits,1,'one request, not one per feature');
+      assert.match(await page.evaluate(m=>window.AuthorScrollsDiagnostics.auth(m),cfg),/the server is missing a setting \(PROVIDER_KEY_MISSING\)/);
+      assert.match(await page.evaluate(()=>window.AuthorScrollsDiagnostics.auth('SERVER_AUTH_ERROR:admin_not_configured:x')),/can.t verify sign-ins/,'Ask your book gets the readable sign-in message, not the raw code');
+      await context.unroute('**/api/claude');
+      console.log('PASS AI configuration error: one request, readable message');
     }
     // Workspace demo: a visitor opens the real workspace on a public-domain sample with no
     // account, no cloud, no API call, and nothing left in browser storage.
