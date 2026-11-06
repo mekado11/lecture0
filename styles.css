@@ -8,12 +8,12 @@
   --parchment:#f0e6cc;--parchment2:#e8dcc0;--ink:#2c2418;
   --r:10px;--rs:6px;
 }
-body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);height:100vh;height:100dvh;overflow:hidden}
 body.lib-mode{overflow:auto}
 .hidden{display:none!important}
 
 /* LIBRARY DASHBOARD */
-.library-view{min-height:100vh;overflow-y:auto;background:var(--bg);background-image:linear-gradient(180deg,rgba(30,24,18,.6) 0%,transparent 40%),radial-gradient(ellipse at 50% 100%,rgba(30,24,18,.5),transparent 70%)}
+.library-view{min-height:100vh;min-height:100dvh;overflow-y:auto;background:var(--bg);background-image:linear-gradient(180deg,rgba(30,24,18,.6) 0%,transparent 40%),radial-gradient(ellipse at 50% 100%,rgba(30,24,18,.5),transparent 70%)}
 .lib-nav{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:.6rem 2rem;background:rgba(16,12,9,.9);backdrop-filter:blur(12px);border-bottom:1px solid rgba(200,149,108,.1)}
 .lib-nav-l{display:flex;align-items:center;gap:.5rem}
 .lib-brand{color:var(--gold-l);font-size:1.1rem;font-family:'Lora',serif}
@@ -113,8 +113,8 @@ body.lib-mode{overflow:auto}
 .tb-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:.2rem .6rem;border-radius:var(--rs);font-size:.72rem;cursor:pointer;font-family:inherit}
 
 /* 3 PANELS */
-.editor-view{display:flex;flex-direction:column;height:100vh}
-.panels{display:flex;flex:1;overflow:hidden}
+.editor-view{display:flex;flex-direction:column;height:100vh;height:100dvh}
+.panels{display:flex;flex:1;overflow:hidden;min-height:0}
 
 /* LEFT */
 .left-panel{width:270px;background:var(--bg2);border-right:1px solid var(--border);overflow-y:auto;flex-shrink:0;transition:width .25s}
@@ -139,7 +139,7 @@ body.lib-mode{overflow:auto}
 .lpc-action:hover{background:var(--gold-d);color:#fff}
 
 /* CENTER */
-.center-panel{flex:1;display:flex;flex-direction:column;background:var(--bg);overflow:hidden}
+.center-panel{flex:1;display:flex;flex-direction:column;background:var(--bg);overflow:hidden;min-height:0}
 .center-toolbar{display:flex;justify-content:space-between;align-items:center;padding:.3rem .6rem;border-bottom:1px solid var(--border);background:var(--surface);font-size:.82rem;color:var(--muted);gap:.3rem;flex-wrap:wrap}
 .fmt-group{display:inline-flex;gap:.1rem;align-items:center}
 .fmt-sep{width:1px;height:16px;background:var(--border);margin:0 .3rem;flex-shrink:0}
@@ -528,3 +528,18 @@ body.demo-mode{padding-top:34px;box-sizing:border-box}
 .si-row.si-stack{display:block}.si-row.si-stack .si-label{display:block;margin-bottom:.15rem}.si-row.si-stack .si-val{display:block;font-weight:500;line-height:1.4}
 .lp-navigator{margin-top:.8rem;border-top:1px solid var(--border);padding-top:.4rem}.lp-subhead{font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:.5rem .6rem 0}
 .left-panel.panel-collapsed .lp-navigator{display:none}
+
+/* Inside the iOS shell: a popup sign-in cannot open, so only email sign-in is offered; the
+   shell paints the notch and hinge areas itself, and the page is never pulled to overscroll. */
+html[data-native=ios] #google-signin,html[data-native=ios] .auth-divider{display:none}
+html[data-native=ios] body{overscroll-behavior:none;-webkit-touch-callout:none}
+html[data-native=ios] .tb-btn,html[data-native=ios] .ws-nav,html[data-native=ios] .btab{min-height:44px}
+/* A folding phone open flat reports two viewport segments. Put the navigator on the left
+   half and the manuscript on the right, so the fold runs between panels, not through text.
+   Browsers without segments ignore this block and keep the width-based layout. */
+@media (horizontal-viewport-segments: 2){
+  .panels{flex-direction:row}
+  .left-panel{width:env(viewport-segment-width 0 0)!important;max-height:none!important;border-right:1px solid var(--border)}
+  .right-panel{max-height:none!important}
+  .left-panel.panel-collapsed{width:env(viewport-segment-width 0 0)!important}
+}
