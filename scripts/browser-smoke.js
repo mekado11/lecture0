@@ -471,6 +471,54 @@ function pdf(){
     await page.locator('.faq-q').first().click();
     assert.equal(await page.locator('.faq-item.open').count(),1,'the FAQ opens');
     console.log('PASS pricing page: no emoji, three plans, checkout wiring, allowance copy, FAQ');
+    // A folding phone opened or closed while a manuscript is open: the viewport changes without a
+    // reload, and the three panels must follow it. Rehearsed by resizing the window live.
+    {
+      await page.setViewportSize({width:375,height:812});
+      await page.goto(base+'/app.html?demo=novel');
+      await page.locator('#editor-view:not(.hidden)').waitFor({timeout:30000});
+      await page.waitForFunction(()=>document.getElementById('left-panel').classList.contains('panel-collapsed'));
+      const textBefore=await page.evaluate(()=>AuthorScrollsEditor.getText().length);
+      await page.setViewportSize({width:1040,height:900});
+      await page.waitForFunction(()=>!document.getElementById('left-panel').classList.contains('panel-collapsed')&&!document.getElementById('right-panel').classList.contains('panel-collapsed'),null,{timeout:5000});
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'unfolded: no horizontal overflow');
+      assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('.editor-view')).height),(await page.evaluate(()=>innerHeight))+'px','unfolded: the editor fills the viewport (desktop layout)');
+      await page.setViewportSize({width:375,height:812});
+      await page.waitForFunction(()=>document.getElementById('left-panel').classList.contains('panel-collapsed'),null,{timeout:5000});
+      assert.equal(await page.evaluate(()=>AuthorScrollsEditor.getText().length),textBefore,'the manuscript is untouched by the reflow');
+      // Folded: the phone layout lets the page scroll (styles-mobile.css) and sizes the manuscript pane from the real viewport height.
+      assert.equal(await page.evaluate(()=>getComputedStyle(document.body).overflowY),'auto','folded: the stacked workspace scrolls');
+      assert.equal(await page.evaluate(()=>Math.round(document.querySelector('.center-panel').getBoundingClientRect().height)),(await page.evaluate(()=>innerHeight))-156,'folded: the manuscript pane is sized from the real viewport height');
+      console.log('PASS fold and unfold: panels follow a live viewport change, manuscript untouched');
+    }
+    // Inside the iOS shell: the page knows it, exports go to the shell instead of a download, and
+    // the popup sign-in is not offered.
+    {
+      const shell=await browser.newContext({viewport:{width:390,height:844},colorScheme:'dark',isMobile:true,hasTouch:true});
+      await shell.route('https://www.gstatic.com/firebasejs/**',route=>route.fulfill({contentType:'application/javascript',body:''}));
+      await shell.addInitScript(()=>{window.__nativeMessages=[];window.webkit={messageHandlers:{authorscrolls:{postMessage:m=>window.__nativeMessages.push(m)}}};});
+      const sp=await shell.newPage();const shellErrors=[];sp.on('pageerror',e=>shellErrors.push(e.message));
+      let downloads=0;sp.on('download',()=>{downloads++;});
+      await sp.goto(base+'/app.html?demo=novel');
+      await sp.locator('#editor-view:not(.hidden)').waitFor({timeout:30000});
+      assert.equal(await sp.locator('html[data-native="ios"]').count(),1,'the page knows it is in the shell');
+      assert.ok(await sp.evaluate(()=>window.__nativeMessages.some(m=>m.type==='theme'&&m.dark===true)),'the page reported its dark theme');
+      await sp.locator('.header-menu summary').filter({hasText:'Tools'}).click();
+      await sp.locator('#export-btn').click();
+      await sp.waitForFunction(()=>window.__nativeMessages.some(m=>m.type==='saveFile'));
+      const saved=await sp.evaluate(()=>window.__nativeMessages.find(m=>m.type==='saveFile'));
+      assert.match(saved.filename,/-AuthorScrolls\.doc$/);
+      assert.match(Buffer.from(saved.base64,'base64').toString('utf8'),/AuthorScrolls Analysis Report/);
+      assert.equal(downloads,0,'no browser download inside the shell');
+      await sp.goto(base+'/index.html');
+      await sp.locator('#nav-signin').click();
+      await sp.locator('#auth-dialog[open]').waitFor();
+      assert.equal(await sp.locator('#google-signin').isVisible(),false,'popup sign-in is hidden in the shell');
+      assert.equal(await sp.locator('#auth-email').isVisible(),true,'email sign-in stays');
+      assert.deepEqual(shellErrors,[]);
+      await shell.close();
+      console.log('PASS iOS shell: marked page, theme reported, export via share sheet, no popup sign-in');
+    }
     await page.setViewportSize({width:375,height:812});
     for(const filename of ['features.html','pricing.html','faq.html','blog.html','legal.html','profile.html']){
       await page.goto(base+'/'+filename);
